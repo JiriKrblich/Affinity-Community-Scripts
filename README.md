@@ -28,10 +28,10 @@ You don't need to know how to use Git or Pull Requests. Just open a new **Issue*
 
 **Description:** (What does this script do? How should it be used?)
 
+**Version:** (Version of script)
+
 **Code:**
-\`\`\`javascript
-// PASTE YOUR JAVASCRIPT CODE HERE
-\`\`\`
+Your javascript code
 ```
 
 4. Click Submit new issue.
