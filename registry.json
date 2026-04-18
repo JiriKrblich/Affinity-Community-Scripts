@@ -1,0 +1,33 @@
+{
+  "repository": "Affinity Community Scripts",
+  "last_updated": "2026-04-18",
+  "scripts": [
+    {
+      "id": "blendtool-v5",
+      "name": "Blend Tool v5",
+      "description": "Blend shapes or colors like Adobe Illustrator",
+      "author": "robinsnest56",
+      "version": "5.0",
+      "category": "Shapes",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/blendtool_v5.js"
+    },
+    {
+      "id": "markdown_import_to_text_frame",
+      "name": "Markdown import to text frame",
+      "description": "Markdown import to text frame",
+      "author": "rabidgremlin",
+      "version": "1.0",
+      "category": "Text",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/markdown_import_to_text_frame.js"
+    },
+    {
+      "id": "helloworldexample",
+      "name": "Hello, World Example",
+      "description": "Affinity scripting Hello, World!",
+      "author": "rabidgremlin",
+      "version": "1.0",
+      "category": "Other",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/helloworldexample.js"
+    }
+  ]
+}
