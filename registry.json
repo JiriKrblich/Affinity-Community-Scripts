@@ -55,6 +55,15 @@
       "version": "1.0",
       "category": "Export",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/smart_jpeg_export.js"
+    },
+    {
+      "id": "single-char_linebreak_fix",
+      "name": "Single-char linebreak fix",
+      "description": "Replaces spaces after lone single characters with non-breaking spaces (Slavic languages)",
+      "author": "JiriKrblich",
+      "version": "1.0",
+      "category": "Text",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/single-char_linebreak_fix.js"
     }
   ]
 }
