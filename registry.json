@@ -3,13 +3,13 @@
   "last_updated": "2026-04-18",
   "scripts": [
     {
-      "id": "blendtool-v5",
-      "name": "Blend Tool v5",
-      "description": "Blend shapes or colors like Adobe Illustrator",
+      "id": "blendtool",
+      "name": "Blend Tool",
+      "description": "Select 2 vector objects, then run.",
       "author": "robinsnest56",
-      "version": "5.0",
-      "category": "Shapes",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/blendtool_v5.js"
+      "version": "7.1",
+      "category": "Objects",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/blendtool.js"
     },
     {
       "id": "markdown_import_to_text_frame",
@@ -37,6 +37,15 @@
       "version": "1.0",
       "category": "Artboards",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/copytoartboards.js"
+    },
+    {
+      "id": "swapobjectsbycenter",
+      "name": "Swap objects by center",
+      "description": "Swap the locations of two selected objects by their center points.",
+      "author": "daani-rika",
+      "version": "1.0",
+      "category": "Objects",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swapobjectsbycenter.js"
     }
   ]
 }
