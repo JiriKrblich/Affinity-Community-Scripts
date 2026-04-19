@@ -28,6 +28,15 @@
       "version": "1.0",
       "category": "Other",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/helloworldexample.js"
+    },
+    {
+      "id": "copytoartboards",
+      "name": "Copy to artboards",
+      "description": "Duplicates selected object(s) onto every other artboard in the document",
+      "author": "BlackMortimer-13",
+      "version": "1.0",
+      "category": "Artboards",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/copytoartboards.js"
     }
   ]
 }
