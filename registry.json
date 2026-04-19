@@ -46,6 +46,15 @@
       "version": "1.0",
       "category": "Objects",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swapobjectsbycenter.js"
+    },
+    {
+      "id": "smart_jpeg_export",
+      "name": "Smart JPEG export",
+      "description": "Exports all/selected artboards, spreads or docs with max. size limit",
+      "author": "JiriKrblich",
+      "version": "1.0",
+      "category": "Export",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/smart_jpeg_export.js"
     }
   ]
 }
