@@ -1,14 +1,14 @@
 'use strict';
 // ═══════════════════════════════════════════════════════════
-// BLEND TOOL v7.1
+// BLEND TOOL v8
 // Author: robinsnest56
 // Select 2 vector objects, then run.
-// - Open paths stay open (not forced closed)
-// - No-fill paths keep no fill in blend steps
-// - Solid and gradient fill interpolation
-// - Stroke colour + weight interpolation
-// - All steps grouped in a named layer
-// - Smooth bezier morphing via De Casteljau subdivision
+// Fixes from v7:
+// - Node transform applied to bezier coords before blending,
+// so duplicates (or any nodes with non-identity transforms)
+// distribute correctly instead of stacking.
+// - Gradient fill transform lerped between source transforms,
+// so gradient handles move with each blend step.
 // ═══════════════════════════════════════════════════════════
 
 const { Document } = require('/document');
@@ -18,10 +18,10 @@ ContainerNodeDefinition,
 NodeChildType } = require('/nodes');
 const { AddChildNodesCommandBuilder,
 DocumentCommand } = require('/commands');
-const { PolyCurve, CurveBuilder } = require('/geometry');
+const { PolyCurve, CurveBuilder,
+Transform } = require('/geometry');
 const { FillDescriptor, GradientFill,
 FillType } = require('/fills');
-const { GradientFillType } = require('affinity:fills');
 const { LineStyle, LineStyleDescriptor } = require('/linestyle');
 const { Gradient, Colour, RGBA8 } = require('/colours');
 const { BlendMode } = require('affinity:common');
@@ -30,6 +30,32 @@ const { UnitType } = require('/units');
 // ── Math helpers ──────────────────────────────────────────
 function lerp(a, b, t) { return a + (b - a) * t; }
 function lerpPt(a, b, t) { return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) }; }
+
+// ── Node transform → world space ─────────────────────────
+// PolyCurve bezier coords are in node-local space.
+// Apply the node's own transform to convert to world/spread space.
+function applyDecompToPoint(d, pt) {
+const r = d.rotation || 0, sh = d.shear || 0;
+const sx = d.scaleX || 1, sy = d.scaleY || 1;
+const m11 = sx * Math.cos(r), m12 = sx * Math.sin(r);
+const m21 = -sy * Math.sin(r + sh), m22 = sy * Math.cos(r + sh);
+return {
+x: m11 * pt.x + m21 * pt.y + (d.translateX || 0),
+y: m12 * pt.x + m22 * pt.y + (d.translateY || 0)
+};
+}
+function bezierToWorld(decomp, seg) {
+return {
+start: applyDecompToPoint(decomp, seg.start),
+c1: applyDecompToPoint(decomp, seg.c1),
+c2: applyDecompToPoint(decomp, seg.c2),
+end: applyDecompToPoint(decomp, seg.end)
+};
+}
+function getWorldBeziers(node) {
+const decomp = node.transformInterface.transform.decompose();
+return [...node.polyCurve.at(0).beziers].map(seg => bezierToWorld(decomp, seg));
+}
 
 // ── Bezier geometry ───────────────────────────────────────
 function subdivideBezier(seg, t) {
@@ -57,12 +83,14 @@ segs.splice(maxIdx, 1, ...subdivideBezier(segs[maxIdx], 0.5));
 return segs;
 }
 
-// shouldClose: only close the curve if both source paths were closed
-function buildBlendCurve(segA, segB, t, shouldClose) {
+// shouldClose: only close if both sources were closed
+function buildBlendCurve(bezA, bezB, t, shouldClose) {
+const target = Math.max(bezA.length, bezB.length);
+const sA = splitToCount(bezA, target), sB = splitToCount(bezB, target);
 const builder = CurveBuilder.create();
-builder.begin(lerpPt(segA[0].start, segB[0].start, t));
-for (let i = 0; i < segA.length; i++) {
-const a = segA[i], b = segB[i];
+builder.begin(lerpPt(sA[0].start, sB[0].start, t));
+for (let i = 0; i < sA.length; i++) {
+const a = sA[i], b = sB[i];
 builder.addBezier(lerpPt(a.c1, b.c1, t), lerpPt(a.c2, b.c2, t), lerpPt(a.end, b.end, t));
 }
 if (shouldClose) builder.close();
@@ -70,9 +98,9 @@ return builder.createCurve();
 }
 
 // ── Fill extraction ───────────────────────────────────────
-// NOTE: gradient stop.colour is a raw ColourHandle — wrap in new Colour()
-// NOTE: rgba alpha field is rgba.alpha, NOT rgba.a
-// NOTE: FillType.None (value 1) is returned as { type: 'none' }
+// FillType.None must be checked BEFORE accessing fill.colour (which throws on NoFill)
+// Gradient stop.colour is a raw ColourHandle — wrap with new Colour()
+// Alpha field is rgba.alpha, NOT rgba.a
 function extractFillData(node) {
 try {
 const fd = node.brushFillInterface.fillDescriptor;
@@ -98,11 +126,32 @@ return { type: 'solid', r: 180, g: 180, b: 180, a: 255 };
 }
 }
 
+// Extract gradient transform; synthesize bbox-based default for solid fills
+function extractFillTransform(node) {
+try {
+const fd = node.brushFillInterface.fillDescriptor;
+if (fd.fill.fillType.value === FillType.Gradient.value) {
+return fd.transform.decompose();
+}
+} catch(e) {}
+// Solid fill: synthesize a horizontal linear transform across the node's world bbox
+const bb = node.getSpreadBaseBox();
+return { translateX: bb.x, translateY: bb.y + bb.height * 0.5,
+scaleX: bb.width, scaleY: 0, rotation: 0, shear: 0 };
+}
+
+function lerpDecompose(dA, dB, t) {
+return { translateX: lerp(dA.translateX, dB.translateX, t),
+translateY: lerp(dA.translateY, dB.translateY, t),
+scaleX: lerp(dA.scaleX, dB.scaleX, t),
+scaleY: lerp(dA.scaleY, dB.scaleY, t),
+rotation: lerp(dA.rotation, dB.rotation, t),
+shear: lerp(dA.shear, dB.shear, t) };
+}
+
 function solidToStops(d) {
-return [
-{ r: d.r, g: d.g, b: d.b, a: d.a, pos: 0.0, mid: 0.5 },
-{ r: d.r, g: d.g, b: d.b, a: d.a, pos: 1.0, mid: 0.5 }
-];
+return [{ r: d.r, g: d.g, b: d.b, a: d.a, pos: 0.0, mid: 0.5 },
+{ r: d.r, g: d.g, b: d.b, a: d.a, pos: 1.0, mid: 0.5 }];
 }
 
 function resampleStops(stops, n) {
@@ -111,25 +160,21 @@ const out = [];
 for (let i = 0; i < n; i++) {
 const f = i / (n - 1);
 let lo = 0;
-for (let j = 0; j < stops.length - 1; j++) {
-if (stops[j].pos <= f) lo = j;
-}
+for (let j = 0; j < stops.length - 1; j++) { if (stops[j].pos <= f) lo = j; }
 const hi = Math.min(lo + 1, stops.length - 1);
 const span = stops[hi].pos - stops[lo].pos;
 const t2 = span < 0.0001 ? 0 : (f - stops[lo].pos) / span;
 const a = stops[lo], b = stops[hi];
-out.push({
-r: Math.round(lerp(a.r, b.r, t2)), g: Math.round(lerp(a.g, b.g, t2)),
+out.push({ r: Math.round(lerp(a.r, b.r, t2)), g: Math.round(lerp(a.g, b.g, t2)),
 b: Math.round(lerp(a.b, b.b, t2)), a: Math.round(lerp(a.a, b.a, t2)),
-pos: f, mid: lerp(a.mid, b.mid, t2)
-});
+pos: f, mid: lerp(a.mid, b.mid, t2) });
 }
 return out;
 }
 
-// If either fill is 'none', preserve no-fill in all blend steps
-function buildInterpolatedFill(fA, fB, t, doInterpolate) {
-if (!doInterpolate) fB = fA;
+// If either fill is 'none', preserve no-fill. For gradients, lerp stops AND transform.
+function buildInterpolatedFill(fA, fB, dA, dB, t, doInterpolate) {
+if (!doInterpolate) { fB = fA; dB = dA; }
 if (fA.type === 'none' || fB.type === 'none') return FillDescriptor.createNone();
 
 const isGrad = fA.type === 'gradient' || fB.type === 'gradient';
@@ -138,21 +183,20 @@ const sA = fA.type === 'gradient' ? fA.stops : solidToStops(fA);
 const sB = fB.type === 'gradient' ? fB.stops : solidToStops(fB);
 const tgt = Math.max(sA.length, sB.length);
 const rsA = resampleStops(sA, tgt), rsB = resampleStops(sB, tgt);
-
 const blendedStops = rsA.map((sa, i) => {
-  const sb = rsB[i];
-  return {
-    colour:   RGBA8(Math.round(lerp(sa.r, sb.r, t)), Math.round(lerp(sa.g, sb.g, t)),
-                    Math.round(lerp(sa.b, sb.b, t)), Math.round(lerp(sa.a, sb.a, t))),
-    position: lerp(sa.pos, sb.pos, t),
-    midpoint: lerp(sa.mid, sb.mid, t)
-  };
+const sb = rsB[i];
+return { colour: RGBA8(Math.round(lerp(sa.r, sb.r, t)), Math.round(lerp(sa.g, sb.g, t)),
+Math.round(lerp(sa.b, sb.b, t)), Math.round(lerp(sa.a, sb.a, t))),
+position: lerp(sa.pos, sb.pos, t),
+midpoint: lerp(sa.mid, sb.mid, t) };
 });
-
 const gradFillType = fA.type === 'gradient' ? fA.gradFillType
-                   : fB.type === 'gradient'  ? fB.gradFillType : 0;
+: fB.type === 'gradient' ? fB.gradFillType : 0;
 const gf = GradientFill.create(Gradient.create(blendedStops), gradFillType);
-return FillDescriptor.create(gf, true, null, BlendMode.Normal, false);
+// Lerp fill transform so gradient handles follow each blend step
+const ld = lerpDecompose(dA, dB, t);
+const xf = Transform.createIdentity(); xf.compose(ld);
+return FillDescriptor.create(gf, true, xf, BlendMode.Normal, false);
 } else {
 return FillDescriptor.createSolid(RGBA8(
 Math.round(lerp(fA.r, fB.r, t)), Math.round(lerp(fA.g, fB.g, t)),
@@ -228,26 +272,25 @@ if (result.value === DialogResult.Ok.value) {
   const doDelete    = replaceCtrl.value;
 
   try {
-    // ── Extract geometry ──────────────────────────────
+    // ── Extract geometry (world space) ────────────────
+    // Apply each node's own transform so duplicates distribute correctly
+    const bezA = getWorldBeziers(nodeA);
+    const bezB = getWorldBeziers(nodeB);
+
     const cA = nodeA.polyCurve.at(0);
     const cB = nodeB.polyCurve.at(0);
-
-    // Blend steps are open unless BOTH sources are closed
+    // Close blend steps only if BOTH sources are closed
     const shouldClose = cA.isClosed && cB.isClosed;
 
-    const bezA   = [...cA.beziers];
-    const bezB   = [...cB.beziers];
-    const target = Math.max(bezA.length, bezB.length);
-    const segA   = splitToCount(bezA, target);
-    const segB   = splitToCount(bezB, target);
+    // ── Extract fills and stroke ──────────────────────
+    const fillA    = extractFillData(nodeA);
+    const fillB    = extractFillData(nodeB);
+    const fillXfA  = extractFillTransform(nodeA);
+    const fillXfB  = extractFillTransform(nodeB);
+    const strokeA  = extractStroke(nodeA);
+    const strokeB  = extractStroke(nodeB);
 
-    // ── Extract fills and stroke ─────────────────────
-    const fillA   = extractFillData(nodeA);
-    const fillB   = extractFillData(nodeB);
-    const strokeA = extractStroke(nodeA);
-    const strokeB = extractStroke(nodeB);
-
-    // ── Step 1: create the named container layer ──────
+    // ── Step 1: create named container layer ──────────
     const containerBuilder = AddChildNodesCommandBuilder.create();
     containerBuilder.addContainerNode(
       ContainerNodeDefinition.create('Blend: ' + nameA + ' to ' + nameB));
@@ -262,13 +305,12 @@ if (result.value === DialogResult.Ok.value) {
     for (let s = 0; s < steps; s++) {
       const t = s / (steps - 1);
 
-      // Interpolated shape — open or closed based on shouldClose
-      const curve = buildBlendCurve(segA, segB, t, shouldClose);
+      const curve = buildBlendCurve(bezA, bezB, t, shouldClose);
       const pc = PolyCurve.create();
       pc.addCurve(curve);
 
-      // Interpolated fill — 'none' preserved if either source has no fill
-      const brushFill = buildInterpolatedFill(fillA, fillB, t, doFillColor);
+      // Interpolated fill (none/solid/gradient)
+      const brushFill = buildInterpolatedFill(fillA, fillB, fillXfA, fillXfB, t, doFillColor);
 
       // Interpolated stroke
       const sr  = Math.round(doStroke ? lerp(strokeA.r, strokeB.r, t) : strokeA.r);
@@ -281,7 +323,7 @@ if (result.value === DialogResult.Ok.value) {
 
       const def = PolyCurveNodeDefinition.createDefault();
       def.setCurves(pc);
-      // setBrushFillDescriptor(0) replaces default NoFill slot — do not use add
+      // Use set(0) not add — createDefault() already has 1 slot each
       def.setBrushFillDescriptor(0, brushFill);
       def.setLineDescriptors(0, penFill, lineStyleDesc);
       def.userDescription = 'Step ' + (s + 1);
@@ -298,8 +340,7 @@ if (result.value === DialogResult.Ok.value) {
       doc.deleteSelection();
     }
 
-    console.log('Blend Tool v7: ' + steps + ' steps, shouldClose=' + shouldClose +
-                ', in "' + container.userDescription + '"');
+    console.log('Blend Tool v8: ' + steps + ' steps, shouldClose=' + shouldClose);
 
   } catch(e) {
     showError('Blend failed: ' + e.message);
