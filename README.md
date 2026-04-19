@@ -1,5 +1,7 @@
 # Affinity Community Scripts
 
+![Cover photo](/readme/cover.png)
+
 Welcome to the community repository for Affinity App scripts! 
 
 This repository serves as the central backend and marketplace for the **[Affinity Script Manager](https://github.com/JiriKrblich/Affinity-script-manager)** desktop application. 
