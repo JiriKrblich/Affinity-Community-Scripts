@@ -64,6 +64,24 @@
       "version": "1.0",
       "category": "Text",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/single-char_linebreak_fix.js"
+    },
+    {
+      "id": "generatecropmarks",
+      "name": "Genarate Crop Marks",
+      "description": "Automatically generate 5mm corner crops and internal grid ticks with a 2mm offset for any selection in Affinity, placing them on a dedicated 0.25pt locked production layer.",
+      "author": "sakura",
+      "version": "1.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/generatecropmarks.js"
+    },
+    {
+      "id": "customgradientmap",
+      "name": "Custom Gradient Map",
+      "description": "Creates a custom gradient map based on a selected gradient swatch.",
+      "author": "RE4LLY",
+      "version": "1.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/customgradientmap.js"
     }
   ]
 }
