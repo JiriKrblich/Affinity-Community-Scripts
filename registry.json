@@ -82,6 +82,15 @@
       "version": "1.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/customgradientmap.js"
+    },
+    {
+      "id": "zigzageffect",
+      "name": "Zig Zag Effect",
+      "description": "This script transforms a selected shape or line into a zig zag pattern. Simply select a shape or path, run the script, and it will automatically apply a zig zag effect to it.",
+      "author": "BlackMortimer-13",
+      "version": "1.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/zigzageffect.js"
     }
   ]
 }
