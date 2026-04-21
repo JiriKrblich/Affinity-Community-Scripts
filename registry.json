@@ -91,6 +91,24 @@
       "version": "1.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/zigzageffect.js"
+    },
+    {
+      "id": "bentoboxgenerator",
+      "name": "Bento Box Generator",
+      "description": "Generates Bento Grid/Box on the current page/artboard",
+      "author": "JiriKrblich",
+      "version": "1.0",
+      "category": "Generator",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/bentoboxgenerator.js"
+    },
+    {
+      "id": "replacecolorfill",
+      "name": "ReplaceColorFill",
+      "description": "Allows users to quickly change the fill color/gradients of selected shapes.",
+      "author": "BlackMortimer-13",
+      "version": "1.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replacecolorfill.js"
     }
   ]
 }
