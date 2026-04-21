@@ -45,3 +45,4 @@ The repository maintainers will review your code to ensure it's safe and works a
 To keep the marketplace safe and useful:
 
 - No malicious code: All submissions are reviewed.
+- No duplicates: If you have similar script, its better to commit update to existing one and tag original author
