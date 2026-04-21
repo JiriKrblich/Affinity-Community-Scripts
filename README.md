@@ -12,6 +12,8 @@ Every script approved and merged into this repository will instantly appear in t
 
 **You don't need to download anything manually from here!** Simply open your **Affinity Script Manager** app, go to the **Community Repo** tab, and browse or install the scripts directly from the user interface.
 
+🌐 **Browse Online:** Don't have the app open? You can also explore the full list of available community scripts directly in your browser here: **[Affinity Community Scripts Web Directory](https://jirikrblich.github.io/Affinity-Community-Scripts/)**
+
 ## 🛠 How to Share Your Script
 
 Got a script you made that could help others? We’d love to add it to the marketplace! 
