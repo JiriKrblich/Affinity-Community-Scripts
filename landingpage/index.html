@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Affinity Community Scripts</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #525252;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #737373;
+        }
+    </style>
+</head>
+
+<body
+    class="bg-neutral-900 text-neutral-200 antialiased select-none selection:bg-[#a7f175] selection:text-neutral-900 min-h-screen flex flex-col">
+
+    <div class="bg-[#a7f175]/10 border-b border-[#a7f175]/20 py-3 px-4 text-center">
+        <p class="text-sm text-[#a7f175]">
+            ✨ Available via <a href="https://github.com/JiriKrblich/Affinity-script-manager" target="_blank"
+                rel="noopener noreferrer" class="font-bold underline hover:text-[#95e561] transition-colors">Affinity
+                Script Manager</a>
+        </p>
+    </div>
+
+    <main class="flex-1 w-full max-w-7xl mx-auto px-6 py-10">
+
+        <div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+            <div>
+                <h1 class="text-3xl font-bold text-white">Community Scripts</h1>
+                <p class="text-neutral-400 mt-2">Discover scripts made by the Affinity community.</p>
+            </div>
+
+            <div class="w-full md:w-96">
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <span class="text-neutral-500">🔍</span>
+                    </div>
+                    <input type="text" id="community-search" placeholder="Search by name, description, or author..."
+                        class="w-full bg-neutral-950 border border-neutral-700 rounded-lg pl-10 pr-4 py-3 text-sm text-white focus:border-[#a7f175] focus:ring-1 focus:ring-[#a7f175] focus:outline-none shadow-sm placeholder-neutral-500 transition">
+                </div>
+            </div>
+        </div>
+
+        <div id="community-tiles" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            <div class="text-neutral-400 text-sm animate-pulse col-span-full py-10 text-center">
+                Fetching community scripts...
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="border-t border-neutral-800 py-6 mt-10">
+        <div class="max-w-7xl mx-auto px-6 text-center text-xs text-neutral-500">
+            Affinity Script Manager Community &copy; <span id="year"></span>
+        </div>
+    </footer>
+
+    <script>
+        document.getElementById('year').textContent = new Date().getFullYear();
+
+        const REGISTRY_URL = 'https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/refs/heads/main/registry.json';
+        let allCommunityScripts = [];
+
+        async function loadCommunityScripts() {
+            const container = document.getElementById('community-tiles');
+
+            try {
+                const response = await fetch(REGISTRY_URL);
+                if (!response.ok) throw new Error("Failed to fetch repository data.");
+
+                const registry = await response.json();
+                allCommunityScripts = registry.scripts || [];
+
+                renderCommunityScripts(allCommunityScripts);
+            } catch (error) {
+                container.innerHTML = `
+          <div class="col-span-full text-red-400 text-sm p-5 bg-red-900/10 border border-red-900/30 rounded-lg text-center">
+            Error loading scripts: ${error.message}
+          </div>
+        `;
+            }
+        }
+
+        function renderCommunityScripts(scripts) {
+            const container = document.getElementById('community-tiles');
+
+            if (scripts.length === 0) {
+                container.innerHTML = `
+          <div class="col-span-full text-neutral-400 text-sm border border-neutral-700 border-dashed rounded-lg p-16 text-center flex flex-col items-center justify-center">
+            <span class="text-3xl mb-3">📭</span>
+            No scripts found.
+          </div>
+        `;
+                return;
+            }
+
+            container.innerHTML = '';
+            scripts.forEach(script => {
+                const div = document.createElement('div');
+                // Same classes as the original dashboard, but removed group-hover effects specific to the missing button
+                div.className = "border border-neutral-800 rounded-xl p-6 flex flex-col bg-neutral-950 hover:border-neutral-500 transition shadow-sm h-full";
+                div.innerHTML = `
+          <div class="flex justify-between items-start mb-3">
+            <h4 class="font-bold text-white">${script.name || 'Unnamed Script'}</h4>
+            <span class="text-[10px] font-bold px-2 py-0.5 bg-neutral-800 text-neutral-400 rounded border border-neutral-700 whitespace-nowrap">
+              v${script.version || '1.0.0'}
+            </span>
+          </div>
+          <p class="text-sm text-neutral-400 mb-6 line-clamp-3 flex-grow leading-relaxed">
+            ${script.description || 'No description provided.'}
+          </p>
+          <div class="flex items-center justify-between mt-auto pt-4 border-t border-neutral-800/50">
+            <span class="text-xs text-neutral-500">By <span class="font-medium text-neutral-300">${script.author || 'Community'}</span></span>
+            ${script.category ? `<span class="text-[10px] text-[#a7f175] bg-[#a7f175]/10 border border-[#a7f175]/20 px-2 py-1 rounded">${script.category}</span>` : ''}
+          </div>
+        `;
+
+                container.appendChild(div);
+            });
+        }
+
+        // Search functionality
+        document.getElementById('community-search').addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const filtered = allCommunityScripts.filter(s =>
+                (s.name && s.name.toLowerCase().includes(query)) ||
+                (s.description && s.description.toLowerCase().includes(query)) ||
+                (s.author && s.author.toLowerCase().includes(query)) ||
+                (s.category && s.category.toLowerCase().includes(query))
+            );
+            renderCommunityScripts(filtered);
+        });
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', loadCommunityScripts);
+    </script>
+</body>
+
+</html>
