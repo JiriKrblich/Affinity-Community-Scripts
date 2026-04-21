@@ -109,6 +109,15 @@
       "version": "1.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replacecolorfill.js"
+    },
+    {
+      "id": "hangingcharsandprepositions",
+      "name": "Hanging chars and prepositions",
+      "description": "Replaces spaces after lone single characters or prepositions with non-breaking spaces (for slavic languages). Based on initial script by JiriKrblich",
+      "author": "nodeus",
+      "version": "1.0",
+      "category": "Text",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/hangingcharsandprepositions.js"
     }
   ]
 }
