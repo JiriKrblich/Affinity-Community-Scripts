@@ -48,3 +48,6 @@ To keep the marketplace safe and useful:
 
 - No malicious code: All submissions are reviewed.
 - No duplicates: If you have similar script, its better to commit update to existing one and tag original author
+
+## 🗺️ Roadmap
+- Thumbnails for scripts
