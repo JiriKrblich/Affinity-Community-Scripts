@@ -44,7 +44,7 @@
       "description": "Swap the locations of two selected objects by their center points.",
       "author": "daani-rika",
       "version": "1.0",
-      "category": "Objects",
+      "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swapobjectsbycenter.js"
     },
     {
@@ -106,7 +106,7 @@
       "name": "ReplaceColorFill",
       "description": "Allows users to quickly change the fill color/gradients of selected shapes.",
       "author": "BlackMortimer-13",
-      "version": "1.0",
+      "version": "2.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replacecolorfill.js"
     },
@@ -118,6 +118,60 @@
       "version": "1.0",
       "category": "Text",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/hangingcharsandprepositions.js"
+    },
+    {
+      "id": "RGBImagesLeftovers",
+      "name": "Hanging chars and prepositions",
+      "description": "Looks for all embedded and linked RGB images in an open Affinity document. Useful for CMYK documents.",
+      "author": "hrum",
+      "version": "1.0",
+      "category": "Print",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/RGBImagesLeftovers.js"
+    },
+    {
+      "id": "dithering",
+      "name": "Dithering",
+      "description": "Adjustable halftone dithering effect with 12 dithering algorithms.",
+      "author": "bitmancer",
+      "version": "1.0",
+      "category": "Effect",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/dithering.js"
+    },
+    {
+      "id": "replacecolorstroke",
+      "name": "ReplaceStrokeColor",
+      "description": "Allows users to quickly change the stroke color or gradients of selected shapes.",
+      "author": "BlackMortimer-13",
+      "version": "1.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replacecolorstroke.js"
+    },
+    {
+      "id": "PuckerBloatEffect",
+      "name": "PuckerBloatEffect",
+      "description": "Applies a Pucker & Bloat effect to the selected object(s), pulling anchor points inward (Pucker) or outward (Bloat) to distort",
+      "author": "BlackMortimer-13",
+      "version": "1.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/PuckerBloatEffect.js"
+    },
+    {
+      "id": "RadialRepeat",
+      "name": "RadialRepeat",
+      "description": "Creates a radial repeat from the selected object(s) by duplicating the selection evenly around a central point in a circular pattern.",
+      "author": "BlackMortimer-13",
+      "version": "1.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/RadialRepeat.js"
+    },
+    {
+      "id": "DeleteEmptyGroups",
+      "name": "DeleteEmptyGroups",
+      "description": "Deletes empty groups left behind by the user.",
+      "author": "BlackMortimer-13",
+      "version": "1.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/deleteemptygroups.js"
     }
   ]
 }

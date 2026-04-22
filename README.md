@@ -40,7 +40,7 @@ Your javascript code
 
 4. Click Submit new issue.
 
-## What happens next?
+### What happens next?
 The repository maintainers will review your code to ensure it's safe and works as intended. Once approved, we will manually add it to the registry.json and upload your .js file. Your script will then instantly appear in the Script Manager app for everyone to enjoy!
 
 ## 📜 Contribution Guidelines
@@ -51,3 +51,4 @@ To keep the marketplace safe and useful:
 
 ## 🗺️ Roadmap
 - Thumbnails for scripts
+- Better way to commit new scripts or updates

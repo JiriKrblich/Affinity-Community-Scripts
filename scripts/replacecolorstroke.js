@@ -1,42 +1,56 @@
 "use strict";
 
+// ═══════════════════════════════════════════════════════════════════
+// REPLACE COLOR STROKE v10 — Affinity
+// v8 + group support:
+// • collectAllNodes recursively traverses children
+// • getNodeFillInfo naturally skips nodes without stroke
+// ═══════════════════════════════════════════════════════════════════
+
 const { Document } = require("/document");
 const { DocumentCommand, CompoundCommandBuilder } = require("/commands");
 const { Dialog, DialogResult, HorizontalAlignment } = require("/dialog");
-const { RGBA8, Colour } = require("/colours");
-const { FillType, SolidFill, GradientFill, FillDescriptor } = require("/fills");
+const { Colour } = require("/colours");
+const { FillType, GradientFill, FillDescriptor } = require("/fills");
 const { Selection } = require("/selections");
 const { TransformBuilder } = require("/geometry");
 const { app } = require("/application");
 
-const APP_NAME = "ReplaceColorFill v2";
+const APP_NAME = "ReplaceColorStroke";
 const PAGE_SIZE = 9;
 
-// ── Recursive leaf collector ─────────────────────────────
+// ── Recursive traversal ───────────────────────────────────────────
 
-function collectLeaves(node, out) {
-  let childList = [];
+function collectAllNodes(node, result) {
+  result.push(node);
+
+  let children;
 
   try {
-    childList = [...node.children];
-  } catch (_) {}
+    children = node.children;
+  } catch (_) {
+    children = null;
+  }
 
-  if (childList.length > 0) {
-    for (const child of childList) {
-      collectLeaves(child, out);
+  if (children) {
+    for (const child of children) {
+      collectAllNodes(child, result);
     }
-  } else {
-    out.push(node);
   }
 }
+
+// ── Gradient transform (same as ReplaceColorFill) ─────────────────
 
 function makeGradientTransform(node) {
   try {
     const bbox = node.baseBox;
+
     if (!bbox || bbox.width <= 0) return null;
 
     const tb = new TransformBuilder();
+
     tb.scale(bbox.width, bbox.width);
+
     tb.translate(bbox.x, bbox.y + bbox.height / 2);
 
     return tb.transform;
@@ -45,12 +59,16 @@ function makeGradientTransform(node) {
   }
 }
 
+// ── Read stroke info ──────────────────────────────────────────────
+
 function getNodeFillInfo(node) {
   try {
-    const fd = node.brushFillDescriptor;
+    const fd = node.penFillDescriptor;
+
     if (!fd) return null;
 
     const fill = fd.fill;
+
     if (!fill) return null;
 
     if (fill.fillType.value === FillType.Solid.value) {
@@ -61,7 +79,6 @@ function getNodeFillInfo(node) {
         key: "s:" + r + "," + g + "," + b,
         initFill: fill,
         origFd: fd,
-        origTransform: null,
       };
     }
 
@@ -85,7 +102,6 @@ function getNodeFillInfo(node) {
         key: "g:" + stopKey,
         initFill: fill,
         origFd: fd,
-        origTransform: fd.transform,
       };
     }
 
@@ -94,6 +110,8 @@ function getNodeFillInfo(node) {
     return null;
   }
 }
+
+// ── Apply replacements ────────────────────────────────────────────
 
 function applyAllPicks(doc, pageDialogs) {
   const cb = CompoundCommandBuilder.create();
@@ -109,20 +127,21 @@ function applyAllPicks(doc, pageDialogs) {
         rawFill = fe.fill;
       } catch (err) {
         firstErr = firstErr || "fe.fill threw: " + err.message;
+
         continue;
       }
 
       if (!rawFill) {
         firstErr = firstErr || "fe.fill returned null";
+
         continue;
       }
 
       const ftv = rawFill.fillType ? rawFill.fillType.value : null;
+
       const ofd = e.origFd;
 
-      const srcWasGradient = e.type === "gradient";
-
-      for (const { node: n, origTransform } of e.nodeEntries) {
+      for (const n of e.nodes) {
         try {
           let newFd;
 
@@ -134,17 +153,7 @@ function applyAllPicks(doc, pageDialogs) {
               rawFill.gradientFillType,
             );
 
-            // v3:
-            // If original node had gradient → preserve original transform
-            // If original was solid → build transform from bounding box
-
-            let gradTransform;
-
-            if (srcWasGradient && origTransform) {
-              gradTransform = origTransform;
-            } else {
-              gradTransform = makeGradientTransform(n) || ofd.transform;
-            }
+            const gradTransform = makeGradientTransform(n) || ofd.transform;
 
             newFd = FillDescriptor.create(
               applyFill,
@@ -157,11 +166,12 @@ function applyAllPicks(doc, pageDialogs) {
             newFd = FillDescriptor.createSolid(rawFill.colour, ofd.blendMode);
           } else {
             firstErr = firstErr || "Unknown fillType: " + ftv;
+
             continue;
           }
 
           cb.addCommand(
-            DocumentCommand.createSetBrushFill(Selection.create(doc, n), newFd),
+            DocumentCommand.createSetPenFill(Selection.create(doc, n), newFd),
           );
 
           count++;
@@ -179,36 +189,36 @@ function applyAllPicks(doc, pageDialogs) {
   return count;
 }
 
-// ── Validation ─────────────────────────────
+// ── Validation ────────────────────────────────────────────────────
 
 const doc = Document.current;
 
 if (!doc) {
   app.alert("No document open.", APP_NAME);
+
   return;
 }
 
+// collect all nodes from selection including groups
+
 const selNodes = [];
 
-for (const n of doc.selection.nodes) selNodes.push(n);
+for (const n of doc.selection.nodes) {
+  collectAllNodes(n, selNodes);
+}
 
 if (selNodes.length === 0) {
   app.alert(
     "No objects selected.\nSelect at least one and run again.",
     APP_NAME,
   );
+
   return;
 }
 
-// Expand groups recursively → collect only leaf nodes
-
-const allLeaves = [];
-
-for (const n of selNodes) collectLeaves(n, allLeaves);
-
 const colorMap = new Map();
 
-for (const n of allLeaves) {
+for (const n of selNodes) {
   const info = getNodeFillInfo(n);
 
   if (!info) continue;
@@ -218,18 +228,16 @@ for (const n of allLeaves) {
       type: info.type,
       initFill: info.initFill,
       origFd: info.origFd,
-      nodeEntries: [],
+      nodes: [],
     });
   }
 
-  colorMap.get(info.key).nodeEntries.push({
-    node: n,
-    origTransform: info.origTransform,
-  });
+  colorMap.get(info.key).nodes.push(n);
 }
 
 if (colorMap.size === 0) {
-  app.alert("No solid or gradient fills found.", APP_NAME);
+  app.alert("No solid or gradient stroke colours found.", APP_NAME);
+
   return;
 }
 
@@ -239,8 +247,11 @@ const totalPages = Math.ceil(entries.length / PAGE_SIZE);
 
 const pageDialogs = [];
 
+// ── Build paged UI ────────────────────────────────────────────────
+
 for (let p = 0; p < totalPages; p++) {
   const hasPrev = p > 0;
+
   const hasNext = p < totalPages - 1;
 
   const pageEntries = entries.slice(p * PAGE_SIZE, (p + 1) * PAGE_SIZE);
@@ -261,9 +272,11 @@ for (let p = 0; p < totalPages; p++) {
   colDst.widthProportion = 1;
 
   const hdrS = colSrc.addGroup("");
-  hdrS.addStaticText("", "Colour").isFullWidth = true;
+
+  hdrS.addStaticText("", "Stroke Colour").isFullWidth = true;
 
   const hdrD = colDst.addGroup("");
+
   hdrD.addStaticText("", "Replace with").isFullWidth = true;
 
   const pickers = [];
@@ -272,30 +285,42 @@ for (let p = 0; p < totalPages; p++) {
     const e = pageEntries[i];
 
     const gS = colSrc.addGroup("");
+
     if (i > 0) gS.enableSeparator = true;
 
     const gD = colDst.addGroup("");
+
     if (i > 0) gD.enableSeparator = true;
 
     const srcFe = gS.addFillEditor("", e.initFill);
+
+    srcFe.isStrokeFill = true;
     srcFe.isFullWidth = true;
 
     const fe = gD.addFillEditor("", e.initFill);
+
+    fe.isStrokeFill = true;
     fe.isFullWidth = true;
 
-    pickers.push({ e, fe });
+    pickers.push({
+      e,
+      fe,
+    });
   }
 
   const footS = colSrc.addGroup("");
+
   footS.enableSeparator = true;
 
   const footD = colDst.addGroup("");
+
   footD.enableSeparator = true;
 
   let prevCk = null;
 
   if (hasPrev) {
     prevCk = footS.addCheckBox("◀ Prev page", false);
+
     prevCk.isFullWidth = true;
   }
 
@@ -303,6 +328,7 @@ for (let p = 0; p < totalPages; p++) {
 
   if (hasNext) {
     nextCk = footS.addCheckBox("▶ Next page", false);
+
     nextCk.isFullWidth = true;
   }
 
@@ -327,7 +353,7 @@ for (let p = 0; p < totalPages; p++) {
   });
 }
 
-// ── Main loop ─────────────────────────────
+// ── Main loop ─────────────────────────────────────────────────────
 
 let previewActive = false;
 let running = true;
@@ -345,7 +371,9 @@ while (running) {
   const r = pd.dlg.show();
 
   if (r.value !== DialogResult.Ok.value) {
-    if (previewActive) doc.executeCommand(DocumentCommand.createUndo());
+    if (previewActive) {
+      doc.executeCommand(DocumentCommand.createUndo());
+    }
 
     break;
   }
@@ -363,6 +391,8 @@ while (running) {
 
     previewActive = changed > 0;
 
-    if (pd.btns.selectedIndex === 1) running = false;
+    if (pd.btns.selectedIndex === 1) {
+      running = false;
+    }
   }
 }
