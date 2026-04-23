@@ -121,7 +121,7 @@
     },
     {
       "id": "RGBImagesLeftovers",
-      "name": "Hanging chars and prepositions",
+      "name": "RGB Finder",
       "description": "Looks for all embedded and linked RGB images in an open Affinity document. Useful for CMYK documents.",
       "author": "hrum",
       "version": "1.0",
