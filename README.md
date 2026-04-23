@@ -35,7 +35,7 @@ You don't need to know how to use Git or Pull Requests. Just open a new **Issue*
 **Version:** (Version of script)
 
 **Code:**
-Your javascript code
+Your javascript code or URL link
 ```
 
 4. Click Submit new issue.
