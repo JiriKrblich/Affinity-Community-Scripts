@@ -1,13 +1,13 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-04-22",
+  "last_updated": "2026-04-23",
   "scripts": [
     {
       "id": "blendtool",
       "name": "Blend Tool",
-      "description": "Select 2 vector objects, then run.",
+      "description": "Select 2 vector objects, then run. Supports path as 3rd object.",
       "author": "robinsnest56",
-      "version": "8.0",
+      "version": "9.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/blendtool.js"
     },
@@ -160,7 +160,7 @@
       "name": "RadialRepeat",
       "description": "Creates a radial repeat from the selected object(s) by duplicating the selection evenly around a central point in a circular pattern.",
       "author": "BlackMortimer-13",
-      "version": "1.0",
+      "version": "2.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/RadialRepeat.js"
     },
@@ -172,6 +172,15 @@
       "version": "1.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/deleteemptygroups.js"
+    },
+    {
+      "id": "randomizeobjects",
+      "name": "Randomize Objects",
+      "description": "Randomization of size, position, rotation, skew, opacity, color, and stroke of selected objects.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.1",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/randomizeobjects.js"
     }
   ]
 }
