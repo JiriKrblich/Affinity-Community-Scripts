@@ -177,8 +177,8 @@
       "id": "randomizeobjects",
       "name": "Randomize Objects",
       "description": "Randomization of size, position, rotation, skew, opacity, color, and stroke of selected objects.",
-      "author": "BlackMortimer-13",
-      "version": "1.0.1",
+      "author": "zaum",
+      "version": "1.0.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/randomizeobjects.js"
     }
