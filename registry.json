@@ -181,6 +181,15 @@
       "version": "1.0.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/randomizeobjects.js"
+    },
+    {
+      "id": "DirectionalBlurShadow",
+      "name": "Directional Blur Shadow",
+      "description": "Directional Blur Shadow creates a directional shadow of an object that progressively blurs, fades and tapers as it moves away from the object.",
+      "author": "rbonelli",
+      "version": "1.0.0",
+      "category": "Effect",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DirectionalBlurShadow.js"
     }
   ]
 }
