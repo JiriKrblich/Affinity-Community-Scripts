@@ -1,160 +1,452 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Affinity Community Scripts</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Affinity Community Scripts — Free Scripts for Affinity Suite</title>
+    <!-- Fraunces (serif headings) + Inter (sans-serif body + titles) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700;9..144,800;9..144,900&family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-body: #0c0c0b;
+            --bg-card: #141413;
+            --bg-raised: #1a1a18;
+            --border: #242422;
+            --border-hi: #333330;
+            --text: #c8c8c0;
+            --text-dim: #666660;
+            --text-strong: #e8e8e0;
+            --accent: #8EF260;
+            --accent-dim: rgba(142,242,96,0.08);
+            --accent-mid: rgba(142,242,96,0.15);
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            font-size: 15px;
+            line-height: 1.65;
+            -webkit-font-smoothing: antialiased;
+            background-image: linear-gradient(rgba(142,242,96,0.02) 1px, transparent 1px),
+                              linear-gradient(90deg, rgba(142,242,96,0.02) 1px, transparent 1px);
+            background-size: 48px 48px;
         }
 
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+        /* Typography */
+        h1, h2, .serif-heading {
+            font-family: 'Fraunces', Georgia, serif;
+            font-weight: 800;
+            letter-spacing: -0.02em;
         }
 
-        ::-webkit-scrollbar-track {
+        .accent {
+            color: var(--accent);
+            font-style: italic;
+        }
+
+        /* Layout */
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 32px;
+        }
+
+        /* Navigation – pouze odkazy App a GitHub */
+        .nav {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 20px 32px;
+            max-width: 1280px;
+            margin: 0 auto;
+            border-bottom: 1px solid var(--border);
+        }
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+        .nav-links a {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-dim);
+            transition: color 0.2s;
+            text-decoration: none;
+        }
+        .nav-links a:hover {
+            color: var(--text-strong);
+        }
+        .nav-gh {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 6px 12px;
+            border: 1px solid var(--border-hi);
+            border-radius: 6px;
+            background: var(--bg-raised);
+            transition: all 0.2s;
+        }
+        .nav-gh:hover {
+            border-color: var(--accent);
+            background: var(--accent-dim);
+            color: var(--accent) !important;
+        }
+
+        /* Banner (zelený horní pruh s názvem aplikace) */
+        .banner {
+            background: rgba(142,242,96,0.06);
+            border-bottom: 1px solid rgba(142,242,96,0.15);
+            text-align: center;
+            padding: 12px;
+        }
+        .banner p {
+            font-size: 13px;
+            color: var(--accent);
+        }
+        .banner a {
+            font-weight: 700;
+            text-decoration: underline;
+            color: var(--accent);
+        }
+        .banner a:hover {
+            color: #a8f56c;
+        }
+
+        /* Header section */
+        .page-header {
+            padding: 48px 0 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+        @media (min-width: 768px) {
+            .page-header {
+                flex-direction: row;
+                justify-content: space-between;
+                align-items: flex-end;
+            }
+        }
+        .title-section h1 {
+            font-size: clamp(32px, 5vw, 44px);
+            color: var(--text-strong);
+            line-height: 1.1;
+            margin-bottom: 8px;
+        }
+        .title-section p {
+            color: var(--text-dim);
+            font-size: 15px;
+        }
+        .search-wrapper {
+            width: 100%;
+            max-width: 320px;
+            position: relative;
+        }
+        .search-input {
+            width: 100%;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px 12px 40px;
+            font-size: 14px;
+            color: white;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s;
+        }
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-dim);
+        }
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-dim);
+            font-size: 14px;
+            pointer-events: none;
+        }
+
+        /* Script grid */
+        .scripts-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+            padding: 40px 0 80px;
+        }
+        @media (min-width: 640px) {
+            .scripts-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        @media (min-width: 1024px) {
+            .scripts-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+        @media (min-width: 1280px) {
+            .scripts-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        /* Script card */
+        .script-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .script-card:hover {
+            border-color: var(--accent);
+            background: var(--bg-raised);
+            transform: translateY(-2px);
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .script-title {
+            font-family: 'Inter', sans-serif;
+            font-weight: 700;
+            font-size: 16px;
+            color: var(--text-strong);
+            line-height: 1.3;
+            letter-spacing: -0.01em;
+        }
+        /* Verze – mírné zaoblení (ne plný pilulka) */
+        .version-badge {
+            font-family: 'Inter', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            background: #252525;
+            padding: 2px 8px;
+            border-radius: 6px;
+            color: var(--text-dim);
+            border: 1px solid var(--border-hi);
+            white-space: nowrap;
+        }
+        .script-description {
+            font-size: 13px;
+            color: #b0b0a8;
+            line-height: 1.55;
+            margin-bottom: 20px;
+            flex-grow: 1;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: auto;
+            padding-top: 16px;
+            border-top: 1px solid rgba(36,36,34,0.6);
+        }
+        .author {
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+        .author span {
+            color: var(--text);
+            font-weight: 500;
+        }
+        /* Kategorie – mírné zaoblení (6px) */
+        .category-tag {
+            font-size: 10px;
+            font-weight: 500;
+            background: var(--accent-dim);
+            border: 1px solid rgba(142,242,96,0.2);
+            color: var(--accent);
+            padding: 2px 10px;
+            border-radius: 6px;
+        }
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 60px 20px;
+            border: 1px dashed var(--border);
+            border-radius: 24px;
             background: transparent;
         }
-
-        ::-webkit-scrollbar-thumb {
-            background: #525252;
-            border-radius: 4px;
+        .loading-state {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            padding: 60px;
+            color: var(--text-dim);
         }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: #737373;
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 32px;
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+        @media (max-width: 640px) {
+            .container { padding: 0 20px; }
+            .nav { padding: 16px 20px; justify-content: center; }
         }
     </style>
 </head>
+<body>
 
-<body
-    class="bg-neutral-900 text-neutral-200 antialiased select-none selection:bg-[#a7f175] selection:text-neutral-900 min-h-screen flex flex-col">
-
-    <div class="bg-[#a7f175]/10 border-b border-[#a7f175]/20 py-3 px-4 text-center">
-        <p class="text-sm text-[#a7f175]">
-            ✨ Available via <a href="https://github.com/JiriKrblich/Affinity-script-manager" target="_blank"
-                rel="noopener noreferrer" class="font-bold underline hover:text-[#95e561] transition-colors">Affinity
-                Script Manager</a>
-        </p>
+    <!-- Horní banner – pouze zde je název aplikace (odkaz na desktopovou aplikaci) -->
+    <div class="banner">
+        <p>✨ <strong>Script Manager for Affinity</strong> — <a href="https://github.com/JiriKrblich/Affinity-Script-Manager" target="_blank">download the desktop app</a> to install scripts in one click</p>
     </div>
 
-    <main class="flex-1 w-full max-w-7xl mx-auto px-6 py-10">
+    <!-- Navigace: pouze App a GitHub (žádný název aplikace) -->
+    <div class="nav">
+        <div class="nav-links">
+            <a href="https://github.com/JiriKrblich/Affinity-Script-Manager/releases/latest" target="_blank">App</a>
+            <a href="https://github.com/JiriKrblich/Affinity-Script-Manager" target="_blank" class="nav-gh">
+                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.087.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0112 6.844c.85.004 1.705.114 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.161 22 16.416 22 12c0-5.523-4.477-10-10-10z"/></svg>
+                GitHub
+            </a>
+        </div>
+    </div>
 
-        <div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
-            <div>
-                <h1 class="text-3xl font-bold text-white">Community Scripts</h1>
-                <p class="text-neutral-400 mt-2">Discover scripts made by the Affinity community.</p>
+    <div class="container">
+        <!-- Hlavička s vyhledáváním -->
+        <div class="page-header">
+            <div class="title-section">
+                <h1>Community <span class="accent">Scripts</span></h1>
+                <p>Discover free scripts made by the Affinity community — from automation to design helpers.</p>
             </div>
-
-            <div class="w-full md:w-96">
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <span class="text-neutral-500">🔍</span>
-                    </div>
-                    <input type="text" id="community-search" placeholder="Search by name, description, or author..."
-                        class="w-full bg-neutral-950 border border-neutral-700 rounded-lg pl-10 pr-4 py-3 text-sm text-white focus:border-[#a7f175] focus:ring-1 focus:ring-[#a7f175] focus:outline-none shadow-sm placeholder-neutral-500 transition">
-                </div>
+            <div class="search-wrapper">
+                <div class="search-icon">🔍</div>
+                <input type="text" id="searchInput" class="search-input" placeholder="Search by name, author, description...">
             </div>
         </div>
 
-        <div id="community-tiles" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-            <div class="text-neutral-400 text-sm animate-pulse col-span-full py-10 text-center">
-                Fetching community scripts...
+        <!-- Mřížka scriptů -->
+        <div id="scriptsGrid" class="scripts-grid">
+            <div class="loading-state">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 22v-4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M22 12h-4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                Loading community scripts...
             </div>
         </div>
+    </div>
 
-    </main>
-
-    <footer class="border-t border-neutral-800 py-6 mt-10">
-        <div class="max-w-7xl mx-auto px-6 text-center text-xs text-neutral-500">
-            Affinity Script Manager Community &copy; <span id="year"></span>
-        </div>
+    <footer>
+        <p>Community Scripts · Not affiliated with Affinity or Canva.</p>
+        <p style="margin-top: 8px; opacity: 0.6;">Powered by open source registry — add your scripts via GitHub</p>
     </footer>
 
     <script>
-        document.getElementById('year').textContent = new Date().getFullYear();
-
+        // Registry JSON URL (oficiální komunitní repozitář)
         const REGISTRY_URL = 'https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/refs/heads/main/registry.json';
-        let allCommunityScripts = [];
+        let allScripts = [];
 
-        async function loadCommunityScripts() {
-            const container = document.getElementById('community-tiles');
-
+        async function fetchCommunityScripts() {
+            const grid = document.getElementById('scriptsGrid');
+            if (!grid) return;
             try {
                 const response = await fetch(REGISTRY_URL);
-                if (!response.ok) throw new Error("Failed to fetch repository data.");
-
-                const registry = await response.json();
-                allCommunityScripts = registry.scripts || [];
-
-                renderCommunityScripts(allCommunityScripts);
-            } catch (error) {
-                container.innerHTML = `
-          <div class="col-span-full text-red-400 text-sm p-5 bg-red-900/10 border border-red-900/30 rounded-lg text-center">
-            Error loading scripts: ${error.message}
-          </div>
-        `;
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                allScripts = data.scripts || [];
+                renderScripts(allScripts);
+            } catch (err) {
+                console.error(err);
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <div style="font-size: 32px; margin-bottom: 12px;">⚠️</div>
+                        <div style="color: #f5a97f;">Could not load scripts.</div>
+                        <div style="font-size: 13px; margin-top: 8px;">Make sure the registry is accessible or try again later.</div>
+                        <button id="retryBtn" style="margin-top: 20px; background: var(--accent-dim); border: 1px solid var(--accent); padding: 6px 16px; border-radius: 30px; color: var(--accent); cursor: pointer;">Retry</button>
+                    </div>
+                `;
+                const retryBtn = document.getElementById('retryBtn');
+                if (retryBtn) retryBtn.addEventListener('click', () => { fetchCommunityScripts(); });
             }
         }
 
-        function renderCommunityScripts(scripts) {
-            const container = document.getElementById('community-tiles');
-
-            if (scripts.length === 0) {
-                container.innerHTML = `
-          <div class="col-span-full text-neutral-400 text-sm border border-neutral-700 border-dashed rounded-lg p-16 text-center flex flex-col items-center justify-center">
-            <span class="text-3xl mb-3">📭</span>
-            No scripts found.
-          </div>
-        `;
+        function renderScripts(scripts) {
+            const grid = document.getElementById('scriptsGrid');
+            if (!grid) return;
+            if (!scripts.length) {
+                grid.innerHTML = `<div class="empty-state">✨ No scripts match your search. Try a different keyword.</div>`;
                 return;
             }
+            grid.innerHTML = '';
+            for (const script of scripts) {
+                const card = document.createElement('div');
+                card.className = 'script-card';
+                // sanitizace pro jistotu
+                const name = escapeHtml(script.name || 'Untitled');
+                const version = escapeHtml(script.version || '1.0');
+                const description = escapeHtml(script.description || 'No description provided.');
+                const author = escapeHtml(script.author || 'Anonymous');
+                const category = script.category ? escapeHtml(script.category) : null;
 
-            container.innerHTML = '';
-            scripts.forEach(script => {
-                const div = document.createElement('div');
-                // Same classes as the original dashboard, but removed group-hover effects specific to the missing button
-                div.className = "border border-neutral-800 rounded-xl p-6 flex flex-col bg-neutral-950 hover:border-neutral-500 transition shadow-sm h-full";
-                div.innerHTML = `
-          <div class="flex justify-between items-start mb-3">
-            <h4 class="font-bold text-white">${script.name || 'Unnamed Script'}</h4>
-            <span class="text-[10px] font-bold px-2 py-0.5 bg-neutral-800 text-neutral-400 rounded border border-neutral-700 whitespace-nowrap">
-              v${script.version || '1.0.0'}
-            </span>
-          </div>
-          <p class="text-sm text-neutral-400 mb-6 line-clamp-3 flex-grow leading-relaxed">
-            ${script.description || 'No description provided.'}
-          </p>
-          <div class="flex items-center justify-between mt-auto pt-4 border-t border-neutral-800/50">
-            <span class="text-xs text-neutral-500">By <span class="font-medium text-neutral-300">${script.author || 'Community'}</span></span>
-            ${script.category ? `<span class="text-[10px] text-[#a7f175] bg-[#a7f175]/10 border border-[#a7f175]/20 px-2 py-1 rounded">${script.category}</span>` : ''}
-          </div>
-        `;
+                card.innerHTML = `
+                    <div class="card-header">
+                        <div class="script-title">${name}</div>
+                        <div class="version-badge">v${version}</div>
+                    </div>
+                    <div class="script-description">${description}</div>
+                    <div class="card-footer">
+                        <div class="author">By <span>${author}</span></div>
+                        ${category ? `<div class="category-tag">${category}</div>` : ''}
+                    </div>
+                `;
+                grid.appendChild(card);
+            }
+        }
 
-                container.appendChild(div);
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
             });
         }
 
-        // Search functionality
-        document.getElementById('community-search').addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase();
-            const filtered = allCommunityScripts.filter(s =>
-                (s.name && s.name.toLowerCase().includes(query)) ||
-                (s.description && s.description.toLowerCase().includes(query)) ||
-                (s.author && s.author.toLowerCase().includes(query)) ||
-                (s.category && s.category.toLowerCase().includes(query))
-            );
-            renderCommunityScripts(filtered);
-        });
+        // Vyhledávání v reálném čase
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                const query = e.target.value.toLowerCase().trim();
+                if (!query) {
+                    renderScripts(allScripts);
+                    return;
+                }
+                const filtered = allScripts.filter(script => {
+                    return (script.name && script.name.toLowerCase().includes(query)) ||
+                           (script.description && script.description.toLowerCase().includes(query)) ||
+                           (script.author && script.author.toLowerCase().includes(query)) ||
+                           (script.category && script.category.toLowerCase().includes(query));
+                });
+                renderScripts(filtered);
+            });
+        }
 
-        // Initialize
-        window.addEventListener('DOMContentLoaded', loadCommunityScripts);
+        // Spuštění načtení
+        fetchCommunityScripts();
     </script>
 </body>
-
 </html>
