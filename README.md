@@ -1,6 +1,6 @@
 # Affinity Community Scripts
 
-![Cover photo](/readme/cover.png)
+![Cover photo](/readme/cover.webp)
 
 Welcome to the community repository for Affinity App scripts! 
 
