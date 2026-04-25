@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-04-23",
+  "last_updated": "2026-04-25",
   "scripts": [
     {
       "id": "blendtool",
@@ -43,7 +43,7 @@
       "name": "Swap objects by center",
       "description": "Swap the locations of two selected objects by their center points.",
       "author": "daani-rika",
-      "version": "1.0",
+      "version": "2.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swapobjectsbycenter.js"
     },
