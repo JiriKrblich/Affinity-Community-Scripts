@@ -199,6 +199,15 @@
       "version": "1.0.0",
       "category": "Color",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/oklch_color.js"
+    },
+    {
+      "id": "split_to_grid",
+      "name": "Split to grid",
+      "description": "Split vector object into n*n grid",
+      "author": "JiriKrblich",
+      "version": "1.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/split_to_grid.js"
     }
   ]
 }
