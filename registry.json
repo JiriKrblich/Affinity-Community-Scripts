@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-04-25",
+  "last_updated": "2026-04-26",
   "scripts": [
     {
       "id": "blendtool",
@@ -190,6 +190,15 @@
       "version": "1.0.0",
       "category": "Effect",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DirectionalBlurShadow.js"
+    },
+    {
+      "id": "oklchcolor",
+      "name": "OKLCH Color",
+      "description": "Edit, paste and save OKLCH colors.",
+      "author": "JiriKrblich",
+      "version": "1.0.0",
+      "category": "Color",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/oklch_color.js"
     }
   ]
 }
