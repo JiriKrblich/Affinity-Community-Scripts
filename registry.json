@@ -223,7 +223,7 @@
       "name": "Distribute Shapes on Paths",
       "description": "Places copies of designated target layers along selected vector shapes or paths. Choose the target layer by name from the dropdown or rename it to target. Multiple matching layers are distributed in round-robin order. Supports vector, group, symbol, and pixel layers, with insertion modes for path, center, nodes, and corners.",
       "author": "EricP",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/distributeshapesonpaths.js"
     }
