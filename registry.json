@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-04-26",
+  "last_updated": "2026-04-28",
   "scripts": [
     {
       "id": "blendtool",
@@ -208,6 +208,24 @@
       "version": "1.0.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/split_to_grid.js"
+    },
+    {
+      "id": "crack-and-explode",
+      "name": "Crack and Explode",
+      "description": "Create radial cracks in the shape and explode it.",
+      "author": "rbonelli",
+      "version": "1.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/crack-and-explode.js"
+    },
+    {
+      "id": "distributeshapesonpaths",
+      "name": "Distribute Shapes on Paths",
+      "description": "Places copies of designated target layers along selected vector shapes or paths. Choose the target layer by name from the dropdown or rename it to target. Multiple matching layers are distributed in round-robin order. Supports vector, group, symbol, and pixel layers, with insertion modes for path, center, nodes, and corners.",
+      "author": "EricP",
+      "version": "1.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/distributeshapesonpaths.js"
     }
   ]
 }
