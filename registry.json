@@ -89,7 +89,7 @@
       "description": "This script transforms a selected shape or line into a zig zag pattern. Simply select a shape or path, run the script, and it will automatically apply a zig zag effect to it.",
       "author": "BlackMortimer-13",
       "version": "1.0",
-      "category": "Object",
+      "category": "Effect",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/zigzageffect.js"
     },
     {
@@ -106,8 +106,8 @@
       "name": "ReplaceColorFill",
       "description": "Allows users to quickly change the fill color/gradients of selected shapes.",
       "author": "BlackMortimer-13",
-      "version": "2.0",
-      "category": "Object",
+      "version": "3.0",
+      "category": "Color",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replacecolorfill.js"
     },
     {
@@ -143,7 +143,7 @@
       "description": "Allows users to quickly change the stroke color or gradients of selected shapes.",
       "author": "BlackMortimer-13",
       "version": "1.0",
-      "category": "Object",
+      "category": "Color",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replacecolorstroke.js"
     },
     {
@@ -152,7 +152,7 @@
       "description": "Applies a Pucker & Bloat effect to the selected object(s), pulling anchor points inward (Pucker) or outward (Bloat) to distort",
       "author": "BlackMortimer-13",
       "version": "1.0",
-      "category": "Object",
+      "category": "Effect",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/PuckerBloatEffect.js"
     },
     {
@@ -226,6 +226,69 @@
       "version": "1.1.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/distributeshapesonpaths.js"
+    },
+    {
+      "id": "replace-all-with-key-object",
+      "name": "ReplaceAllwithKeyObject",
+      "description": "The script replaces all selected objects with duplicates of the key object (select 2 objects then press Option on Mac or Alt on Windows on the object you want to become the key object), while preserving position and rotation, with optional size matching.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replace-all-with-key-object-v1.js"
+    },
+    {
+      "id": "swap-orientation-only",
+      "name": "Swap Orientation Only",
+      "description": "The script swaps the position and rotation of 2 selected objects or groups, while keeping their size unchanged. Select exactly 2 objects or groups, then run the script.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swap-orientation-only-v1.js"
+    },
+    {
+      "id": "separate-fill-and-stroke",
+      "name": "SeparateFill&Stroke",
+      "description": "Separates combined fill and stroke appearances into independent objects for easier editing and output control.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Color",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/separate-fill-and-stroke.js"
+    },
+    {
+      "id": "arrange-on-path",
+      "name": "Arrange on Path",
+      "description": "Distributes selected objects evenly along auto-detected vector paths, with support for multiple paths, randomization, interpolation, smart sorting, open/closed paths, and repeat mode for tiling objects along the path.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Path",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/arrange-on-path-v1.js"
+    },
+    {
+      "id": "swap-objects",
+      "name": "Swap Objects",
+      "description": "The script swaps selected objects based on a custom mapping, with optional orientation and dimension swapping. Select at least 2 objects, choose how they should swap in the dialog, then use Preview or Apply.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swap-objects-v1.js"
+    },
+    {
+      "id": "Toggle-Layer-Visibility-Across-All-Pages",
+      "name": "Toggle Layer Visibility Across All Pages",
+      "description": "Layer States alternative. Select a layer, then run this script. It reads the layer's name and current visibility, then toggles all layers with the same name across every page/spread.",
+      "author": "hrum",
+      "version": "1.0.0",
+      "category": "Layer",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Toggle-Layer-Visibility-Across-All-Pages.js"
+    },
+    {
+      "id": "Move-Layer-to-Top-Across-All-Pages",
+      "name": "Move Layer to Top Across All Pages",
+      "description": "Select a layer, then run this script. It finds all layers with the same name across every page/spread and moves them to the top of the layer stack.",
+      "author": "hrum",
+      "version": "1.0.0",
+      "category": "Layer",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Move-Layer-to-Top-Across-All-Pages.js"
     }
   ]
 }
