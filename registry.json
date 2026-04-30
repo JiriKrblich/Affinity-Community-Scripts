@@ -289,6 +289,33 @@
       "version": "1.0.0",
       "category": "Layer",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Move-Layer-to-Top-Across-All-Pages.js"
+    },
+    {
+      "id": "Roughen-Edges",
+      "name": "Roughen Edges",
+      "description": "Rough up vector paths with controls over amplitute, frequency, noise etc.",
+      "author": "Nic Kraneis",
+      "version": "1.0.0",
+      "category": "Effect",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Roughen-Edges.js"
+    },
+    {
+      "id": "Glitch-effect",
+      "name": "Glitch effect",
+      "description": "Create a glitch effect on a vector object.",
+      "author": "Nic Kraneis",
+      "version": "1.0.0",
+      "category": "Effect",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Glitch-effect.js"
+    },
+    {
+      "id": "Pattern-Maker",
+      "name": "Pattern Maker",
+      "description": "Create patterns from an object. Supports brick and drop patterns.",
+      "author": "Nic Kraneis",
+      "version": "1.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Pattern-Maker.js"
     }
   ]
 }
