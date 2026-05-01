@@ -71,7 +71,7 @@
       "description": "Automatically generate 5mm corner crops and internal grid ticks with a 2mm offset for any selection in Affinity, placing them on a dedicated 0.25pt locked production layer.",
       "author": "sakura",
       "version": "1.0",
-      "category": "Object",
+      "category": "Print",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/generatecropmarks.js"
     },
     {
@@ -323,7 +323,7 @@
       "description": "Places cutting marks 2 mm away from the Trimbox in the same color as the registration marks",
       "author": "Wolfgang Wiesen",
       "version": "4.0.0",
-      "category": "Object",
+      "category": "Print",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/cropmarks.js"
     }
   ]
