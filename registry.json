@@ -316,6 +316,15 @@
       "version": "1.0.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Pattern-Maker.js"
+    },
+    {
+      "id": "cropmarks",
+      "name": "Cropmarks",
+      "description": "Places cutting marks 2 mm away from the Trimbox in the same color as the registration marks",
+      "author": "Wolfgang Wiesen",
+      "version": "4.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/cropmarks.js"
     }
   ]
 }
