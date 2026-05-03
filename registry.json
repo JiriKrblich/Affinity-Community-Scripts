@@ -325,6 +325,24 @@
       "version": "4.0.0",
       "category": "Print",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/cropmarks.js"
+    },
+    {
+      "id": "styleconsistencychecker",
+      "name": "Style Consistency Checker",
+      "description": "Easily maintain design consistency by inspecting and remapping font faces, sizes, and stroke weights. Also includes a tool to clean up invisible garbage nodes",
+      "author": "Shigeru Kobayashi",
+      "version": "1.0.1",
+      "category": "Utility",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/affinity-style-consistency-checker.js"
+    },
+    {
+      "id": "FillPathWithObjects",
+      "name": "Fill Path With Objects",
+      "description": "This script fills a selected closed vector path with multiple copies of one or more template objects. It supports different grid types (rectangular, hex, circular, radial, etc.), randomization, scaling, rotation, and spacing controls. Select a closed path and objects, adjust settings, then preview or apply.  ",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Generator",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/fill-path-with-objects-v1.js"
     }
   ]
 }
