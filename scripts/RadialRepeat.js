@@ -1,16 +1,5 @@
 "use strict";
 
-// ═══════════════════════════════════════════════════════════════════════
-// RADIAL REPEAT v4 — Affinity Designer
-//
-// FIX v3→v4:
-// 1. FLIP FIX: rot = +(istep) instead of -(istep)
-// 2. POSITION FIX: circle centered at (cx, cy+radius)
-// → copy i=0 stays at original source
-// → ry = (cy + radius) + radius * sin(a)
-// 3. Z-ORDER fix from v2 kept
-// ═══════════════════════════════════════════════════════════════════════
-
 const { Document } = require("/document");
 const {
   DocumentCommand,
@@ -92,63 +81,70 @@ if (!doc) {
       const cx = (minX + maxX) / 2,
         cy = (minY + maxY) / 2;
 
-      function buildXforms(
-        instances,
-        radius,
-        rotEnabled,
-        rotDeg,
-        scaleStart,
-        scaleEnd,
-      ) {
-        const step = (2 * Math.PI) / instances; // opraveno: 2*Math.PI
-        const rotRad = (rotDeg * Math.PI) / 180; // opraveno: rotDeg*Math.PI
+      function buildXforms(p) {
         const K = origNodes.length;
+        const xforms = [];
 
-        return Array.from({ length: instances }, (_, i) => {
-          const src = origNodes[i % K];
-          const sBB = src.getSpreadBaseBox(false);
-          const sox = sBB.x + sBB.width / 2;
-          const soy = sBB.y + sBB.height / 2;
+        if (p.keepOrigin) {
+          for (let k = 0; k < K; k++) {
+            const src = origNodes[k];
+            const sBB = src.getSpreadBaseBox(false);
+            const sox = sBB.x + sBB.width / 2;
+            const soy = sBB.y + sBB.height / 2;
 
-          const a = -Math.PI / 2 + i * step;
+            const tb = new TransformBuilder();
+            tb.translate(-sox, -soy);
+            tb.translate(cx, cy);
+            xforms.push({ src, xf: tb.transform });
+          }
+        }
 
-          const rx = cx + radius * Math.cos(a);
-          const ry = cy + radius + radius * Math.sin(a);
+        const rotRad = (p.rotDeg * Math.PI) / 180;
+        const rowShiftRad = (p.radialShiftDeg * Math.PI) / 180;
+        let count = 0;
 
-          const rot = rotEnabled ? rotRad : i * step;
+        for (let r = 0; r < p.radialRows; r++) {
+          const currentInstances = p.instances + r * p.instancesIncrement;
+          if (currentInstances <= 0) break;
 
-          const sc =
-            scaleStart +
-            (scaleEnd - scaleStart) * (instances > 1 ? i / (instances - 1) : 0);
+          const step = (2 * Math.PI) / currentInstances;
+          const currentRadius = p.radius + r * p.radialSpacing;
+          const currentShift = r * rowShiftRad;
 
-          const tb = new TransformBuilder();
-          if (Math.abs(sc - 1) > 0.0001 || Math.abs(rot) > 0.0001) {
+          const ringStartScale = p.scaleStart * Math.pow(p.rowScale, r);
+          const ringEndScale = p.scaleEnd * Math.pow(p.rowScale, r);
+
+          for (let i = 0; i < currentInstances; i++) {
+            const src = origNodes[count % K];
+            const sBB = src.getSpreadBaseBox(false);
+            const sox = sBB.x + sBB.width / 2;
+            const soy = sBB.y + sBB.height / 2;
+
+            const a = -Math.PI / 2 + i * step + currentShift;
+            const rx = cx + currentRadius * Math.cos(a);
+            const ry = cy + currentRadius * Math.sin(a);
+
+            const rot = p.rotEnabled ? rotRad : i * step + currentShift;
+            const sc =
+              ringStartScale +
+              (ringEndScale - ringStartScale) *
+                (currentInstances > 1 ? i / (currentInstances - 1) : 0);
+
+            const tb = new TransformBuilder();
             tb.translate(-sox, -soy);
             if (Math.abs(sc - 1) > 0.0001) tb.scale(sc, sc);
             if (Math.abs(rot) > 0.0001) tb.rotate(rot);
-            tb.translate(sox, soy);
+            tb.translate(rx, ry);
+            xforms.push({ src, xf: tb.transform });
+
+            count++;
           }
-          tb.translate(rx - sox, ry - soy);
-          return { src, xf: tb.transform };
-        });
+        }
+        return xforms;
       }
 
-      function doPreview(
-        instances,
-        radius,
-        rotEnabled,
-        rotDeg,
-        scaleStart,
-        scaleEnd,
-      ) {
-        const xforms = buildXforms(
-          instances,
-          radius,
-          rotEnabled,
-          rotDeg,
-          scaleStart,
-          scaleEnd,
-        );
+      function doPreview(p) {
+        const xforms = buildXforms(p);
         const dupCb = CompoundCommandBuilder.create();
         for (const { src, xf } of xforms) {
           dupCb.addCommand(
@@ -171,22 +167,8 @@ if (!doc) {
         return 2;
       }
 
-      function doApply(
-        instances,
-        radius,
-        rotEnabled,
-        rotDeg,
-        scaleStart,
-        scaleEnd,
-      ) {
-        const xforms = buildXforms(
-          instances,
-          radius,
-          rotEnabled,
-          rotDeg,
-          scaleStart,
-          scaleEnd,
-        );
+      function doApply(p) {
+        const xforms = buildXforms(p);
         const cndB = AddChildNodesCommandBuilder.create();
         cndB.addContainerNode(ContainerNodeDefinition.createDefault());
         const cCmd = cndB.createCommand(false, NodeChildType.Main);
@@ -233,32 +215,57 @@ if (!doc) {
       }
 
       const srcLabel =
-        origNodes.length > 1 ? ` — ${origNodes.length} alternating` : ""; // opraven kódovaný em‑dash
-      const dlg = Dialog.create(`Radial Repeat${srcLabel}`); // doplněny zpětné uvozovky
+        origNodes.length > 1 ? ` — ${origNodes.length} Alternating` : "";
+      const dlg = Dialog.create(`Radial Repeat${srcLabel}`);
       const col = dlg.addColumn();
 
-      const grpDist = col.addGroup("Distribution");
-      const instEd = grpDist.addUnitValueEditor(
-        "Instances",
-        "",
-        "",
-        12,
-        2,
-        500,
-      );
+      const grpOrigin = col.addGroup("Keep Origin");
+      const keepOriginSw = grpOrigin.addSwitch("Keep Original Object", true);
+
+      const grpDist = col.addGroup("Instances & Rows");
+      const instEd = grpDist.addUnitValueEditor("Instances", "", "", 6, 1, 500);
       instEd.precision = 0;
       const radEd = grpDist.addUnitValueEditor(
         "Radius (px)",
         "px",
         "px",
-        270,
+        50,
         0.1,
         99999,
       );
       radEd.precision = 1;
+      const radRowsEd = grpDist.addUnitValueEditor("Rows", "", "", 1, 1, 100);
+      radRowsEd.precision = 0;
+      const radSpcEd = grpDist.addUnitValueEditor(
+        "Row Spacing (px)",
+        "px",
+        "px",
+        50,
+        0,
+        99999,
+      );
+      radSpcEd.precision = 1;
+      const instIncEd = grpDist.addUnitValueEditor(
+        "Added Instances Per Row",
+        "",
+        "",
+        0,
+        -100,
+        500,
+      );
+      instIncEd.precision = 0;
+      const radShiftEd = grpDist.addUnitValueEditor(
+        "Row Rotation",
+        "deg",
+        "deg",
+        0,
+        -360,
+        360,
+      );
+      radShiftEd.precision = 1;
 
       const grpRot = col.addGroup("Rotation");
-      const rotSw = grpRot.addSwitch("Enable custom rotation", false);
+      const rotSw = grpRot.addSwitch("Enable Custom Rotation", false);
       const rotEd = grpRot.addUnitValueEditor(
         "Angle (deg)",
         "deg",
@@ -269,9 +276,9 @@ if (!doc) {
       );
       rotEd.precision = 1;
 
-      const grpScl = col.addGroup("Scale variation (optional)");
+      const grpScl = col.addGroup("Scaling");
       const scStEd = grpScl.addUnitValueEditor(
-        "Scale start (%)",
+        "Instances Start Scale (%)",
         "%",
         "%",
         100,
@@ -280,7 +287,7 @@ if (!doc) {
       );
       scStEd.precision = 1;
       const scEnEd = grpScl.addUnitValueEditor(
-        "Scale end (%)",
+        "Instances End Scale (%)",
         "%",
         "%",
         100,
@@ -288,46 +295,66 @@ if (!doc) {
         1000,
       );
       scEnEd.precision = 1;
+      const scRowEd = grpScl.addUnitValueEditor(
+        "Row Scaling (%)",
+        "%",
+        "%",
+        100,
+        1,
+        1000,
+      );
+      scRowEd.precision = 1;
 
       const sepGrp = col.addGroup("");
       sepGrp.enableSeparator = true;
       const btns = sepGrp.addButtonSet("", ["Preview", "Apply"], 0);
 
-      let previewSteps = doPreview(12, 270, false, 0, 1.0, 1.0);
+      let initialParams = {
+        keepOrigin: true,
+        instances: 6,
+        instancesIncrement: 0,
+        radius: 50,
+        radialRows: 1,
+        radialSpacing: 50,
+        radialShiftDeg: 0,
+        rotEnabled: false,
+        rotDeg: 0,
+        scaleStart: 1.0,
+        scaleEnd: 1.0,
+        rowScale: 1.0,
+      };
+
+      let previewSteps = doPreview(initialParams);
 
       let running = true;
       while (running) {
         btns.selectedIndex = 0;
         const r = dlg.show();
-        const instances = Math.max(2, Math.round(instEd.value));
-        const radius = Math.max(0.1, radEd.value);
-        const rotEnabled = rotSw.value;
-        const rotDeg = rotEd.value;
-        const scaleStart = Math.max(0.01, scStEd.value / 100);
-        const scaleEnd = Math.max(0.01, scEnEd.value / 100);
+
+        const p = {
+          keepOrigin: keepOriginSw.value,
+          instances: Math.max(1, Math.round(instEd.value)),
+          instancesIncrement: Math.round(instIncEd.value),
+          radius: Math.max(0.1, radEd.value),
+          radialRows: Math.max(1, Math.round(radRowsEd.value)),
+          radialSpacing: Math.max(0, radSpcEd.value),
+          radialShiftDeg: radShiftEd.value,
+          rotEnabled: rotSw.value,
+          rotDeg: rotEd.value,
+          scaleStart: Math.max(0.01, scStEd.value / 100),
+          scaleEnd: Math.max(0.01, scEnEd.value / 100),
+          rowScale: Math.max(0.01, scRowEd.value / 100),
+        };
+
         const mode = btns.selectedIndex;
 
         if (r.value === DialogResult.Ok.value) {
           undoN(previewSteps);
           if (mode === 1) {
-            doApply(
-              instances,
-              radius,
-              rotEnabled,
-              rotDeg,
-              scaleStart,
-              scaleEnd,
-            );
+            doApply(p);
             running = false;
           } else {
-            previewSteps = doPreview(
-              instances,
-              radius,
-              rotEnabled,
-              rotDeg,
-              scaleStart,
-              scaleEnd,
-            );
+            previewSteps = doPreview(p);
           }
         } else {
           undoN(previewSteps);
@@ -335,6 +362,6 @@ if (!doc) {
           running = false;
         }
       }
-    } // validSrcs
-  } // rawNodes
-} // doc
+    }
+  }
+}
