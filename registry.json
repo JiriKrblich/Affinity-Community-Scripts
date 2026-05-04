@@ -344,6 +344,15 @@
       "version": "1.0.0",
       "category": "Generator",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/fill-path-with-objects-v1.js"
+    },
+    {
+      "id": "gridify",
+      "name": "Gridify",
+      "description": "Spread selected objects into a grid with various options of spacing, scaling and jitter.",
+      "author": "Nic Kraneis",
+      "version": "1.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/gridify.js"
     }
   ]
 }
