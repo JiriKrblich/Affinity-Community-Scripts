@@ -353,6 +353,33 @@
       "version": "1.0.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/gridify.js"
+    },
+    {
+      "id": "ExtrudeTool",
+      "name": "Extrude Tool",
+      "description": "This script generates a 3D-like extrusion effect by connecting selected vector shapes. To function correctly, you must select two vector objects that contain the exact same number of anchor points. Once executed, the tool automatically calculates, subdivides, and renders the connecting geometry, organizing the resulting faces while preserving your original shapes as caps.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/extrudetool-v1.js"
+    },
+    {
+      "id": "ExportCarroussel",
+      "name": "Export Carroussel",
+      "description": "Export a single document as individual panels of a specified size.",
+      "author": "rbonelli",
+      "version": "1.0.0",
+      "category": "Export",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/export-carroussel.js"
+    },
+    {
+      "id": "CreateCarroussel",
+      "name": "Create Carroussel",
+      "description": "Creates a new single document ready for a Carroussel image, with X panels divided with Guidelines.",
+      "author": "rbonelli",
+      "version": "1.0.0",
+      "category": "Artboards",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/create-carroussel.js"
     }
   ]
 }
