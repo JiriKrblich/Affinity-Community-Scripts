@@ -160,10 +160,10 @@
       "name": "RadialRepeat",
       "description": "Creates a radial repeat from the selected object(s) by duplicating the selection evenly around a central point in a circular pattern.",
       "author": "BlackMortimer-13",
-      "version": "2.0",
+      "version": "4.0",
       "category": "Object",
       "contributors": "NicKraneis",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/RadialRepeat.js"
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/radialrepeat.js"
     },
     {
       "id": "DeleteEmptyGroups",
@@ -357,11 +357,11 @@
     {
       "id": "ExtrudeTool",
       "name": "Extrude Tool",
-      "description": "This script generates a 3D-like extrusion effect by connecting selected vector shapes. To function correctly, you must select two vector objects that contain the exact same number of anchor points. Once executed, the tool automatically calculates, subdivides, and renders the connecting geometry, organizing the resulting faces while preserving your original shapes as caps.",
+      "description": "This script generates a 3D-like extrusion effect by connecting selected vector shapes. Once executed, the tool automatically calculates, subdivides, and renders the connecting geometry, organizing the resulting faces while preserving your original shapes as caps",
       "author": "BlackMortimer-13",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/extrudetool-v1.js"
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/extrudetool.js"
     },
     {
       "id": "ExportCarroussel",
@@ -389,6 +389,60 @@
       "version": "1.0.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/3Dfun.js"
+    },
+    {
+      "id": "rename-artboards",
+      "name": "Artboard Batch Renamer",
+      "description": "Renames all artboards in the current document in bulk. When executed, a dialog prompts for a base name, which is then applied to all artboards with automatic sequential numbering and zero-padding — ensuring correct alphabetical sort order when exporting files (e.g., Name 01, Name 02... instead of Name 1, Name 2). For 100+ artboards, padding adjusts to 3 digits automatically. If only one artboard exists, no number is appended.",
+      "author": " Heitor Hatherly",
+      "version": "1.0.0",
+      "category": "Artboards",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/rename-artboards.js"
+    },
+    {
+      "id": "rename-artboards",
+      "name": "Artboard Batch Renamer",
+      "description": "Renames all artboards in the current document in bulk. When executed, a dialog prompts for a base name, which is then applied to all artboards with automatic sequential numbering and zero-padding — ensuring correct alphabetical sort order when exporting files (e.g., Name 01, Name 02... instead of Name 1, Name 2). For 100+ artboards, padding adjusts to 3 digits automatically. If only one artboard exists, no number is appended.",
+      "author": " Heitor Hatherly",
+      "version": "1.0.0",
+      "category": "Artboards",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/rename-artboards.js"
+    },
+    {
+      "id": "twist-effect",
+      "name": "Twist Effect",
+      "description": "This script applies a progressive polar rotation (twist) to selected curves, shapes, or groups, mimicking Adobe Illustrator's twist effect. Select your vector elements first; the script subdivides Bezier curves, twists points radially based on distance from the center, and reconstructs the path.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Effect",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/twist-effect-v1.js"
+    },
+    {
+      "id": "tile-generator",
+      "name": "Tile Generator",
+      "description": "This script generates tile-based patterns from a selected object. It supports multiple layout styles, including a basic grid, brick offset, half-drop, diamond, hexagonal, radial burst, spiral, wave, pinwheel, and random scatter. It also includes progressive hue shifting, which reads the source object’s solid fill color and shifts the hue across all tiles, for example by 180° to create complementary colors.",
+      "author": "S1m0nP1",
+      "version": "1.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/tile-generator.js"
+    },
+    {
+      "id": "vector-lathe-revolve",
+      "name": "Vector Lathe (Revolve)",
+      "description": "This script revolves a selected vector path into a lathe-style 3D form. Select one path first, then run it; the script creates the revolved geometry, applies shading, and organizes the result into containers for visible faces and caps.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Effect",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/vector-lathe--revolve--v1.js"
+    },
+    {
+      "id": "vector-lathe-revolve",
+      "name": "Vector Lathe (Revolve)",
+      "description": "This script revolves a selected vector path into a lathe-style 3D form. Select one path first, then run it; the script creates the revolved geometry, applies shading, and organizes the result into containers for visible faces and caps.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Effect",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/vector-lathe--revolve--v1.js"
     }
   ]
 }

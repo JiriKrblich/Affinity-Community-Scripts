@@ -52,18 +52,37 @@ function approxPerimeter(segs){
 }
 function segsCenter(segs){let cx=0,cy=0;for(const s of segs){cx+=s.start.x;cy+=s.start.y;}return{x:cx/segs.length,y:cy/segs.length};}
 
-function capPC(segs,closed){const cb=CurveBuilder.create();cb.beginXY(segs[0].start.x,segs[0].start.y);for(const s of segs)cb.addBezierXY(s.c1.x,s.c1.y,s.c2.x,s.c2.y,s.end.x,s.end.y);if(closed)cb.close();const pc=new PolyCurve();pc.addCurve(cb.createCurve());return pc;}
+// Approximate arc length of a single bezier segment.
+function approxSegLen(s){
+  return(Math.hypot(s.end.x-s.start.x,s.end.y-s.start.y)+
+         Math.hypot(s.c1.x-s.start.x,s.c1.y-s.start.y)+
+         Math.hypot(s.c2.x-s.c1.x,s.c2.y-s.c1.y)+
+         Math.hypot(s.end.x-s.c2.x,s.end.y-s.c2.y))/2;
+}
+
+// Upsample segs to targetN by splitting the longest segment at its midpoint repeatedly.
+// Preserves curve shape exactly — only inserts anchor points, never removes.
+function resampleToCount(segs,targetN){
+  const result=segs.map(s=>({...s}));
+  while(result.length<targetN){
+    let maxLen=-1,maxIdx=0;
+    for(let i=0;i<result.length;i++){const l=approxSegLen(result[i]);if(l>maxLen){maxLen=l;maxIdx=i;}}
+    const{left,right}=splitAt(result[maxIdx],0.5);
+    result.splice(maxIdx,1,left,right);
+  }
+  return result;
+}
+
 function facePC(sA,sB){const cb=CurveBuilder.create();cb.beginXY(sA.start.x,sA.start.y);cb.addBezierXY(sA.c1.x,sA.c1.y,sA.c2.x,sA.c2.y,sA.end.x,sA.end.y);cb.lineToXY(sB.end.x,sB.end.y);cb.addBezierXY(sB.c2.x,sB.c2.y,sB.c1.x,sB.c1.y,sB.start.x,sB.start.y);cb.close();const pc=new PolyCurve();pc.addCurve(cb.createCurve());return pc;}
 function mkNode(poly,fill,strokeFill,lsd){return PolyCurveNodeDefinition.create(poly,fill,lsd,strokeFill,FillDescriptor.createNone());}
 
-// Signed area of face quad (shoelace, Y-down screen coords).
-// Positive=CW=front-facing, Negative=CCW=back-facing.
+// Signed area of face quad. Positive=CW=front-facing in Y-down coords.
 function faceSignedArea(sA,sB){
   const pts=[sA.start,sA.end,sB.end,sB.start];let area=0;
   for(let k=0;k<4;k++){const p=pts[k],q=pts[(k+1)%4];area+=p.x*q.y-q.x*p.y;}
   return area/2;
 }
-// Signed area of closed path. Positive=CW, Negative=CCW in Y-down screen coords.
+// Signed area of closed path. Positive=CW in Y-down coords.
 function pathSignedArea(segs){
   let area=0;for(const s of segs)area+=s.start.x*s.end.y-s.end.x*s.start.y;return area/2;
 }
@@ -75,11 +94,20 @@ if(rawSel.length<2){alert("Select at least 2 shapes.");}else{
 let shapes=rawSel.map(n=>{const d=extractSegs(n);return d?{node:n,d}:null;}).filter(Boolean);
 if(shapes.length<2){alert("Could not read curves. Select vector shapes.");}else{
 
-const N=shapes[0].d.n,bad=shapes.find(s=>s.d.n!==N);
-if(bad){alert(`Shapes must have the same anchor count.\nFound: ${N} vs ${bad.d.n}\nConvert to curves first.`);}else{
+// Normalize all shapes to the same anchor count (maxN).
+// Shapes with fewer points are upsampled by splitting their longest segments.
+{
+  const maxN=Math.max(...shapes.map(s=>s.d.n));
+  shapes=shapes.map(sh=>{
+    if(sh.d.n<maxN){
+      const resampled=resampleToCount(sh.d.segs,maxN);
+      return{node:sh.node,d:{segs:resampled,closed:sh.d.closed,n:maxN}};
+    }
+    return sh;
+  });
+}
 
-// Sort: larger perimeter (60%) + HIGHER layer z-rank (40%).
-// Top layer = most previousSiblings = higher zRank → (zRank/maxZ) gives high score.
+// Sort: larger perimeter (60%) + higher layer z-rank (40%).
 {
   const sd=shapes.map(sh=>{
     const perim=approxPerimeter(sh.d.segs);
@@ -91,7 +119,6 @@ if(bad){alert(`Shapes must have the same anchor count.\nFound: ${N} vs ${bad.d.n
   shapes=sd.map(d=>d.sh);
 }
 
-// getActive: effective shape order based on swap, with deep-copied segs (no mutation of originals).
 function getActive(swap){
   const base=swap?[...shapes].reverse():shapes;
   const active=base.map(sh=>({node:sh.node,d:{segs:[...sh.d.segs],closed:sh.d.closed,n:sh.d.n}}));
@@ -100,8 +127,6 @@ function getActive(swap){
   return active;
 }
 
-// build(): generate side faces only — NO caps. Source shapes serve as visual caps.
-// Returns allFaces[]{pc, depth, sa}.
 function build(active,p){
   const allFaces=[];
   const sub=active.map(sh=>({segs:subdivide(sh.d.segs,p.subdivs)}));
@@ -124,22 +149,18 @@ function build(active,p){
   return{allFaces};
 }
 
-// splitFaces: corrects for shape winding (CW vs CCW) so classification is always right.
-// CW front shape (pathSA>0): front-facing faces have NEGATIVE sa → multiply by -1 to normalize.
 function splitFaces(allFaces,active){
   const psa=pathSignedArea(active[0].d.segs);
-  const fs=psa>0?-1:1; // frontSign
+  const fs=psa>0?-1:1;
   return{frontFaces:allFaces.filter(f=>f.sa*fs>=0),backFaces:allFaces.filter(f=>f.sa*fs<0)};
 }
 
-// makeDefs: ascending depth sort (shallowest first=bottom, deepest last=TOP when added to canvas).
-// Deepest face = most visible = should render on top.
+// makeDefs: ascending depth sort → [0]=shallowest (bottom), [N-1]=deepest (top).
 function makeDefs(faces,fill,stroke,lsd){
   const mn=pc=>mkNode(pc,fill,stroke,lsd);
   return [...faces].sort((a,b)=>a.depth-b.depth).map(f=>mn(f.pc));
 }
 
-// readStyle: extract fill/stroke/lsd from source node, with opacity applied.
 function readStyle(node,opacity){
   const f=opacity/100;
   let fill=FillDescriptor.createNone();
@@ -150,41 +171,65 @@ function readStyle(node,opacity){
   return{fill,stroke,lsd};
 }
 
-// --- PREVIEW ---
-// Combine add-nodes + hide-shapes into ONE compound = 1 undo step.
-// Canvas z-order: back defs first (bottom), front defs last (top=deepest face).
+// --- PREVIEW v2 ---
+// Source shapes stay VISIBLE — no hiding/showing.
+//
+// Strategy: add all face nodes to same parent as secNode, then move them ALL
+// to be just above secNode (leaving mainNode untouched above them).
+//
+// Insertion order into the compound: deepest face FIRST (i=0), shallowest LAST (i=N-1).
+// Each move is "After secNode" = just above secNode.
+// Sequentially: each new insert goes just above secNode, pushing the previous up.
+// Final z-order: secNode | shallowest | ... | deepest | mainNode (untouched, still on top)
+//
+// Returns 2 undo steps (or 0 if no geometry).
 function doPreview(p){
   const active=getActive(p.swap);
   const{allFaces}=build(active,p);
   const{frontFaces,backFaces}=splitFaces(allFaces,active);
   const{fill,stroke,lsd}=readStyle(active[0].node,p.opacity);
-  const fDefs=makeDefs(frontFaces,fill,stroke,lsd);
-  const bDefs=makeDefs(backFaces, fill,stroke,lsd);
-  // allDefs: back first (bottom), front last (top), deepest front face = very last = TOP
+  const fDefs=makeDefs(frontFaces,fill,stroke,lsd); // [0]=shallowest, [F-1]=deepest
+  const bDefs=makeDefs(backFaces, fill,stroke,lsd); // [0]=shallowest, [B-1]=deepest
+  // allDefs: back ascending then front ascending (back bottom, front top)
   const allDefs=[...bDefs,...fDefs];
+  if(allDefs.length===0)return 0;
 
-  // Combine add + hide in ONE compound → 1 undo step
-  const preview=CompoundCommandBuilder.create();
-  if(allDefs.length>0){
-    const addAb=AddChildNodesCommandBuilder.create();
-    allDefs.forEach(d=>addAb.addNode(d));
-    preview.addCommand(addAb.createCommand());
+  const secNode=active[active.length-1].node;
+  const parentNode=secNode.parent;
+
+  // Step 1: Add all face nodes to same parent as secNode (lands above everything).
+  // Addition order: allDefs[0] first, allDefs[N-1] last.
+  // newNodes: [0]=last-added=allDefs[N-1]=deepest_front (TOP of added)
+  //           [N-1]=first-added=allDefs[0]=shallowest_back (BOTTOM of added)
+  const addAb=AddChildNodesCommandBuilder.create();
+  if(parentNode&&!parentNode.isSpreadNode)addAb.setInsertionTarget(parentNode);
+  allDefs.forEach(d=>addAb.addNode(d));
+  const addCmd=addAb.createCommand();
+  doc.executeCommand(addCmd);
+
+  // Step 2: Move all faces to be just above secNode.
+  // Loop i=0..N-1: newNodes[0]=deepest_front moved first, newNodes[N-1]=shallowest_back moved last.
+  // Each "After secNode" inserts just above secNode, shifting previous faces up.
+  // Result: secNode | shallowest_back | ... | deepest_back | shallowest_front | ... | deepest_front | mainNode
+  const N=allDefs.length;
+  const compound=CompoundCommandBuilder.create();
+  for(let i=0;i<N;i++){
+    compound.addCommand(
+      DocumentCommand.createMoveNodes(mkSel(addCmd.newNodes[i]),secNode,NodeMoveType.After,NodeChildType.Main)
+    );
   }
-  const hideCmds=CompoundCommandBuilder.create();
-  shapes.forEach(sh=>hideCmds.addCommand(DocumentCommand.createSetVisibility(mkSel(sh.node),false)));
-  preview.addCommand(hideCmds.createCommand());
-  doc.executeCommand(preview.createCommand());
-  return 1; // always 1 undo step
+  doc.executeCommand(compound.createCommand());
+
+  return 2;
 }
 
 // --- APPLY ---
-// Final structure (top→bottom): main shape | Front container | Back container | secondary shape.
-// Source shapes stay in place; NO caps generated (source shapes are the visual caps).
+// Final structure (top→bottom): mainNode | Front container | Back container | secNode.
+// Source shapes always visible.
 //
-// Undo steps:
-//   Step 1: create containers + all curve nodes in ONE batch  (1 undo step)
-//   Step 2: ONE compound = swap? + move curves into containers + position containers + rename + show  (1 undo step)
-//   Total: 2 undo steps → user needs only 2 × Ctrl+Z to fully undo.
+// Step 1: create containers + all curve nodes in ONE batch  (1 undo step)
+// Step 2: ONE compound = move curves into containers + position containers + rename  (1 undo step)
+// Total: 2 undo steps.
 function doApply(p){
   const active=getActive(p.swap);
   const mainNode=active[0].node;
@@ -194,69 +239,57 @@ function doApply(p){
   const{frontFaces,backFaces}=splitFaces(allFaces,active);
   const{fill,stroke,lsd}=readStyle(mainNode,p.opacity);
 
-  // Ascending sort: shallowest[0]→bottom, deepest[F-1]→added last→TOP after moves
-  const fDefs=makeDefs(frontFaces,fill,stroke,lsd); // fDefs[0]=shallowest, fDefs[F-1]=deepest
-  const bDefs=makeDefs(backFaces, fill,stroke,lsd); // bDefs[0]=shallowest, bDefs[B-1]=deepest
+  const fDefs=makeDefs(frontFaces,fill,stroke,lsd);
+  const bDefs=makeDefs(backFaces, fill,stroke,lsd);
   const F=fDefs.length,B=bDefs.length;
   if(F===0&&B===0){alert("No geometry generated.");return;}
 
   const parentNode=secNode.parent;
 
-  // === STEP 1: Create containers + all curve nodes in ONE batch (1 undo step) ===
+  // === STEP 1: Create containers + all curve nodes in ONE batch ===
   // Addition order: Back cont (1st), Front cont (2nd), fDefs[0..F-1], bDefs[0..B-1]
-  //
   // newNodes (0=last added=TOP):
-  //   [0..B-1]   = bDefs in reverse: newNodes[0]=bDefs[B-1](deepest), newNodes[B-1]=bDefs[0](shallowest)
-  //   [B..B+F-1] = fDefs in reverse: newNodes[B]=fDefs[F-1](deepest),  newNodes[B+F-1]=fDefs[0](shallowest)
-  //   [B+F]      = Front container (2nd added)
-  //   [B+F+1]    = Back container  (1st added)
+  //   [0..B-1]   = bDefs reversed: [0]=bDefs[B-1](deepest),  [B-1]=bDefs[0](shallowest)
+  //   [B..B+F-1] = fDefs reversed: [B]=fDefs[F-1](deepest),   [B+F-1]=fDefs[0](shallowest)
+  //   [B+F]      = Front container
+  //   [B+F+1]    = Back container
   const allAb=AddChildNodesCommandBuilder.create();
-  if(parentNode&&!parentNode.isSpreadNode) allAb.setInsertionTarget(parentNode);
-  allAb.addContainerNode(ContainerNodeDefinition.create("Back"));   // 1st → newNodes[B+F+1]
-  allAb.addContainerNode(ContainerNodeDefinition.create("Front"));  // 2nd → newNodes[B+F]
-  fDefs.forEach(d=>allAb.addNode(d));  // fDefs[0..F-1] → newNodes[B+F-1..B]
-  bDefs.forEach(d=>allAb.addNode(d));  // bDefs[0..B-1] → newNodes[B-1..0]
+  if(parentNode&&!parentNode.isSpreadNode)allAb.setInsertionTarget(parentNode);
+  allAb.addContainerNode(ContainerNodeDefinition.create("Back"));
+  allAb.addContainerNode(ContainerNodeDefinition.create("Front"));
+  fDefs.forEach(d=>allAb.addNode(d));
+  bDefs.forEach(d=>allAb.addNode(d));
   const allCmd=allAb.createCommand(false,NodeChildType.Main);
   doc.executeCommand(allCmd);
 
-  const frontCont=allCmd.newNodes[B+F];    // Front container
-  const backCont =allCmd.newNodes[B+F+1];  // Back container
+  const frontCont=allCmd.newNodes[B+F];
+  const backCont =allCmd.newNodes[B+F+1];
 
-  // === STEP 2: Everything else in ONE compound (1 undo step) ===
+  // === STEP 2: ONE compound ===
   const compound=CompoundCommandBuilder.create();
 
-  // Optional: swap source shapes z-positions (new main above new secondary)
   if(p.swap){
     compound.addCommand(DocumentCommand.createMoveNodes(mkSel(mainNode),secNode,NodeMoveType.After,NodeChildType.Main));
   }
 
-  // Move front curves into frontCont (loop high→low so deepest/newNodes[B] moves LAST = TOP)
-  // After moves in frontCont: newNodes[B]=fDefs[F-1](deepest)=TOP, newNodes[B+F-1]=fDefs[0]=BOTTOM
+  // Move front curves into frontCont (high→low so deepest ends up TOP inside container)
   for(let i=B+F-1;i>=B;i--){
     compound.addCommand(DocumentCommand.createMoveNodes(mkSel(allCmd.newNodes[i]),frontCont,NodeMoveType.Inside,NodeChildType.Main));
   }
 
-  // Move back curves into backCont (loop high→low so deepest/newNodes[0] moves LAST = TOP)
-  // After moves in backCont: newNodes[0]=bDefs[B-1](deepest)=TOP, newNodes[B-1]=bDefs[0]=BOTTOM
+  // Move back curves into backCont (high→low so deepest ends up TOP inside container)
   for(let i=B-1;i>=0;i--){
     compound.addCommand(DocumentCommand.createMoveNodes(mkSel(allCmd.newNodes[i]),backCont,NodeMoveType.Inside,NodeChildType.Main));
   }
 
-  // Position containers between source shapes.
-  // NodeMoveType.After = just ABOVE the reference node in z-order.
-  // Move Front just above secondary → ..., Front, secondary
+  // Position containers: secNode | backCont | frontCont | mainNode
+  // "After secNode" = just above secNode. Move frontCont first, then backCont (backCont ends up just above secNode).
   compound.addCommand(DocumentCommand.createMoveNodes(mkSel(frontCont),secNode,NodeMoveType.After,NodeChildType.Main));
-  // Move Back just above secondary → ..., Front, Back, secondary ✓
   compound.addCommand(DocumentCommand.createMoveNodes(mkSel(backCont), secNode,NodeMoveType.After,NodeChildType.Main));
 
-  // Rename by z-order (TOP=curve1 in each container).
-  // frontCont: newNodes[B]=TOP(deepest fDef)=curve1, newNodes[B+F-1]=BOTTOM=curveF
+  // Rename curves by z-order within each container (deepest = curve1 = rendered on TOP).
   for(let i=0;i<F;i++) compound.addCommand(DocumentCommand.createSetDescription(mkSel(allCmd.newNodes[B+i]),`curve${i+1}`));
-  // backCont: newNodes[0]=TOP(deepest bDef)=curve(F+1), newNodes[B-1]=BOTTOM=curve(F+B)
   for(let i=0;i<B;i++) compound.addCommand(DocumentCommand.createSetDescription(mkSel(allCmd.newNodes[i]),`curve${F+1+i}`));
-
-  // Show source shapes (they were hidden in doPreview).
-  shapes.forEach(sh=>compound.addCommand(DocumentCommand.createSetVisibility(mkSel(sh.node),true)));
 
   doc.executeCommand(compound.createCommand());
 }
@@ -296,4 +329,4 @@ while(running){
   }else{undoN(previewSteps);running=false;}
 }
 
-}}}}
+}}}
