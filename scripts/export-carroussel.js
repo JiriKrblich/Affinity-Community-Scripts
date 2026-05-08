@@ -4,11 +4,12 @@ const { Document, FileExportOptions, FileExportArea } = require('/document');
 const { Dialog, DialogResult } = require('/dialog');
 const { UnitType } = require('/units');
 const { app } = require('/application');
-const { AddChildNodesCommandBuilder } = require('/commands');
+const { AddChildNodesCommandBuilder, DocumentCommand } = require('/commands');
 const { ShapeNodeDefinition } = require('/nodes');
 const { ShapeRectangle } = require('/shapes');
 const { Colour } = require('/colours');
 const { FillDescriptor } = require('/fills');
+const { Selection } = require('/selections');
 
 function getFolder(filePath) {
   const sep = filePath.includes('\\') ? '\\' : '/';
@@ -74,11 +75,13 @@ else {
     const helperNode = [...doc.layers].find(n => n.description === '__slice_tmp__');
     if (!helperNode) { errors++; continue; }
 
+    const exportArea = FileExportArea.createForSelectionArea(helperNode.selfSelection);
+    doc.executeCommand(DocumentCommand.createSetVisibility(helperNode.selfSelection, false));
+
     const fileName = prefix + '_' + (i + 1) + '.' + ext;
-    const records  = doc.export(outputFolder + sep + fileName,
-                       exportOptions,
-                       FileExportArea.createForSelectionArea(helperNode.selfSelection));
-    doc.deleteSelection(helperNode.selfSelection);
+    const records  = doc.export(outputFolder + sep + fileName, exportOptions, exportArea);
+
+    doc.deleteSelection(Selection.create(doc, [helperNode]));
 
     for (const r of records.all) {
       if (r.isSuccess) { exported.push(fileName); console.log('OK: ' + fileName); }

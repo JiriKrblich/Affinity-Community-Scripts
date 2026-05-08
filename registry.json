@@ -160,7 +160,7 @@
       "name": "RadialRepeat",
       "description": "Creates a radial repeat from the selected object(s) by duplicating the selection evenly around a central point in a circular pattern.",
       "author": "BlackMortimer-13",
-      "version": "4.0",
+      "version": "4.1",
       "category": "Object",
       "contributors": "NicKraneis",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/radialrepeat.js"
@@ -368,7 +368,7 @@
       "name": "Export Carroussel",
       "description": "Export a single document as individual panels of a specified size.",
       "author": "rbonelli",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "Export",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/export-carroussel.js"
     },
@@ -389,15 +389,6 @@
       "version": "1.0.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/3Dfun.js"
-    },
-    {
-      "id": "rename-artboards",
-      "name": "Artboard Batch Renamer",
-      "description": "Renames all artboards in the current document in bulk. When executed, a dialog prompts for a base name, which is then applied to all artboards with automatic sequential numbering and zero-padding — ensuring correct alphabetical sort order when exporting files (e.g., Name 01, Name 02... instead of Name 1, Name 2). For 100+ artboards, padding adjusts to 3 digits automatically. If only one artboard exists, no number is appended.",
-      "author": " Heitor Hatherly",
-      "version": "1.0.0",
-      "category": "Artboards",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/rename-artboards.js"
     },
     {
       "id": "rename-artboards",
@@ -443,6 +434,33 @@
       "version": "1.0.0",
       "category": "Effect",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/vector-lathe--revolve--v1.js"
+    },
+    {
+      "id": "combine4braille_affinity",
+      "name": "Combine Text For Braille Output",
+      "description": "When you intend to send a copy of your work to a blind person, it can take a lot of time to merge all the text boxes over many pages into one Word file. This Claude generated script starts at the beginning of the document and collects all the text from the text boxes and merges it into a txt file on your desktop. This can then be opened in Word for final processing before sending to Braille.",
+      "author": "BaconThatsIt",
+      "version": "1.0.0",
+      "category": "Export",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/combine4braille_affinity.js"
+    },
+    {
+      "id": "export-dds-bc3-dxt5",
+      "name": "Export DDS",
+      "description": "Exports the current Affinity document as a DDS file using BC3/DXT5 compression with auto-generated mipmaps.",
+      "author": "jeffthor10",
+      "version": "1.0.0",
+      "category": "Export",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/export-dds-bc3-dxt5.js"
+    },
+    {
+      "id": "artboard_fitter",
+      "name": "Artboard Fitter",
+      "description": "Resizes artboards based on content with custom padding and axis selection (Height, Width, or Both). Automatically groups elements, centers them, and maintains proportions without distortion regardless of DPI.",
+      "author": "Heitor Hatherly",
+      "version": "1.0.0",
+      "category": "Artboards",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/artboard_fitter.js"
     }
   ]
 }
