@@ -461,6 +461,15 @@
       "version": "1.0.0",
       "category": "Artboards",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/artboard_fitter.js"
+    },
+    {
+      "id": "ProfessionalChartGenerator",
+      "name": "Professional Chart Generator - CSV Import",
+      "description": "Generates pie charts and bar charts from an imported CSV file",
+      "author": "Ouriel MAKAYA",
+      "version": "4.0.0",
+      "category": "Artboards",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ProfessionalChartGenerator.js
     }
   ]
 }
