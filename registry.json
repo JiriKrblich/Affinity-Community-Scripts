@@ -67,7 +67,7 @@
     },
     {
       "id": "generatecropmarks",
-      "name": "Genarate Crop Marks",
+      "name": "Generate Crop Marks",
       "description": "Automatically generate 5mm corner crops and internal grid ticks with a 2mm offset for any selection in Affinity, placing them on a dedicated 0.25pt locked production layer.",
       "author": "sakura",
       "version": "1.0",
@@ -416,15 +416,6 @@
       "version": "1.0.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/tile-generator.js"
-    },
-    {
-      "id": "vector-lathe-revolve",
-      "name": "Vector Lathe (Revolve)",
-      "description": "This script revolves a selected vector path into a lathe-style 3D form. Select one path first, then run it; the script creates the revolved geometry, applies shading, and organizes the result into containers for visible faces and caps.",
-      "author": "BlackMortimer-13",
-      "version": "1.0.0",
-      "category": "Effect",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/vector-lathe--revolve--v1.js"
     },
     {
       "id": "vector-lathe-revolve",
