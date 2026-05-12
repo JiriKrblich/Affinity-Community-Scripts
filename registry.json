@@ -461,6 +461,15 @@
       "version": "4.0.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ProfessionalChartGenerator.js"
+    },
+    {
+      "id": "aff.logo",
+      "name": "Affinity Logo Grid",
+      "description": "Creates editable orthogonal, angled, tangent, circular, node, and Bezier handle construction guides from selected logo/SVG vectors.",
+      "author": "Yore-Des",
+      "version": "1.1.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/aff.logo.js"
     }
   ]
 }
