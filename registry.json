@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-05-09",
+  "last_updated": "2026-05-14",
   "scripts": [
     {
       "id": "blendtool",
@@ -470,6 +470,15 @@
       "version": "1.1.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/aff.logo.js"
+    },
+    {
+      "id": "block-shadow-tool",
+      "name": "Vector Block Shadow Tool",
+      "description": "Replicate the Block Shadow functionality from CorelDRAW by generating a solid, 2D vector extrusion from a source object. Unlike a drop shadow, this must result in a flat vector path capable of being sent to a plotter or vinyl cutter.",
+      "author": "jn-373",
+      "version": "1.4.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/block-shadow-tool.js"
     }
   ]
 }
