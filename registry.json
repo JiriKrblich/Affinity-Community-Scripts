@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-05-14",
+  "last_updated": "2026-05-15",
   "scripts": [
     {
       "id": "blendtool",
@@ -479,6 +479,24 @@
       "version": "1.4.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/block-shadow-tool.js"
+    },
+    {
+      "id": "scatter",
+      "name": "Vector Block Shadow Tool",
+      "description": "Scatters selected objects with adjustable parameters. Select a single group to scatter its children.",
+      "author": "Claude via Matt I.",
+      "version": "1.1.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/scatter.js"
+    },
+    {
+      "id": "selectplus",
+      "name": "SELECT+",
+      "description": "Utility that select layers by relationship (eg. all layers within a group), containment (objects inside another shape), random distribution, or pattern-based rules.",
+      "author": "Claude via Matt I.",
+      "version": "1.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/selectplus.js"
     }
   ]
 }
