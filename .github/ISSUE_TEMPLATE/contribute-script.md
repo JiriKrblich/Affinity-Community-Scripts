@@ -13,6 +13,8 @@ assignees: ''
 
 **Description:** (What does this script do? How should it be used?)
 
+**Preview image:** (drag and drop 16x9 preview image)
+
 **Version:** (Version of script)
 
 **Code:**
