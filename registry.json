@@ -9,6 +9,7 @@
       "author": "robinsnest56",
       "version": "9.0",
       "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/blendtool.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/blendtool.js"
     },
     {
@@ -135,6 +136,7 @@
       "author": "bitmancer",
       "version": "1.0",
       "category": "Effect",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/dithering.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/dithering.js"
     },
     {
@@ -181,6 +183,7 @@
       "author": "zaum",
       "version": "1.0.0",
       "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/randomizeobjects.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/randomizeobjects.js"
     },
     {
@@ -226,6 +229,7 @@
       "author": "EricP",
       "version": "1.1.0",
       "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/distributeshapes.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/distributeshapesonpaths.js"
     },
     {
@@ -498,6 +502,7 @@
       "author": "EricP",
       "version": "1.0.0",
       "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/selectplus.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/selectplus.js"
     },
     {
