@@ -415,6 +415,7 @@
       "author": "S1m0nP1",
       "version": "1.0.0",
       "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/tilegenerator.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/tile-generator.js"
     },
     {
@@ -497,6 +498,24 @@
       "version": "1.0.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/selectplus.js"
+    },
+    {
+      "id": "arabic-rtl-pro",
+      "name": "Arabic RTL Pro",
+      "description": "Converts selected Arabic text into visual RTL text for Affinity, with lam-alef shaping, right alignment, optional tatweel removal, harakat ordering, and precise global plus individual harakat size and X/Y offset controls.",
+      "author": "Dimas Nirwan",
+      "version": "1.1.0",
+      "category": "Text",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/arabic-rtl-pro.js"
+    },
+    {
+      "id": "hebrew-RTL-flip-helper",
+      "name": "Hebrew RTL Flip Helper",
+      "description": "Fixes Hebrew RTL issues with selectable modes.",
+      "author": "Tzvi20",
+      "version": "2.0.0",
+      "category": "Text",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/hebrew-RTL-flip-helper.js"
     }
   ]
 }
