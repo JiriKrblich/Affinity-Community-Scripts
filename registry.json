@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-05-15",
+  "last_updated": "2026-05-17",
   "scripts": [
     {
       "id": "blendtool",
@@ -37,6 +37,7 @@
       "author": "BlackMortimer-13",
       "version": "1.0",
       "category": "Artboards",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/CopytoAllArtboards.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/copytoartboards.js"
     },
     {
@@ -89,8 +90,9 @@
       "name": "Zig Zag Effect",
       "description": "This script transforms a selected shape or line into a zig zag pattern. Simply select a shape or path, run the script, and it will automatically apply a zig zag effect to it.",
       "author": "BlackMortimer-13",
-      "version": "1.0",
+      "version": "2.0",
       "category": "Effect",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ZigZag.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/zigzageffect.js"
     },
     {
@@ -104,11 +106,12 @@
     },
     {
       "id": "replacecolorfill",
-      "name": "ReplaceColorFill",
+      "name": "ReColorFill",
       "description": "Allows users to quickly change the fill color/gradients of selected shapes.",
       "author": "BlackMortimer-13",
-      "version": "3.0",
+      "version": "4.0",
       "category": "Color",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ReColorFill.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replacecolorfill.js"
     },
     {
@@ -141,11 +144,12 @@
     },
     {
       "id": "replacecolorstroke",
-      "name": "ReplaceStrokeColor",
+      "name": "ReColorStroke",
       "description": "Allows users to quickly change the stroke color or gradients of selected shapes.",
       "author": "BlackMortimer-13",
-      "version": "1.0",
+      "version": "2.0",
       "category": "Color",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ReColorStroke.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replacecolorstroke.js"
     },
     {
@@ -155,17 +159,8 @@
       "author": "BlackMortimer-13",
       "version": "1.0",
       "category": "Effect",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Pucker&Bloat.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/PuckerBloatEffect.js"
-    },
-    {
-      "id": "RadialRepeat",
-      "name": "RadialRepeat",
-      "description": "Creates a radial repeat from the selected object(s) by duplicating the selection evenly around a central point in a circular pattern.",
-      "author": "BlackMortimer-13",
-      "version": "4.1",
-      "category": "Object",
-      "contributors": "NicKraneis",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/radialrepeat.js"
     },
     {
       "id": "DeleteEmptyGroups",
@@ -174,6 +169,7 @@
       "author": "BlackMortimer-13",
       "version": "1.0",
       "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/DeleteEmptyFolders.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/deleteemptygroups.js"
     },
     {
@@ -234,21 +230,13 @@
     },
     {
       "id": "replace-all-with-key-object",
-      "name": "ReplaceAllwithKeyObject",
+      "name": "ReplaceObjectwithObject",
       "description": "The script replaces all selected objects with duplicates of the key object (select 2 objects then press Option on Mac or Alt on Windows on the object you want to become the key object), while preserving position and rotation, with optional size matching.",
       "author": "BlackMortimer-13",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replace-all-with-key-object-v1.js"
-    },
-    {
-      "id": "swap-orientation-only",
-      "name": "Swap Orientation Only",
-      "description": "The script swaps the position and rotation of 2 selected objects or groups, while keeping their size unchanged. Select exactly 2 objects or groups, then run the script.",
-      "author": "BlackMortimer-13",
-      "version": "1.0.0",
-      "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swap-orientation-only-v1.js"
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ReplaceObjectsWithObject.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replaceobjectswithobject.js"
     },
     {
       "id": "separate-fill-and-stroke",
@@ -257,6 +245,7 @@
       "author": "BlackMortimer-13",
       "version": "1.0.0",
       "category": "Color",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/SeparateStroke&Fill.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/separate-fill-and-stroke.js"
     },
     {
@@ -266,6 +255,7 @@
       "author": "BlackMortimer-13",
       "version": "1.0.0",
       "category": "Path",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ArrangeObjectsOnPath.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/arrange-on-path-v1.js"
     },
     {
@@ -273,9 +263,10 @@
       "name": "Swap Objects",
       "description": "The script swaps selected objects based on a custom mapping, with optional orientation and dimension swapping. Select at least 2 objects, choose how they should swap in the dialog, then use Preview or Apply.",
       "author": "BlackMortimer-13",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swap-objects-v1.js"
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/SwapObjects.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swapobjects.js"
     },
     {
       "id": "Toggle-Layer-Visibility-Across-All-Pages",
@@ -347,6 +338,7 @@
       "author": "BlackMortimer-13",
       "version": "1.0.0",
       "category": "Generator",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/FillPathWithObjects.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/fill-path-with-objects-v1.js"
     },
     {
@@ -365,6 +357,7 @@
       "author": "BlackMortimer-13",
       "version": "2.0.0",
       "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Extrude.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/extrudetool.js"
     },
     {
@@ -409,9 +402,10 @@
       "name": "Twist Effect",
       "description": "This script applies a progressive polar rotation (twist) to selected curves, shapes, or groups, mimicking Adobe Illustrator's twist effect. Select your vector elements first; the script subdivides Bezier curves, twists points radially based on distance from the center, and reconstructs the path.",
       "author": "BlackMortimer-13",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "category": "Effect",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/twist-effect-v1.js"
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Twist.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/twist-effect.js"
     },
     {
       "id": "tile-generator",
@@ -522,6 +516,34 @@
       "version": "2.0.0",
       "category": "Text",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/hebrew-RTL-flip-helper.js"
+    },
+    {
+      "id": "type-scale-builder",
+      "name": "Type Scale Builder PT Fix 1.2",
+      "description": "Type Scale Builder is an Affinity 3 JavaScript script that generates a modular typography system from a user-defined base text size. It lets designers choose a scale ratio, rounding mode, line-height logic, font, preview text, and the number of steps above/below the body size. The script then creates a clean editorial type specimen inside the current document, showing each generated style with its size, line-height, and preview sentence.",
+      "author": "Seba",
+      "version": "1.2.0",
+      "category": "Text",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/type-scale-builder.js"
+    },
+    {
+      "id": "image-trace-superior",
+      "name": "Image Trace Superior",
+      "description": "Converts raster/image layers into clean, scalable black-and-white vectors directly inside Affinity — no external tools needed. Engine: marching-squares contour tracer with adaptive Bezier smoothing, corner-aware RDP simplification, and anti-staircase curve fitting.",
+      "author": "Dimas Nirwan",
+      "version": "1.1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ImageTraceSuperior.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/image-trace-superior.js"
+    },
+    {
+      "id": "DuplicateatSelectedNodes",
+      "name": "Duplicate at Selected Nodes",
+      "description": "Duplicates the front/top selected object at every selected on-curve node on the other selected curve objects.",
+      "author": "Dimas Nirwan",
+      "version": "1.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DuplicateatSelectedNodes.js"
     }
   ]
 }

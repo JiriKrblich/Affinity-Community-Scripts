@@ -1,124 +1,395 @@
-"use strict";
+'use strict';
 
-const { Document } = require("/document");
-const { DocumentCommand, CompoundCommandBuilder } = require("/commands");
-const { CurveBuilder, PolyCurve } = require("/geometry");
-const { Dialog, DialogResult } = require("/dialog");
-const { Selection } = require("/selections");
+// PUCKER & BLOAT v2.3 - Affinity Designer
+//
+// v2.3 keeps the v1 pucker/bloat curve algorithm, but updates preview/commit:
+// - preview commands run as MCP preview state from onValueChangedHandler
+// - every preview is rebuilt from each object's original curvesInterface data
+// - selected groups are expanded recursively to all vector children
+// - multiple selected objects are processed together
+// - ShapeNodes are converted to mutable curves in one batch before preview/apply
+// - Cancel clears previews and restores the starting history position, including conversion
+// - OK clears previews, then applies the final curve change once
+
+const { Document } = require('/document');
+const { DocumentCommand, CompoundCommandBuilder } = require('/commands');
+const { CurveBuilder, PolyCurve } = require('/geometry');
+const { Dialog, DialogResult } = require('/dialog');
+const { Selection } = require('/selections');
 
 const doc = Document.current;
 
-function gatherNodes(nodes) {
-  const result = [];
-  for (const n of nodes) {
-    if (n.isGroupNode || n.isContainerNode) {
-      result.push(...gatherNodes([...n.children]));
-    } else if (
-      n.isPolyCurveNode ||
-      n.isShapeNode ||
-      (n.isVectorNode && n.polyCurve)
-    ) {
-      result.push(n);
-    }
+if (!doc) {
+  alert('Deschide un document.');
+} else {
+  const rawNodes = getSelectedVectorNodes();
+
+  if (!rawNodes.length) {
+    alert('Selecteaza una sau mai multe curbe, forme sau grupuri.');
+  } else {
+    main(rawNodes);
   }
-  return result;
 }
 
-const rawNodes = gatherNodes(doc.selection.nodes.toArray());
+function isPuckerBloatCandidate(n) {
+  if (!n) return false;
 
-if (!doc) {
-  alert("Deschide un document.");
-} else if (!rawNodes.length) {
-  alert("Selecteaza o curba, forma sau grup.");
-} else {
-  function ensureCurveNodes(raw) {
-    const poly = raw.filter((n) => n.isPolyCurveNode);
-    const shapes = raw.filter((n) => !n.isPolyCurveNode);
-    for (const s of shapes) {
-      doc.executeCommand(
-        DocumentCommand.createConvertToCurves(Selection.create(doc, s)),
-      );
+  try {
+    return !!(n.curvesInterface && n.curvesInterface.polyCurve);
+  } catch (e) {
+    return false;
+  }
+}
+
+function pushUnique(nodes, node) {
+  if (!node) return;
+
+  for (const existing of nodes) {
+    try {
+      if (existing.isSameNode && existing.isSameNode(node)) return;
+    } catch (e) {
+      // Ignore stale handles left behind by conversion/history changes.
     }
-    const converted = shapes.length
-      ? doc.selection.nodes.toArray().filter((n) => n.isPolyCurveNode)
-      : [];
-    return [...poly, ...converted];
   }
 
-  const nodes = ensureCurveNodes(rawNodes);
+  nodes.push(node);
+}
 
-  function applyPuckerBloat(nodes, amount) {
-    const t = amount / 100;
-    const cmds = [];
-    for (const n of nodes) {
-      const bbox = n.polyCurve.exactBoundingBox;
-      if (!bbox) continue;
-      const cx = bbox.x + bbox.width / 2;
-      const cy = bbox.y + bbox.height / 2;
-      const out = PolyCurve.create();
-      for (const curve of n.polyCurve) {
-        const beziers = [...curve.beziers];
-        if (!beziers.length) continue;
-        const builder = CurveBuilder.create();
-        const fs = beziers[0].start;
-        builder.beginXY(cx + (fs.x - cx) * (1 - t), cy + (fs.y - cy) * (1 - t));
-        for (const bez of beziers) {
-          builder.addBezierXY(
-            cx + (bez.c1.x - cx) * (1 + t),
-            cy + (bez.c1.y - cy) * (1 + t),
-            cx + (bez.c2.x - cx) * (1 + t),
-            cy + (bez.c2.y - cy) * (1 + t),
-            cx + (bez.end.x - cx) * (1 - t),
-            cy + (bez.end.y - cy) * (1 - t),
-          );
+function collectVectorNodes(selectedNodes) {
+  const nodes = [];
+
+  function visit(node) {
+    let child = null;
+    try {
+      child = node.firstChild;
+    } catch (e) {
+      child = null;
+    }
+
+    if ((node.isGroupNode || node.isContainerNode) && child) {
+      while (child) {
+        visit(child);
+
+        try {
+          child = child.nextSibling;
+        } catch (e) {
+          child = null;
         }
-        if (curve.isClosed) builder.close();
-        out.addCurve(builder.createCurve());
       }
-      cmds.push(DocumentCommand.createSetCurves(n.curvesInterface, out));
+      return;
     }
-    if (!cmds.length) return;
-    const cb = CompoundCommandBuilder.create();
-    for (const c of cmds) cb.addCommand(c);
-    doc.executeCommand(cb.createCommand());
+
+    if (isPuckerBloatCandidate(node)) {
+      pushUnique(nodes, node);
+    }
+
+    while (child) {
+      visit(child);
+
+      try {
+        child = child.nextSibling;
+      } catch (e) {
+        child = null;
+      }
+    }
   }
 
-  const dlg = Dialog.create("Pucker & Bloat");
+  for (const node of selectedNodes) {
+    visit(node);
+  }
+
+  return nodes;
+}
+
+function collectVectorNodesViaSelectionItems(selection) {
+  const nodes = [];
+
+  let items = null;
+  try {
+    items = selection.items;
+  } catch (e) {
+    items = null;
+  }
+
+  if (!items) return nodes;
+
+  for (const item of items) {
+    let node = null;
+    try {
+      node = item.node;
+    } catch (e) {
+      node = null;
+    }
+
+    for (const target of collectVectorNodes([node])) {
+      pushUnique(nodes, target);
+    }
+  }
+
+  return nodes;
+}
+
+function getSelectedVectorNodes() {
+  const nodes = collectVectorNodesViaSelectionItems(doc.selection);
+  if (nodes.length) return nodes;
+
+  try {
+    return collectVectorNodes(doc.selection.nodes.toArray());
+  } catch (e) {
+    return [];
+  }
+}
+
+function main(rawNodes) {
+  const historyStart = doc.history.position;
+  const nodes = ensureMutableCurveNodes(rawNodes);
+
+  if (!nodes.length) {
+    alert('Nu am putut converti selectia la curbe editabile.');
+    return;
+  }
+
+  function makeTargets(raw) {
+    const targets = [];
+
+    for (const n of raw) {
+      try {
+        const curvesInterface = n.curvesInterface;
+        const polyCurve = n.polyCurve || curvesInterface.polyCurve;
+
+        if (curvesInterface && polyCurve) {
+          targets.push({
+            curvesInterface,
+            sourcePolyCurve: polyCurve.clone()
+          });
+        }
+      } catch (e) {
+        // Ignore non-vector children inside selected groups.
+      }
+    }
+
+    return targets;
+  }
+
+  function ensureMutableCurveNodes(raw) {
+    const result = [];
+    const needsConvert = [];
+
+    for (const n of raw) {
+      if (isMutableCurveNode(n)) {
+        pushUnique(result, n);
+        continue;
+      }
+
+      pushUnique(needsConvert, n);
+    }
+
+    for (const converted of convertNodesToCurves(needsConvert)) {
+      if (isMutableCurveNode(converted)) {
+        pushUnique(result, converted);
+      }
+    }
+
+    return result;
+  }
+
+  function isMutableCurveNode(n) {
+    if (!n) return false;
+
+    try {
+      return !!(n.curvesInterface && n.curvesInterface.isMutable && (n.polyCurve || n.curvesInterface.polyCurve));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function convertNodesToCurves(nodesToConvert) {
+    const converted = [];
+
+    if (!nodesToConvert.length) return converted;
+
+    try {
+      const cmd = DocumentCommand.createConvertToCurves(Selection.create(doc, nodesToConvert, true));
+      doc.executeCommand(cmd);
+
+      for (const newNode of collectVectorNodes(cmd.newNodes)) {
+        pushUnique(converted, newNode);
+      }
+    } catch (e) {
+      console.log('Pucker & Bloat convert failed: ' + e);
+    }
+
+    if (!converted.length) {
+      try {
+        for (const selected of collectVectorNodes(doc.selection.nodes.toArray())) {
+          pushUnique(converted, selected);
+        }
+      } catch (e) {
+        console.log('Pucker & Bloat convert fallback failed: ' + e);
+      }
+    }
+
+    return converted;
+  }
+
+  function restoreHistoryStart() {
+    if (doc.history.position !== historyStart) {
+      doc.history.position = historyStart;
+    }
+  }
+
+  function readValues() {
+    return {
+      amount: Math.max(-200, Math.min(200, amtEd.value))
+    };
+  }
+
+  function readBoxCenter(polyCurve) {
+    let bbox = null;
+
+    try {
+      bbox = polyCurve.exactBoundingBox;
+    } catch (e) {
+      bbox = null;
+    }
+
+    if (!bbox) {
+      try {
+        bbox = polyCurve.boundingBox;
+      } catch (e) {
+        bbox = null;
+      }
+    }
+
+    if (!bbox) return null;
+
+    if (bbox.width !== undefined && bbox.height !== undefined) {
+      return {
+        x: bbox.x + bbox.width / 2,
+        y: bbox.y + bbox.height / 2
+      };
+    }
+
+    if (bbox.x0 !== undefined && bbox.x1 !== undefined && bbox.y0 !== undefined && bbox.y1 !== undefined) {
+      return {
+        x: (bbox.x0 + bbox.x1) / 2,
+        y: (bbox.y0 + bbox.y1) / 2
+      };
+    }
+
+    return null;
+  }
+
+  function warpPoint(pt, cx, cy, scale) {
+    return {
+      x: cx + (pt.x - cx) * scale,
+      y: cy + (pt.y - cy) * scale
+    };
+  }
+
+  function buildPuckerBloatPolyCurve(sourcePolyCurve, amount) {
+    const center = readBoxCenter(sourcePolyCurve);
+    if (!center) return sourcePolyCurve.clone();
+
+    const t = amount / 100;
+    const anchorScale = 1 - t;
+    const handleScale = 1 + t;
+    const out = PolyCurve.create();
+
+    for (const curve of sourcePolyCurve) {
+      const beziers = [...curve.beziers];
+
+      if (!beziers.length) {
+        out.addCurve(curve.clone());
+        continue;
+      }
+
+      const builder = CurveBuilder.create();
+      const first = warpPoint(beziers[0].start, center.x, center.y, anchorScale);
+
+      builder.beginXY(first.x, first.y);
+
+      for (const bez of beziers) {
+        const c1 = warpPoint(bez.c1, center.x, center.y, handleScale);
+        const c2 = warpPoint(bez.c2, center.x, center.y, handleScale);
+        const end = warpPoint(bez.end, center.x, center.y, anchorScale);
+
+        builder.addBezierXY(c1.x, c1.y, c2.x, c2.y, end.x, end.y);
+      }
+
+      if (curve.isClosed) builder.close();
+      out.addCurve(builder.createCurve());
+    }
+
+    return out;
+  }
+
+  function createPuckerBloatCommand(targets, amount) {
+    const cb = CompoundCommandBuilder.create();
+    let count = 0;
+
+    for (const target of targets) {
+      cb.addCommand(DocumentCommand.createSetCurves(
+        target.curvesInterface,
+        buildPuckerBloatPolyCurve(target.sourcePolyCurve, amount)
+      ));
+      count++;
+    }
+
+    return count ? cb.createCommand() : null;
+  }
+
+  let inPreview = false;
+  const previewTargets = makeTargets(nodes);
+
+  function applyPreview() {
+    if (inPreview) return;
+    inPreview = true;
+
+    try {
+      const values = readValues();
+      doc.executeCommand(DocumentCommand.createClearPreviews());
+
+      if (previewTargets.length) {
+        const cmd = createPuckerBloatCommand(previewTargets, values.amount);
+        if (cmd) doc.executeCommand(cmd, true);
+      }
+    } catch (e) {
+      console.log('Pucker & Bloat preview failed: ' + e);
+    } finally {
+      inPreview = false;
+    }
+  }
+
+  const dlg = Dialog.create('Pucker & Bloat');
+  dlg.initialWidth = 340;
+
   const col = dlg.addColumn();
-  const amtGrp = col.addGroup("Pucker <--> Bloat");
-  const amtEd = amtGrp.addUnitValueEditor(
-    "Amount (%)",
-    "px",
-    "px",
-    0,
-    -200,
-    200,
-  );
+  const grp = col.addGroup('Parameters');
+
+  var amtEd = grp.addUnitValueEditor('Amount (%)', 'px', 'px', 0, -200, 200);
   amtEd.precision = 1;
   amtEd.showPopupSlider = true;
-  const btnGrp = col.addGroup("");
-  btnGrp.enableSeparator = true;
-  const btns = btnGrp.addButtonSet("", ["Preview", "Apply"], 0);
 
-  applyPuckerBloat(nodes, 0);
-  let previewActive = true;
+  amtEd.onValueChangedHandler = applyPreview;
+  dlg.onControlValueChangedHandler = applyPreview;
 
-  let running = true;
-  while (running) {
-    btns.selectedIndex = 0;
-    const r = dlg.show();
-    const newAmount = Math.max(-200, Math.min(200, amtEd.value));
-    const doApply = btns.selectedIndex === 1;
+  const result = dlg.show();
+  const finalValues = readValues();
 
-    if (r.value === DialogResult.Ok.value) {
-      if (previewActive) doc.executeCommand(DocumentCommand.createUndo());
-      applyPuckerBloat(nodes, newAmount);
-      previewActive = true;
-      if (doApply) running = false;
-    } else {
-      if (previewActive) doc.executeCommand(DocumentCommand.createUndo());
-      previewActive = false;
-      running = false;
-    }
+  try {
+    doc.executeCommand(DocumentCommand.createClearPreviews());
+  } catch (e) {
+    console.log('Pucker & Bloat clear preview failed: ' + e);
   }
-} // end
+
+  if (result.value === DialogResult.Ok.value) {
+    const targets = makeTargets(nodes);
+    if (targets.length) {
+      const cmd = createPuckerBloatCommand(targets, finalValues.amount);
+      if (cmd) doc.executeCommand(cmd);
+    }
+  } else {
+    restoreHistoryStart();
+  }
+}

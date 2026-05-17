@@ -1,15 +1,14 @@
 'use strict';
 
-// ZIG ZAG EFFECT v2.5 - CLOSED PATHS FIX - Affinity Designer
+// TWIST EFFECT v2.5 - Affinity Designer
 //
-// Keeps the v2.5 zig-zag algorithm, but fixes closed Shape/path objects:
-// - preview commands are explicitly executed as preview state
+// v2.5 keeps the v1 twist algorithm, but updates preview/commit for MCP 3.2.1:
+// - preview commands run as preview state from dialog value handlers
 // - every preview is rebuilt from each object's original curvesInterface data
-// - selected groups are expanded recursively to all vector children
+// - selected groups are expanded recursively to all vector children using node.children.all
 // - multiple selected objects are processed together
-// - ShapeNodes / non-mutable curve interfaces are converted to mutable curves first
-// - closed paths use the exact v1 curve.beziers sampling path
-// - the initial field values are previewed as soon as the dialog opens
+// - ShapeNodes are converted to mutable curves before preview/apply
+// - default preview is applied after the dialog opens
 // - Cancel clears previews and restores the starting history position, including conversion
 // - OK clears previews, then applies the final curve change once
 
@@ -18,22 +17,23 @@ const { DocumentCommand, CompoundCommandBuilder } = require('/commands');
 const { CurveBuilder, PolyCurve } = require('/geometry');
 const { Dialog, DialogResult } = require('/dialog');
 const { Selection } = require('/selections');
+const { setImmediate } = require('/timers');
 
 const doc = Document.current;
 
 if (!doc) {
-  alert('Open a document first.');
+  alert('Deschide un document.');
 } else {
   const rawNodes = getSelectedVectorNodes();
 
   if (!rawNodes.length) {
-    alert('Select one or more vector curves, shapes, or groups first.');
+    alert('Selecteaza una sau mai multe curbe, forme sau grupuri.');
   } else {
     main(rawNodes);
   }
 }
 
-function isZigZagCandidate(n) {
+function isTwistCandidate(n) {
   if (!n) return false;
 
   try {
@@ -57,48 +57,85 @@ function pushUnique(nodes, node) {
   nodes.push(node);
 }
 
+function getDirectChildren(node) {
+  const children = [];
+
+  if (!node) return children;
+
+  try {
+    for (const child of node.children) {
+      pushUnique(children, child);
+    }
+  } catch (e) {
+    let child = null;
+    try {
+      child = node.firstChild;
+    } catch (err) {
+      child = null;
+    }
+
+    while (child) {
+      pushUnique(children, child);
+
+      try {
+        child = child.nextSibling;
+      } catch (err) {
+        child = null;
+      }
+    }
+  }
+
+  return children;
+}
+
+function getDescendantNodes(node) {
+  const children = [];
+
+  if (!node) return children;
+
+  try {
+    for (const child of node.children.all) {
+      pushUnique(children, child);
+    }
+  } catch (e) {
+    function visit(parent) {
+      for (const child of getDirectChildren(parent)) {
+        pushUnique(children, child);
+        visit(child);
+      }
+    }
+
+    visit(node);
+  }
+
+  return children;
+}
+
 function collectVectorNodes(selectedNodes) {
   const nodes = [];
 
   function visit(node) {
     if (!node) return;
 
-    let child = null;
-    try {
-      child = node.firstChild;
-    } catch (e) {
-      child = null;
-    }
+    const descendants = getDescendantNodes(node);
 
-    if ((node.isGroupNode || node.isContainerNode) && child) {
-      while (child) {
-        visit(child);
-
-        try {
-          child = child.nextSibling;
-        } catch (e) {
-          child = null;
-        }
+    if ((node.isGroupNode || node.isContainerNode) && descendants.length) {
+      for (const child of descendants) {
+        if (isTwistCandidate(child)) pushUnique(nodes, child);
       }
       return;
     }
 
-    if (isZigZagCandidate(node)) {
+    if (isTwistCandidate(node)) {
       pushUnique(nodes, node);
     }
 
-    while (child) {
-      visit(child);
-
-      try {
-        child = child.nextSibling;
-      } catch (e) {
-        child = null;
-      }
+    for (const child of descendants) {
+      if (isTwistCandidate(child)) pushUnique(nodes, child);
     }
   }
 
-  for (const node of selectedNodes || []) {
+  for (const node of selectedNodes) {
     visit(node);
   }
 
@@ -149,8 +186,7 @@ function main(rawNodes) {
   const nodes = ensureMutableCurveNodes(rawNodes);
 
   if (!nodes.length) {
-    restoreHistoryStart();
-    alert('Could not convert the selection to editable curves.');
+    alert('Nu am putut converti selectia la curbe editabile.');
     return;
   }
 
@@ -221,7 +257,7 @@ function main(rawNodes) {
         pushUnique(converted, newNode);
       }
     } catch (e) {
-      console.log('Zig Zag convert failed: ' + e);
+      console.log('Twist convert failed: ' + e);
     }
 
     if (!converted.length) {
@@ -230,7 +266,7 @@ function main(rawNodes) {
           pushUnique(converted, selected);
         }
       } catch (e) {
-        console.log('Zig Zag convert fallback failed: ' + e);
+        console.log('Twist convert fallback failed: ' + e);
       }
     }
 
@@ -243,6 +279,46 @@ function main(rawNodes) {
     }
   }
 
+  function readBox(polyCurve) {
+    let bbox = null;
+
+    try {
+      bbox = polyCurve.exactBoundingBox;
+    } catch (e) {
+      bbox = null;
+    }
+
+    if (!bbox) {
+      try {
+        bbox = polyCurve.boundingBox;
+      } catch (e) {
+        bbox = null;
+      }
+    }
+
+    if (!bbox) return null;
+
+    if (bbox.width !== undefined && bbox.height !== undefined) {
+      return {
+        x: bbox.x,
+        y: bbox.y,
+        width: bbox.width,
+        height: bbox.height
+      };
+    }
+
+    if (bbox.x0 !== undefined && bbox.x1 !== undefined && bbox.y0 !== undefined && bbox.y1 !== undefined) {
+      return {
+        x: bbox.x0,
+        y: bbox.y0,
+        width: bbox.x1 - bbox.x0,
+        height: bbox.y1 - bbox.y0
+      };
+    }
+
+    return null;
+  }
+
   function evalBez(b, t) {
     const u = 1 - t;
     return {
@@ -251,122 +327,78 @@ function main(rawNodes) {
     };
   }
 
-  function tanNorm(b, t) {
-    const u = 1 - t;
-    const dx = 3 * (u * u * (b.c1.x - b.start.x) + 2 * u * t * (b.c2.x - b.c1.x) + t * t * (b.end.x - b.c2.x));
-    const dy = 3 * (u * u * (b.c1.y - b.start.y) + 2 * u * t * (b.c2.y - b.c1.y) + t * t * (b.end.y - b.c2.y));
-    const l = Math.hypot(dx, dy) || 1e-9;
-    return { tx: dx / l, ty: dy / l, nx: -dy / l, ny: dx / l };
+  function twistPoint(point, cx, cy, angleRad, maxR) {
+    const dx = point.x - cx;
+    const dy = point.y - cy;
+    const r = Math.hypot(dx, dy);
+
+    if (r < 1e-9) return point;
+
+    const angle = Math.atan2(dy, dx) + angleRad * (r / maxR);
+    return {
+      x: cx + r * Math.cos(angle),
+      y: cy + r * Math.sin(angle)
+    };
   }
 
-  function buildArcTable(beziers) {
-    const tbl = [];
-    let cum = 0;
+  function buildTwistPolyCurve(sourcePolyCurve, angleDeg, subdiv) {
+    const bbox = readBox(sourcePolyCurve);
+    if (!bbox) return sourcePolyCurve.clone();
 
-    for (let bi = 0; bi < beziers.length; bi++) {
-      const b = beziers[bi];
-      let prev = evalBez(b, 0);
-
-      if (bi === 0) tbl.push({ bi, t: 0, cum: 0 });
-
-      for (let s = 1; s <= 300; s++) {
-        const t = s / 300;
-        const pt = evalBez(b, t);
-        cum += Math.hypot(pt.x - prev.x, pt.y - prev.y);
-        tbl.push({ bi, t, cum });
-        prev = pt;
-      }
-    }
-
-    return tbl;
-  }
-
-  function sampleAt(tbl, beziers, c) {
-    let lo = 0;
-    let hi = tbl.length - 1;
-
-    while (lo < hi - 1) {
-      const mid = (lo + hi) >> 1;
-      if (tbl[mid].cum <= c) lo = mid;
-      else hi = mid;
-    }
-
-    const a = tbl[lo];
-    const b = tbl[hi];
-    const span = b.cum - a.cum;
-    const f = span < 1e-9 ? 0 : (c - a.cum) / span;
-    const bi = f < 0.5 ? a.bi : b.bi;
-    const t = a.t + (b.t - a.t) * f;
-
-    return { p: evalBez(beziers[bi], t), g: tanNorm(beziers[bi], t) };
-  }
-
-  function buildZigZagPolyCurve(sourcePolyCurve, amp, ridges, smooth) {
+    const cx = bbox.x + bbox.width / 2;
+    const cy = bbox.y + bbox.height / 2;
+    const maxR = Math.hypot(bbox.width / 2, bbox.height / 2) || 1;
+    const angleRad = angleDeg * Math.PI / 180;
     const out = PolyCurve.create();
 
     for (const curve of sourcePolyCurve) {
       const beziers = [...curve.beziers];
-      if (!beziers.length) continue;
 
-      const tbl = buildArcTable(beziers);
-      const totalLen = tbl[tbl.length - 1].cum;
-      if (totalLen < 1e-9) {
+      if (!beziers.length) {
         out.addCurve(curve.clone());
         continue;
       }
 
-      const peaks = ridges * 2;
-      const step = totalLen / peaks;
-      const closed = curve.isClosed;
-      const pts = [];
-
-      if (closed) {
-        for (let i = 0; i < peaks; i++) {
-          const { p, g } = sampleAt(tbl, beziers, i * step);
-          const sign = i % 2 === 0 ? 1 : -1;
-          pts.push({ x: p.x + g.nx * amp * sign, y: p.y + g.ny * amp * sign, tx: g.tx, ty: g.ty });
-        }
-      } else {
-        for (let i = 0; i <= peaks; i++) {
-          const { p, g } = sampleAt(tbl, beziers, Math.min(i * step, totalLen));
-          const sign = (i === 0 || i === peaks) ? 0 : (i % 2 === 1 ? 1 : -1);
-          pts.push({ x: p.x + g.nx * amp * sign, y: p.y + g.ny * amp * sign, tx: g.tx, ty: g.ty });
+      const points = [];
+      for (const bez of beziers) {
+        for (let step = 0; step < subdiv; step++) {
+          points.push(evalBez(bez, step / subdiv));
         }
       }
 
+      if (!curve.isClosed) {
+        const last = beziers[beziers.length - 1];
+        points.push({ x: last.end.x, y: last.end.y });
+      }
+
+      if (!points.length) {
+        out.addCurve(curve.clone());
+        continue;
+      }
+
+      const twisted = points.map(point => twistPoint(point, cx, cy, angleRad, maxR));
       const builder = CurveBuilder.create();
-      builder.beginXY(pts[0].x, pts[0].y);
+      builder.beginXY(twisted[0].x, twisted[0].y);
 
-      const count = closed ? peaks : pts.length - 1;
-      if (smooth) {
-        for (let i = 0; i < count; i++) {
-          const p0 = pts[i];
-          const p1 = pts[(i + 1) % pts.length];
-          const h = Math.hypot(p1.x - p0.x, p1.y - p0.y) / 3;
-          builder.addBezierXY(p0.x + p0.tx * h, p0.y + p0.ty * h, p1.x - p1.tx * h, p1.y - p1.ty * h, p1.x, p1.y);
-        }
-      } else {
-        for (let i = 1; i <= count; i++) {
-          const pt = pts[i % pts.length];
-          builder.lineToXY(pt.x, pt.y);
-        }
+      for (let i = 1; i < twisted.length; i++) {
+        builder.lineToXY(twisted[i].x, twisted[i].y);
       }
 
-      if (closed) builder.close();
+      if (curve.isClosed) builder.close();
       out.addCurve(builder.createCurve());
     }
 
     return out;
   }
 
-  function createZigZagCommand(targets, amp, ridges, smooth) {
+  function createTwistCommand(targets, angleDeg, subdiv) {
     const cb = CompoundCommandBuilder.create();
     let count = 0;
 
     for (const target of targets) {
       cb.addCommand(DocumentCommand.createSetCurves(
         target.curvesInterface,
-        buildZigZagPolyCurve(target.sourcePolyCurve, amp, ridges, smooth)
+        buildTwistPolyCurve(target.sourcePolyCurve, angleDeg, subdiv)
       ));
       count++;
     }
@@ -376,69 +408,75 @@ function main(rawNodes) {
 
   function readValues() {
     return {
-      amp: Math.max(1, Math.round(ampEd.value)),
-      ridges: Math.max(1, Math.round(frqEd.value)),
-      smooth: smSw.value
+      angle: Math.max(-3600, Math.min(3600, angleEd.value)),
+      subdiv: Math.max(4, Math.min(200, Math.round(subdivEd.value)))
     };
   }
 
+  function clearPreviews() {
+    try {
+      doc.executeCommand(DocumentCommand.createClearPreviews());
+    } catch (e) {
+      console.log('Twist clear preview failed: ' + e);
+    }
+  }
+
   let inPreview = false;
+  let dialogOpen = false;
   const previewTargets = makeTargets(nodes);
 
   function applyPreview() {
+    if (!dialogOpen) return;
     if (inPreview) return;
     inPreview = true;
 
     try {
       const values = readValues();
-      doc.executeCommand(DocumentCommand.createClearPreviews());
+      clearPreviews();
+
       if (previewTargets.length) {
-        const cmd = createZigZagCommand(previewTargets, values.amp, values.ridges, values.smooth);
+        const cmd = createTwistCommand(previewTargets, values.angle, values.subdiv);
         if (cmd) doc.executeCommand(cmd, true);
       }
     } catch (e) {
-      console.log('Zig Zag preview failed: ' + e);
+      console.log('Twist preview failed: ' + e);
+      clearPreviews();
     } finally {
       inPreview = false;
     }
   }
 
-  const dlg = Dialog.create('Zig Zag Effect');
+  const dlg = Dialog.create('Twist Effect');
   dlg.initialWidth = 340;
 
   const col = dlg.addColumn();
   const grp = col.addGroup('Parameters');
 
-  var ampEd = grp.addUnitValueEditor('Amplitude (px)', 'px', 'px', 10, 1, 500);
-  ampEd.precision = 0;
-  ampEd.showPopupSlider = true;
+  var angleEd = grp.addUnitValueEditor('Angle (deg)', 'px', 'px', 45, -3600, 3600);
+  angleEd.precision = 1;
+  angleEd.showPopupSlider = true;
 
-  var frqEd = grp.addUnitValueEditor('Ridges', 'px', 'px', 8, 1, 500);
-  frqEd.precision = 0;
-  frqEd.showPopupSlider = true;
+  var subdivEd = grp.addUnitValueEditor('Mesh Resolution', 'px', 'px', 40, 4, 200);
+  subdivEd.precision = 0;
+  subdivEd.showPopupSlider = true;
 
-  var smSw = grp.addSwitch('Smooth wave', false);
-
-  ampEd.onValueChangedHandler = applyPreview;
-  frqEd.onValueChangedHandler = applyPreview;
-  smSw.onValueChangedHandler = applyPreview;
+  angleEd.onValueChangedHandler = applyPreview;
+  subdivEd.onValueChangedHandler = applyPreview;
   dlg.onControlValueChangedHandler = applyPreview;
 
-  applyPreview();
-
+  dialogOpen = true;
+  setImmediate(applyPreview);
   const result = dlg.show();
+  dialogOpen = false;
   const finalValues = readValues();
 
-  try {
-    doc.executeCommand(DocumentCommand.createClearPreviews());
-  } catch (e) {
-    console.log('Zig Zag clear preview failed: ' + e);
-  }
+  clearPreviews();
 
   if (result.value === DialogResult.Ok.value) {
-    const targets = makeTargets(nodes);
-    if (targets.length) {
-      const cmd = createZigZagCommand(targets, finalValues.amp, finalValues.ridges, finalValues.smooth);
+    const finalTargets = makeTargets(nodes);
+
+    if (finalTargets.length) {
+      const cmd = createTwistCommand(finalTargets, finalValues.angle, finalValues.subdiv);
       if (cmd) doc.executeCommand(cmd);
     }
   } else {
