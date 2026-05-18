@@ -100,7 +100,7 @@
       "name": "Bento Box Generator",
       "description": "Generates Bento Grid/Box on the current page/artboard",
       "author": "JiriKrblich",
-      "version": "1.0",
+      "version": "1.1",
       "category": "Generator",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/bentobox.gif",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/bentoboxgenerator.js"
