@@ -102,6 +102,7 @@
       "author": "JiriKrblich",
       "version": "1.0",
       "category": "Generator",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/bentobox.gif",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/bentoboxgenerator.js"
     },
     {
@@ -198,6 +199,7 @@
       "author": "JiriKrblich",
       "version": "1.0.0",
       "category": "Color",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/oklch.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/oklch_color.js"
     },
     {
@@ -207,6 +209,7 @@
       "author": "JiriKrblich",
       "version": "1.0.0",
       "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/splittogrid.gif",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/split_to_grid.js"
     },
     {
