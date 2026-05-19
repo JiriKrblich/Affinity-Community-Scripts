@@ -568,7 +568,7 @@
     },
     {
       "id": "Block_Text",
-      "name": "Simplify Curves",
+      "name": "Block_Text",
       "description": "Scales selected art text to match the widest, left-aligns all objects, and spaces them vertically with a all objects, and spates them verticaly with a configurable point gap.",
       "author": "pgraficzny",
       "version": "1.1.0",
