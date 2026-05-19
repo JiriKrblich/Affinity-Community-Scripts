@@ -555,6 +555,16 @@
       "version": "1.0.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DuplicateatSelectedNodes.js"
+    },
+    {
+      "id": "simplify_curves",
+      "name": "Simplify Curves",
+      "description": "Script for reducing points of curves object",
+      "author": "JiriKrblich",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/simplify_curves.gif",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/simplify_curves.js"
     }
   ]
 }
