@@ -1,17 +1,19 @@
 /**
- * name: Bento Box Generator
- * description: Generates Bento Grid/Box on the current page/artboard
- * version: 1.1.0
- * author: JiriKrblich
- * changelog:
- *   v1.1 – Fix corner radius (cornerType must be set before radius);
- *           add Preview/Apply workflow identical to Tile Generator
+ * name: Bento Box Generator v2.4
+ * description: Generates a Bento Grid on the current page/artboard.
+ *   Fill mode dropdown: Color | Grayscale.
+ *   Native live preview updates settings without randomizing the layout.
+ *   "Regenerate" creates a new random layout while preserving settings.
+ *   "Apply" confirms the result and closes the dialog.
+ *   Native "Cancel" discards the preview.
+ * version: 2.4
+ * author: JiriKrblich / Claude
  */
 
 'use strict';
 const { Document } = require('/document');
 const { Dialog, DialogResult } = require('/dialog');
-const { DocumentCommand, AddChildNodesCommandBuilder, NodeChildType } = require('/commands');
+const { AddChildNodesCommandBuilder, NodeChildType } = require('/commands');
 const { UnitType } = require('/units');
 const { Rectangle } = require('/geometry');
 const { ShapeRectangle, ShapeCornerType } = require('/shapes');
@@ -19,9 +21,17 @@ const { Colour } = require('/colours');
 const { FillDescriptor } = require('/fills');
 const { ShapeNodeDefinition } = require('/nodes');
 
-let config = { blockCount: 8, cornerRadius: 15, padding: 40, gap: 20, colorFill: true };
+// Default config
+// fillMode: 0 = Color, 1 = Grayscale
+let config = {
+    blockCount:   8,
+    cornerRadius: 15,
+    padding:      40,
+    gap:          20,
+    fillMode:     0
+};
 
-// ── Layout algorithm ──────────────────────────────────────────────────────────
+// Layout algorithm
 
 function computeParams(n) {
     if (n <= 3) return { gridSize: Math.max(6, n * 2), maxSpan: 999, minCells: 1 };
@@ -57,7 +67,6 @@ function splitRect(r, doH, minCells, maxSpan) {
 
 function tryGenerate(n, gridSize, maxSpan, minCells) {
     let rects = [{ col: 0, row: 0, w: gridSize, h: gridSize }];
-
     for (let i = 0; i < 500; i++) {
         const idx = rects.findIndex(r => r.w > maxSpan || r.h > maxSpan);
         if (idx < 0) break;
@@ -69,7 +78,6 @@ function tryGenerate(n, gridSize, maxSpan, minCells) {
         if (!pieces) { rects.push(r); break; }
         rects.push(...pieces);
     }
-
     while (rects.length < n) {
         const eligible = rects.filter(r => r.w >= 2 * minCells || r.h >= 2 * minCells);
         if (!eligible.length) break;
@@ -83,7 +91,6 @@ function tryGenerate(n, gridSize, maxSpan, minCells) {
         if (!pieces) { rects.push(chosen); break; }
         rects.push(...pieces);
     }
-
     return rects.map(r => [r.col, r.row, r.w, r.h]);
 }
 
@@ -104,43 +111,53 @@ function generateControlledLayout(n, canvasAspect) {
     return { layout: tryGenerate(n, gridSize, maxSpan, minCells), gridSize };
 }
 
-// ── Target detection ──────────────────────────────────────────────────────────
+function createPreviewPlan(blockCount, canvasAspect) {
+    const generated = generateControlledLayout(blockCount, canvasAspect);
+    generated.swatches = generated.layout.map(() => ({
+        r: Math.random(),
+        g: Math.random(),
+        b: Math.random(),
+        shade: Math.random()
+    }));
+    return generated;
+}
+
+// Target detection
 
 function detectTarget() {
     const doc = Document.current;
     const spread = doc.currentSpread;
     const sel = doc.selection;
-
     if (sel.length > 0) {
-        let node = sel.nodes.first;
+        let node = sel.at(0).node;
         while (node && node[Symbol.toStringTag] !== 'SpreadNode') {
-            const abi = node.artboardInterface;
-            if (abi && abi.isArtboardEnabled) {
-                return { node, box: abi.baseBox, label: abi.description };
-            }
+            try {
+                const abi = node.artboardInterface;
+                if (abi && abi.isArtboardEnabled) {
+                    const artboardNode = abi.node || node;
+                    return { node: artboardNode, box: abi.baseBox, label: abi.description };
+                }
+            } catch (e) {}
             node = node.parent;
         }
     }
-
     const box = spread.getSpreadExtents();
     return { node: spread, box, label: 'Spread' };
 }
 
-// ── Generation ────────────────────────────────────────────────────────────────
+// Bento generation
 
-function createBentoBoxes(target) {
-    const doc = Document.current;
-    if (!doc) return 0;
-
+function createBentoCommand(target, plan) {
     const { node: insertNode, box } = target;
-    const canvasAspect = box.width / box.height;
-    const { layout, gridSize } = generateControlledLayout(config.blockCount, canvasAspect);
+    const { layout, gridSize, swatches } = plan;
 
     const cellW = (box.width  - 2 * config.padding - (gridSize - 1) * config.gap) / gridSize;
     const cellH = (box.height - 2 * config.padding - (gridSize - 1) * config.gap) / gridSize;
 
     const builder = AddChildNodesCommandBuilder.create();
     builder.setInsertionTarget(insertNode);
+
+    const isGrayscale = config.fillMode === 1;
 
     layout.forEach(([c, r, w, h], i) => {
         const x = box.x + config.padding + c * (cellW + config.gap);
@@ -151,48 +168,50 @@ function createBentoBoxes(target) {
         const shape = ShapeRectangle.create();
         shape.setAbsoluteSizes(true, W, H);
 
-        // cornerType must be set BEFORE radius — default cornerType is None
-        // (value 4), and setRadius on a None corner silently does nothing.
+        // Corner type must be set before the radius value.
         [shape.topLeft, shape.topRight, shape.bottomLeft, shape.bottomRight].forEach(corner => {
             corner.cornerType = ShapeCornerType.Round;
             corner.setRadius(config.cornerRadius, W, H);
         });
 
         let colour;
-        if (config.colorFill) {
-            colour = Colour.createRGBAuf({ r: Math.random(), g: Math.random(), b: Math.random(), alpha: 1.0 });
-        } else {
-            const v = 0.82 + (i / layout.length) * 0.14 + (Math.random() - 0.5) * 0.04;
+        const swatch = swatches[i] || { r: 0.5, g: 0.5, b: 0.5, shade: 0.5 };
+        if (isGrayscale) {
+            const v = 0.82 + (i / layout.length) * 0.14 + (swatch.shade - 0.5) * 0.04;
             colour = Colour.createRGBAuf({ r: v, g: v, b: v, alpha: 1.0 });
+        } else {
+            colour = Colour.createRGBAuf({ r: swatch.r, g: swatch.g, b: swatch.b, alpha: 1.0 });
         }
 
-        builder.addShapeNode(ShapeNodeDefinition.create(
-            shape, new Rectangle(x, y, W, H), FillDescriptor.createSolid(colour)
-        ));
+        const nodeDef = ShapeNodeDefinition.create(
+            shape,
+            new Rectangle(x, y, W, H),
+            FillDescriptor.createSolid(colour)
+        );
+
+        builder.addShapeNode(nodeDef);
     });
 
-    doc.executeCommand(builder.createCommand(true, NodeChildType.Main));
-    return 1; // one compound undo step
+    return builder.createCommand(true, NodeChildType.Main);
 }
 
-// ── Dialog ────────────────────────────────────────────────────────────────────
+// Main dialog
 
 function main() {
     const doc = Document.current;
     if (!doc) return;
 
     const target = detectTarget();
-
     const dlg = Dialog.create('Bento Box Generator');
-    dlg.initialWidth = 360;
+    dlg.initialWidth = 380;
     const col = dlg.addColumn();
 
-    // ── Target info ──
+    // Target
     const infoGrp = col.addGroup('Target');
-    infoGrp.addStaticText('', `${target.label}  (${Math.round(target.box.width)} × ${Math.round(target.box.height)})`).isFullWidth = true;
-    infoGrp.addStaticText('', 'Select an artboard or page before opening to change target.').isFullWidth = true;
+    infoGrp.addStaticText('', `${target.label}  (${Math.round(target.box.width)} x ${Math.round(target.box.height)} px)`).isFullWidth = true;
+    infoGrp.addStaticText('', 'Select an artboard or page before opening to change the target.').isFullWidth = true;
 
-    // ── Settings ──
+    // Settings
     const grp = col.addGroup('Settings');
 
     const blockCtrl = grp.addUnitValueEditor('Block count', UnitType.None, UnitType.None, config.blockCount, 3, 16);
@@ -208,53 +227,59 @@ function main() {
     const gapCtrl = grp.addUnitValueEditor('Gap', UnitType.Pixel, UnitType.Pixel, config.gap, 0, 100);
     gapCtrl.showPopupSlider = true;
 
-    // ── Color fill — own group so it doesn't crowd the action buttons ──
+    // Fill mode
     const fillGrp = col.addGroup('Fill');
-    const colorSwitch = fillGrp.addSwitch('Color fill', config.colorFill);
+    const modeLabels = ['Color', 'Grayscale'];
+    const modeCombo = fillGrp.addComboBox('Mode', modeLabels, config.fillMode);
+    modeCombo.isFullWidth = true;
 
-    // ── Actions — separate group with breathing room above ──
+    // Actions
     const actGrp = col.addGroup('Actions');
     const statusTxt = actGrp.addStaticText('', '');
     statusTxt.isFullWidth = true;
-    const btns = actGrp.addButtonSet('', ['↺ Preview', '✓ Apply'], 0);
+
+    // The native OK confirms the selected action; Cancel discards preview.
+    const btns = actGrp.addButtonSet('', ['Regenerate', 'Apply'], 0);
     btns.isFullWidth = true;
-    // Extra spacer so native OK/Cancel don't overlap the button set
-    actGrp.addStaticText('', '').isFullWidth = true;
+    actGrp.addStaticText('', '').isFullWidth = true;   // spacer
 
     function readConfig() {
         config.blockCount   = Math.round(blockCtrl.value);
         config.cornerRadius = radiusCtrl.value;
         config.padding      = paddingCtrl.value;
         config.gap          = gapCtrl.value;
-        config.colorFill    = colorSwitch.value;
+        config.fillMode     = modeCombo.selectedIndex;
     }
 
-    let previewCmds = 0, previewActive = false;
+    let previewPlan = null;
 
-    function clearPreview() {
-        if (previewActive) {
-            for (let i = 0; i < previewCmds; i++) {
-                doc.executeCommand(DocumentCommand.createUndo());
-            }
-            previewActive = false;
-            previewCmds = 0;
+    function ensurePreviewPlan(forceNewLayout) {
+        const canvasAspect = target.box.width / target.box.height;
+        if (forceNewLayout || !previewPlan || previewPlan.layout.length !== config.blockCount) {
+            previewPlan = createPreviewPlan(config.blockCount, canvasAspect);
         }
     }
 
-    function doPreview() {
-        clearPreview();
+    function updatePreview(forceNewLayout, commit) {
         try {
             readConfig();
-            previewCmds = createBentoBoxes(target);
-            previewActive = true;
-            statusTxt.text = `Previewing ${config.blockCount} blocks — adjust and preview again, or Apply to keep.`;
+            ensurePreviewPlan(forceNewLayout);
+            const cmd = createBentoCommand(target, previewPlan);
+            doc.executeCommand(cmd, !commit);
+            statusTxt.text = `Preview: ${config.blockCount} blocks - ${modeLabels[config.fillMode]} - controls update live; Regenerate creates a new layout.`;
+            return true;
         } catch (e) {
-            statusTxt.text = '✖ Error: ' + e.message;
+            statusTxt.text = 'Error: ' + e.message;
+            return false;
         }
     }
 
-    // Initial preview before dialog appears
-    doPreview();
+    // Initial preview.
+    updatePreview(true, false);
+
+    dlg.onControlValueChangedHandler = () => {
+        updatePreview(false, false);
+    };
 
     let running = true;
     while (running) {
@@ -263,16 +288,15 @@ function main() {
         const mode = btns.selectedIndex;
 
         if (result.value !== DialogResult.Ok.value) {
-            // Cancel — undo preview
-            clearPreview();
+            // Cancel - discard preview.
+            doc.clearPreviews();
             running = false;
         } else if (mode === 1) {
-            // ✓ Apply — keep result, close
-            previewActive = false;
-            running = false;
+            // Apply - commit and close only if commit succeeded.
+            running = !updatePreview(false, true);
         } else {
-            // ↺ Preview — regenerate
-            doPreview();
+            // Regenerate - create a new random layout.
+            updatePreview(true, false);
         }
     }
 }

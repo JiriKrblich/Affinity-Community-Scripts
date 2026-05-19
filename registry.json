@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-05-18",
+  "last_updated": "2026-05-19",
   "scripts": [
     {
       "id": "blendtool",
@@ -565,6 +565,26 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/simplify_curves.gif",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/simplify_curves.js"
+    },
+    {
+      "id": "Block_Text",
+      "name": "Simplify Curves",
+      "description": "Scales selected art text to match the widest, left-aligns all objects, and spaces them vertically with a all objects, and spates them verticaly with a configurable point gap.",
+      "author": "pgraficzny",
+      "version": "1.1.0",
+      "category": "Text",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/block_text.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/block_text.js"
+    },
+    {
+      "id": "curvemockupoverlay",
+      "name": "Curve Mockup Overlay",
+      "description": "Draw presentation-style fake anchor points and Bezier handles over the selected curve.",
+      "author": "JiriKrblich",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/curvemockupoverlay.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/curve-mockup-overlay.js"
     }
   ]
 }
