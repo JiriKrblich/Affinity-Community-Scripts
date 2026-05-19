@@ -559,7 +559,7 @@
     {
       "id": "simplify_curves",
       "name": "Simplify Curves",
-      "description": "Script for reducing points of curves object",
+      "description": "Script for reducing points of object curves",
       "author": "JiriKrblich",
       "version": "1.0.0",
       "category": "Object",
