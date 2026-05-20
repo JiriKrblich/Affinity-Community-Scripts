@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-05-19",
+  "last_updated": "2026-05-21",
   "scripts": [
     {
       "id": "blendtool",
@@ -190,7 +190,7 @@
       "name": "Directional Blur Shadow",
       "description": "Directional Blur Shadow creates a directional shadow of an object that progressively blurs, fades and tapers as it moves away from the object.",
       "author": "rbonelli",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "Effect",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/directionblur.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DirectionalBlurShadow.js"
@@ -523,7 +523,7 @@
       "name": "Hebrew RTL Flip Helper",
       "description": "Fixes Hebrew RTL issues with selectable modes.",
       "author": "Tzvi20",
-      "version": "2.0.0",
+      "version": "1.4.0",
       "category": "Text",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/hebrew-RTL-flip-helper.js"
     },
@@ -613,6 +613,15 @@
       "version": "4.0.0",
       "category": "Text",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/SmartQuotesConverter.js"
+    },
+    {
+      "id": "selectbymatchingcolor",
+      "name": "Select By Matching Color",
+      "description": "Selects all objects in the parent layer whose fill OR stroke color matches that of the currently selected object. Comparison is done in RGBA8 (including alpha channel).",
+      "author": "kevinblancharddesign-hub",
+      "version": "1.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/selectbymatchingcolor.js"
     }
   ]
 }

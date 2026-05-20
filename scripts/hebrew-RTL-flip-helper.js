@@ -1,84 +1,105 @@
+/**
+name: Hebrew RTL Flip Helper
+description: Reverses Hebrew word order, letters, or both in all text fields.
+version: 1.4.0
+author: David + ChatGPT
+*/
+
 "use strict";
 
 const { Document } = require("/document");
 const { Selection, TextSelection } = require("/selections");
-const { Dialog } = require("/dialog");
+const { Dialog, DialogResult } = require("/dialog");
 const { DocumentCommand } = require("/commands");
 
 const doc = Document.current;
 
-if (!doc) {
+function showMessage(msg) {
   const dlg = Dialog.create("Hebrew RTL Flip Helper");
-  dlg.addColumn().addGroup("").addStaticText("", "No document is open.");
+  dlg.addColumn().addGroup("").addStaticText("", msg);
   dlg.show();
+}
+
+if (!doc) {
+  showMessage("Error: No document is open.");
   return;
 }
 
-/* -------------------- RTL FUNCTIONS -------------------- */
+function chooseMode() {
+  const dlg = Dialog.create("Hebrew RTL Flip Helper");
+  dlg.initialWidth = 460;
 
-function reverseWords(text) {
-  return text.split(/(\s+)/).reverse().join("");
-}
+  const col = dlg.addColumn();
+  const group = col.addGroup("Choose mode");
 
-function reverseLettersInWords(text) {
-  return text.replace(/\S+/g, (word) => [...word].reverse().join(""));
-}
+  dlg.mode = group.addButtonSet(
+    "Flip",
+    ["Words only", "Letters only", "Both"],
+    2,
+  );
 
-function fixRTL(text, mode) {
-  if (mode === "words") {
-    return reverseWords(text);
+  if (!dlg.runModal().equals(DialogResult.Ok)) {
+    return null;
   }
 
-  if (mode === "letters") {
-    return reverseLettersInWords(text);
-  }
-
-  if (mode === "both") {
-    return reverseLettersInWords(reverseWords(text));
-  }
-
-  return text;
+  if (dlg.mode.selectedIndex === 0) return "words";
+  if (dlg.mode.selectedIndex === 1) return "letters";
+  return "both";
 }
 
-/* -------------------- DIALOG -------------------- */
+const MODE = chooseMode();
 
-const dlg = Dialog.create("Hebrew RTL Flip Helper");
-
-const col = dlg.addColumn();
-
-col.addStaticText("", "Choose RTL Fix Mode");
-
-const modeDropdown = col.addDropdown(
-  "",
-  ["Reverse Words", "Reverse Letters", "Reverse Both"],
-  2, // default = Both
-);
-
-const result = dlg.show();
-
-if (!result) {
+if (!MODE) {
   return;
 }
 
-/* -------------------- MODE SELECTION -------------------- */
-
-let MODE = "both";
-
-switch (modeDropdown.value) {
-  case 0:
-    MODE = "words";
-    break;
-
-  case 1:
-    MODE = "letters";
-    break;
-
-  case 2:
-    MODE = "both";
-    break;
+function splitLinesKeepBreaks(text) {
+  return text.split(/(\r\n|\n|\r)/);
 }
 
-/* -------------------- PROCESS TEXT -------------------- */
+function reverseWordsInLine(line) {
+  return line.split(/(\s+)/).reverse().join("");
+}
+
+function reverseLettersPreserveHebrewMarks(word) {
+  const units = [];
+  const chars = Array.from(word);
+
+  for (let i = 0; i < chars.length; i++) {
+    let unit = chars[i];
+
+    while (i + 1 < chars.length && /[\u0591-\u05C7]/.test(chars[i + 1])) {
+      unit += chars[i + 1];
+      i++;
+    }
+
+    units.push(unit);
+  }
+
+  return units.reverse().join("");
+}
+
+function reverseLettersInWords(line) {
+  return line.replace(/\S+/g, (word) =>
+    reverseLettersPreserveHebrewMarks(word),
+  );
+}
+
+function fixLine(line) {
+  if (MODE === "words") return reverseWordsInLine(line);
+  if (MODE === "letters") return reverseLettersInWords(line);
+  if (MODE === "both") return reverseLettersInWords(reverseWordsInLine(line));
+  return line;
+}
+
+function fixRTL(text) {
+  return splitLinesKeepBreaks(text)
+    .map((part) => {
+      if (part === "\r\n" || part === "\n" || part === "\r") return part;
+      return fixLine(part);
+    })
+    .join("");
+}
 
 function replaceWholeStoryText(node, fixedText) {
   const si = node.storyInterface;
@@ -96,7 +117,6 @@ function replaceWholeStoryText(node, fixedText) {
   sel.addSubSelectionForNode(node, textSel);
 
   const cmd = DocumentCommand.createSetText(sel, fixedText);
-
   doc.executeCommand(cmd);
 }
 
@@ -125,16 +145,15 @@ for (const spread of doc.spreads) {
           if (originalText && originalText.trim()) {
             totalNodes++;
 
-            const fixedText = fixRTL(originalText, MODE);
+            const fixedText = fixRTL(originalText);
 
             if (fixedText !== originalText) {
               replaceWholeStoryText(node, fixedText);
-
               totalChanged++;
             }
           }
         } catch (e) {
-          errors.push(e.message);
+          errors.push(e.message || String(e));
         }
       }
 
@@ -147,27 +166,24 @@ for (const spread of doc.spreads) {
   }
 }
 
-/* -------------------- RESULTS -------------------- */
-
-const doneDlg = Dialog.create("RTL Fix Complete");
-
-let msg = "";
+let msg;
 
 if (totalChanged > 0) {
-  msg =
-    `Updated ${totalChanged} of ${totalNodes} text field(s).\n\n` +
-    `Mode used: ${MODE}\n\n` +
-    `Undo available with Ctrl+Z.`;
+  msg = `Fixed ${totalChanged} of ${totalNodes} text field(s).
+
+Mode used: ${MODE}
+
+All changes can be undone with Ctrl+Z.`;
 } else if (totalNodes > 0) {
-  msg = `Checked ${totalNodes} text field(s).\n\n` + `No changes were needed.`;
+  msg = `Checked ${totalNodes} text field(s).
+
+No changes were needed.`;
 } else {
   msg = "No text fields found.";
 }
 
 if (errors.length) {
-  msg += "\n\nErrors:\n" + errors.join("\n");
+  msg += "\n\nErrors: " + errors.join("; ");
 }
 
-doneDlg.addColumn().addGroup("").addStaticText("", msg);
-
-doneDlg.show();
+showMessage(msg);

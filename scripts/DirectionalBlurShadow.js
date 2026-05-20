@@ -1,15 +1,22 @@
+/**
+ * name: Directional Blur Shadow
+ * description: Directional Blur Shadow creates a directional shadow of an object that progressively blurs, fades and tapers as it moves away from the object.
+ * version: 3.0.0
+ * author: rbonelli
+ */
+
 // =====================================================================
-// DIRECTIONAL BLUR SHADOW
-// Simulates Photoshop's Path Blur effect: a directional shadow that
-// progressively blurs, fades and tapers (narrows or expands) as it
-// moves away from the object.
+// DIRECTIONAL BLUR SHADOW  v3.0
 //
-// Works correctly with objects at the root spread level OR inside groups.
+// v3.0: Substitui o onControlValueChangedHandler (que causava crash com
+//       mudanças rápidas) pelo padrão "dialog loop":
 //
-// Rasterize mode: merges into a single pixel layer in the same context.
-// Group mode: keeps vector nodes with live effects, fully editable.
+//       O diálogo tem um botão "▶ Preview" e um "✓ Apply".
+//       – Preview: rebuilda o preview sob demanda (sem handlers async).
+//       – Apply:   descarta o preview e commita o resultado final.
+//       – Cancel:  descarta o preview e sai sem alterar o documento.
 //
-// USAGE: Select an object and run the script.
+//       Isso elimina completamente a reentrância que causava o crash.
 // =====================================================================
 "use strict";
 
@@ -42,11 +49,13 @@ if (initialItems.length === 0) {
   console.log("ERROR: Please select an object before running the script.");
   return;
 }
-const originalNode = initialItems[0];
-
-// Determine whether the object lives inside a group or at the root spread level
-const parentNode = originalNode.parent;
+if (initialItems.length > 1) {
+  console.log("WARNING: Multiple objects selected. Only the first will be used.");
+}
+const originalNode  = initialItems[0];
+const parentNode    = originalNode.parent;
 const isInsideGroup = parentNode.constructor.name !== "SpreadNode";
+
 console.log(
   "Context: " +
     (isInsideGroup
@@ -54,271 +63,279 @@ console.log(
       : "root spread"),
 );
 
-// ─── Settings dialog ─────────────────────────────────────────────────
-const dlg = Dialog.create("Directional Blur Shadow");
-dlg.initialWidth = 340;
+// ─── Dialog ───────────────────────────────────────────────────────────
+let defDirIndex    = 0;
+let defDistance    = 150;
+let defSteps       = 10;
+let defBlurMax     = 25;
+let defColour      = RGBA8(0, 0, 0, 255);
+let defOpStart     = 75;
+let defOpEnd       = 0;
+let defTaperOn     = false;
+let defTaperEnd    = 10;
+let defRasterize   = true;
 
-const col = dlg.addColumn();
+// ─── Preview state ────────────────────────────────────────────────────
+let previewContainer = null;
 
-const grpDir = col.addGroup("Direction");
-const dirCombo = grpDir.addComboBox(
-  "Blur direction",
-  [
-    "→ Right",
-    "← Left",
-    "↓ Down",
-    "↑ Up",
-    "↘ Right + Down",
-    "↙ Left + Down",
-    "↗ Right + Up",
-    "↖ Left + Up",
-  ],
-  0,
-);
-
-const grpParam = col.addGroup("Parameters");
-const distEditor = grpParam.addUnitValueEditor(
-  "Total distance (px)",
-  "px",
-  "px",
-  150,
-  10,
-  2000,
-);
-const stepsEditor = grpParam.addUnitValueEditor(
-  "Number of layers",
-  "px",
-  "px",
-  10,
-  3,
-  30,
-);
-const blurEditor = grpParam.addUnitValueEditor(
-  "Max blur (px)",
-  "px",
-  "px",
-  25,
-  1,
-  300,
-);
-
-const grpFx = col.addGroup("Shadow appearance");
-const colorPicker = grpFx.addColourPicker("Shadow colour", RGBA8(0, 0, 0, 255));
-const opStartEditor = grpFx.addUnitValueEditor(
-  "Start opacity (%)",
-  "px",
-  "px",
-  75,
-  1,
-  100,
-);
-const opEndEditor = grpFx.addUnitValueEditor(
-  "End opacity (%)",
-  "px",
-  "px",
-  0,
-  0,
-  100,
-);
-
-const grpTaper = col.addGroup("Taper (Narrow / Expand)");
-const taperCheck = grpTaper.addCheckBox("Enable taper", false);
-// < 100% = narrows at the tip | 100% = no effect | > 100% = expands at the tip
-const taperEditor = grpTaper.addUnitValueEditor(
-  "Size at tip (%)",
-  "px",
-  "px",
-  10,
-  1,
-  500,
-);
-taperEditor.setIsEnabledBy(taperCheck);
-
-const grpOutput = col.addGroup("Output");
-const rasterCheck = grpOutput.addCheckBox(
-  "Rasterize into a single layer",
-  true,
-);
-
-const result = dlg.runModal();
-if (result.value !== DialogResult.Ok.value) {
-  console.log("Cancelled.");
-  return;
+// ─── Helper: delete the current preview group ─────────────────────────
+function clearPreview() {
+  if (!previewContainer) return;
+  try {
+    doc.executeCommand(
+      DocumentCommand.createDeleteSelection(
+        Selection.create(doc, previewContainer),
+        true,
+      ),
+    );
+  } catch (e) {}
+  previewContainer = null;
 }
 
-// ─── Read parameters ─────────────────────────────────────────────────
-const dirIndex = dirCombo.selectedIndex;
-const distance = distEditor.value;
-const steps = Math.max(3, Math.round(stepsEditor.value));
-const blurMax = blurEditor.value;
-const shadowColour = colorPicker.value || RGBA8(0, 0, 0, 255);
-const opStart = opStartEditor.value / 100;
-const opEnd = opEndEditor.value / 100;
-const useTaper = taperCheck.value;
-const taperEnd = taperEditor.value / 100;
-const doRasterize = rasterCheck.value;
+// ─── Helper: find siblings in the correct context ─────────────────────
+function getSiblings() {
+  return isInsideGroup ? [...parentNode.children] : [...doc.layers];
+}
 
-// Unit direction vectors
-const dirs = [
-  [1, 0],
-  [-1, 0],
-  [0, 1],
-  [0, -1],
-  [1, 1],
-  [-1, 1],
-  [1, -1],
-  [-1, -1],
-];
-const [dx, dy] = dirs[dirIndex];
-const mag = Math.sqrt(dx * dx + dy * dy);
-const nx = dx / mag;
-const ny = dy / mag;
+// ─── Core: build shadow and return the ContainerNode ─────────────────
+function buildShadow(params) {
+  const {
+    dirIndex, distance, steps, blurMax,
+    shadowColour, opStart, opEnd,
+    useTaper, taperEnd,
+  } = params;
 
-console.log(
-  "Generating " +
-    steps +
-    " layers | taper=" +
-    (useTaper ? taperEnd * 100 + "%" : "off") +
-    " | mode=" +
-    (doRasterize ? "rasterize" : "vector group"),
-);
+  const dirs = [
+    [1, 0], [-1, 0], [0, 1],  [0, -1],
+    [1, 1], [-1, 1], [1, -1], [-1, -1],
+  ];
+  const [dx, dy]   = dirs[dirIndex];
+  const mag        = Math.sqrt(dx * dx + dy * dy);
+  const nx         = dx / mag;
+  const ny         = dy / mag;
 
-// ─── Calculate taper pivot and scale axes ─────────────────────────────
-const bounds = originalNode.spreadVisibleBox;
-const cx = bounds.x + bounds.width / 2;
-const cy = bounds.y + bounds.height / 2;
+  const bounds     = originalNode.spreadVisibleBox;
+  const cx         = bounds.x + bounds.width  / 2;
+  const cy         = bounds.y + bounds.height / 2;
+  const isDiag     = nx !== 0 && ny !== 0;
+  const scaleAxisX = isDiag ? 1 : Math.abs(ny);
+  const scaleAxisY = isDiag ? 1 : Math.abs(nx);
+  const expanding  = taperEnd > 1.0;
+  const pivotSign  = expanding ? 1 : -1;
+  const pivotX     = cx + pivotSign * nx * (bounds.width  / 2);
+  const pivotY     = cy + pivotSign * ny * (bounds.height / 2);
 
-// Scale is applied on the axis PERPENDICULAR to the direction of movement:
-// Horizontal shadow → scale Y only | Vertical shadow → scale X only | Diagonal → both
-const isDiagonal = nx !== 0 && ny !== 0;
-const scaleAxisX = isDiagonal ? 1 : Math.abs(ny);
-const scaleAxisY = isDiagonal ? 1 : Math.abs(nx);
+  const shadowNodes = [];
+  for (let i = steps; i >= 1; i--) {
+    const t          = i / steps;
+    const offsetX    = nx * distance * t;
+    const offsetY    = ny * distance * t;
+    const blurRadius = blurMax * t;
+    const opacity    = opStart + (opEnd - opStart) * t;
+    const perpScale  = 1.0 + (taperEnd - 1.0) * t;
+    const sX         = useTaper && scaleAxisX > 0 ? perpScale : 1.0;
+    const sY         = useTaper && scaleAxisY > 0 ? perpScale : 1.0;
 
-// Pivot point for the taper scale:
-// Narrowing (taperEnd < 1): pivot on the edge OPPOSITE to movement direction
-// → shadow starts full-size and narrows toward the tip
-// Expanding (taperEnd > 1): pivot on the edge IN the movement direction
-// → shadow starts full-size and fans outward toward the tip
-const expanding = taperEnd > 1.0;
-const pivotSign = expanding ? 1 : -1;
-const pivotX = cx + pivotSign * nx * (bounds.width / 2);
-const pivotY = cy + pivotSign * ny * (bounds.height / 2);
+    const xfScale = new Transform();
+    xfScale.makeScale(sX, sY);
+    if (useTaper) xfScale.about(pivotX, pivotY);
+    doc.executeCommand(
+      DocumentCommand.createTransform(
+        Selection.create(doc, originalNode),
+        xfScale,
+        { duplicateNodes: true },
+      ),
+    );
+    const dupNode = [...doc.selection.nodes][0];
+    if (!dupNode) {
+      console.log("WARNING: duplication failed at step " + i);
+      continue;
+    }
 
-// ─── Generate shadow layers ───────────────────────────────────────────
-// createTransform with duplicateNodes places the copy in the same parent
-// as the original, working correctly at root level and inside groups.
-const shadowNodes = [];
+    const xfMove = new Transform();
+    xfMove.makeTranslate(offsetX, offsetY);
+    doc.executeCommand(DocumentCommand.createTransform(doc.selection, xfMove));
 
-for (let i = steps; i >= 1; i--) {
-  const t = i / steps; // 1 = farthest from object, ~0 = closest
+    const overlay   = ColourOverlayLayerEffect.create();
+    overlay.colour  = shadowColour;
+    overlay.opacity = 1.0;
+    doc.executeCommand(
+      DocumentCommand.createSetColourOverlayLayerEffect(doc.selection, overlay, 0),
+    );
 
-  const offsetX = nx * distance * t;
-  const offsetY = ny * distance * t;
-  const blurRadius = blurMax * t;
-  // Opacity: close = opStart, far = opEnd
-  const opacity = opStart + (opEnd - opStart) * t;
-  // Scale: 1.0 close → taperEnd far (works for <1, =1, and >1)
-  const perpScale = 1.0 + (taperEnd - 1.0) * t;
-  const sX = useTaper && scaleAxisX > 0 ? perpScale : 1.0;
-  const sY = useTaper && scaleAxisY > 0 ? perpScale : 1.0;
+    const blur   = GaussianBlurLayerEffect.create();
+    blur.radius  = blurRadius;
+    blur.enabled = true;
+    doc.executeCommand(
+      DocumentCommand.createSetGaussianBlurLayerEffect(doc.selection, blur),
+    );
 
-  // 1. Duplicate with taper scale — automatically placed in the same parent
-  const xfScale = new Transform();
-  xfScale.makeScale(sX, sY);
-  if (useTaper) xfScale.about(pivotX, pivotY);
-  doc.executeCommand(
-    DocumentCommand.createTransform(
-      Selection.create(doc, originalNode),
-      xfScale,
-      { duplicateNodes: true },
-    ),
-  );
-  const dupSel = doc.selection;
-  const dupNode = [...dupSel.nodes][0];
-  if (!dupNode) {
-    console.log("WARNING: duplication failed at step " + i);
-    continue;
+    doc.executeCommand(DocumentCommand.createSetOpacity(doc.selection, opacity));
+
+    shadowNodes.push(dupNode);
   }
 
-  // 2. Translate by the shadow offset
-  const xfMove = new Transform();
-  xfMove.makeTranslate(offsetX, offsetY);
-  doc.executeCommand(DocumentCommand.createTransform(dupSel, xfMove));
+  if (shadowNodes.length === 0) return null;
 
-  // 3. Colour overlay — live effect, keeps the node as vector
-  const overlay = ColourOverlayLayerEffect.create();
-  overlay.colour = shadowColour;
-  overlay.opacity = 1.0;
-  doc.executeCommand(
-    DocumentCommand.createSetColourOverlayLayerEffect(dupSel, overlay, 0),
-  );
+  const containerDef = ContainerNodeDefinition.createDefault();
+  const builder      = AddChildNodesCommandBuilder.create();
+  builder.addContainerNode(containerDef);
+  if (isInsideGroup) builder.setInsertionTarget(parentNode);
+  doc.executeCommand(builder.createCommand(false, NodeChildType.Main));
 
-  // 4. Gaussian blur — live effect, keeps the node as vector
-  const blur = GaussianBlurLayerEffect.create();
-  blur.radius = blurRadius;
-  blur.enabled = true;
-  doc.executeCommand(
-    DocumentCommand.createSetGaussianBlurLayerEffect(dupSel, blur),
-  );
+  const siblings   = getSiblings();
+  const containers = siblings.filter(l => l.constructor.name === "ContainerNode");
+  const container  = containers[containers.length - 1];
+  if (!container) {
+    console.log("ERROR: Could not locate the new ContainerNode.");
+    return null;
+  }
 
-  // 5. Layer opacity
-  doc.executeCommand(DocumentCommand.createSetOpacity(dupSel, opacity));
-
-  // Node remains as vector with live effects — no rasterization here
-  shadowNodes.push(dupNode);
-}
-
-console.log("Shadow layers created: " + shadowNodes.length);
-if (shadowNodes.length === 0) {
-  console.log("No shadow layers were created.");
-  return;
-}
-
-const origSel = Selection.create(doc, originalNode);
-
-// ─── RASTERIZE MODE ──────────────────────────────────────────────────
-// Strategy: move all shadow nodes into a temporary ContainerNode, then
-// call rasteriseObjects on it — this produces exactly one RasterNode
-// in the correct context without touching anything else in the document.
-// This avoids mergeVisible(), which operates on the entire spread and
-// would incorrectly include unrelated visible layers.
-if (doRasterize) {
-  // Create a temporary ContainerNode in the same context as the original
-  const tmpDef = ContainerNodeDefinition.createDefault();
-  const tmpBuilder = AddChildNodesCommandBuilder.create();
-  tmpBuilder.addContainerNode(tmpDef);
-  if (isInsideGroup) tmpBuilder.setInsertionTarget(parentNode);
-  doc.executeCommand(tmpBuilder.createCommand(false, NodeChildType.Main));
-
-  // Locate the newly created container in the correct context
-  const siblings = isInsideGroup ? [...parentNode.children] : [...doc.layers];
-  const tmpContainer = siblings.find(
-    (l) => l.constructor.name === "ContainerNode",
-  );
-
-  // Move all shadow nodes into the temporary container
   doc.executeCommand(
     DocumentCommand.createMoveNodes(
       Selection.create(doc, shadowNodes),
-      tmpContainer,
+      container,
       NodeMoveType.Inside,
       NodeChildType.Main,
     ),
   );
 
-  // Rasterize the container → produces 1 RasterNode in the same context
-  const tmpSel = Selection.create(doc, tmpContainer);
+  const cSel = Selection.create(doc, container);
   doc.executeCommand(
-    DocumentCommand.createRasteriseObjects(tmpSel, false, false),
+    DocumentCommand.createSetDescription(cSel, "Directional Blur Shadow"),
+  );
+  doc.executeCommand(
+    DocumentCommand.createMoveNodes(cSel, originalNode, NodeMoveType.Before, null),
   );
 
-  // The resulting RasterNode is now the active selection
+  return container;
+}
+
+// ─── Dialog loop ──────────────────────────────────────────────────────
+let applyResult = false;
+
+while (true) {
+  const dlg = Dialog.create("Directional Blur Shadow");
+  dlg.initialWidth = 340;
+  const col = dlg.addColumn();
+
+  const grpDir   = col.addGroup("Direction");
+  const dirCombo = grpDir.addComboBox(
+    "Blur direction",
+    ["→ Right","← Left","↓ Down","↑ Up","↘ Right + Down","↙ Left + Down","↗ Right + Up","↖ Left + Up"],
+    defDirIndex,
+  );
+
+  const grpParam    = col.addGroup("Parameters");
+  const distEditor  = grpParam.addUnitValueEditor("Total distance (px)", "px", "px", defDistance, 10, 2000);
+  const stepsEditor = grpParam.addUnitValueEditor("Number of layers",    "px", "px", defSteps,    3,  30);
+  const blurEditor  = grpParam.addUnitValueEditor("Max blur (px)",       "px", "px", defBlurMax,  1,  300);
+
+  const grpFx         = col.addGroup("Shadow appearance");
+  const colorPicker   = grpFx.addColourPicker("Shadow colour", defColour);
+  const opStartEditor = grpFx.addUnitValueEditor("Start opacity (%)", "px", "px", defOpStart, 1, 100);
+  const opEndEditor   = grpFx.addUnitValueEditor("End opacity (%)",   "px", "px", defOpEnd,   0, 100);
+
+  const grpTaper  = col.addGroup("Taper (Narrow / Expand)");
+  const taperCheck  = grpTaper.addCheckBox("Enable taper", defTaperOn);
+  const taperEditor = grpTaper.addUnitValueEditor("Size at tip (%)", "px", "px", defTaperEnd, 1, 500);
+  taperEditor.isEnabled = defTaperOn;
+
+  dlg.onControlValueChangedHandler = () => {
+    taperEditor.isEnabled = taperCheck.value;
+  };
+
+  const grpOutput   = col.addGroup("Output");
+  const rasterCheck = grpOutput.addCheckBox("Rasterize into a single layer", defRasterize);
+
+  const grpActions = col.addGroup("");
+  const actionBtns = grpActions.addButtonSet("", ["▶ Preview", "✓ Apply"], 0);
+
+  const result = dlg.runModal();
+
+  defDirIndex  = dirCombo.selectedIndex;
+  defDistance  = distEditor.value;
+  defSteps     = Math.max(3, Math.round(stepsEditor.value));
+  defBlurMax   = blurEditor.value;
+  defColour    = colorPicker.value || RGBA8(0, 0, 0, 255);
+  defOpStart   = opStartEditor.value;
+  defOpEnd     = opEndEditor.value;
+  defTaperOn   = taperCheck.value;
+  defTaperEnd  = taperEditor.value;
+  defRasterize = rasterCheck.value;
+
+  const params = {
+    dirIndex:     defDirIndex,
+    distance:     defDistance,
+    steps:        defSteps,
+    blurMax:      defBlurMax,
+    shadowColour: defColour,
+    opStart:      defOpStart / 100,
+    opEnd:        defOpEnd   / 100,
+    useTaper:     defTaperOn,
+    taperEnd:     defTaperEnd / 100,
+    doRasterize:  defRasterize,
+  };
+
+  if (result.value !== DialogResult.Ok.value) {
+    clearPreview();
+    doc.executeCommand(
+      DocumentCommand.createSetSelection(Selection.create(doc, originalNode)),
+    );
+    console.log("Cancelled.");
+    return;
+  }
+
+  const btnPressed = actionBtns.selectedIndex;
+
+  if (btnPressed === 0) {
+    clearPreview();
+    previewContainer = buildShadow(params);
+    doc.executeCommand(
+      DocumentCommand.createSetSelection(Selection.create(doc, originalNode)),
+    );
+    console.log("Preview updated.");
+    continue;
+  }
+
+  applyResult = true;
+  break;
+}
+
+// ─── Commit ───────────────────────────────────────────────────────────
+if (!applyResult) return;
+
+clearPreview();
+
+const finalParams = {
+  dirIndex:     defDirIndex,
+  distance:     defDistance,
+  steps:        defSteps,
+  blurMax:      defBlurMax,
+  shadowColour: defColour,
+  opStart:      defOpStart / 100,
+  opEnd:        defOpEnd   / 100,
+  useTaper:     defTaperOn,
+  taperEnd:     defTaperEnd / 100,
+  doRasterize:  defRasterize,
+};
+
+const shadowGroup = buildShadow(finalParams);
+
+if (!shadowGroup) {
+  console.log("No shadow layers were created.");
+  return;
+}
+
+if (finalParams.doRasterize) {
+  const groupSel = Selection.create(doc, shadowGroup);
+  doc.executeCommand(
+    DocumentCommand.createRasteriseObjects(groupSel, false, false),
+  );
   const rasterSel = doc.selection;
   doc.executeCommand(
     DocumentCommand.createSetDescription(rasterSel, "Directional Blur Shadow"),
   );
-
-  // Position behind the original (Before → lower index → visually behind ✓)
   doc.executeCommand(
     DocumentCommand.createMoveNodes(
       rasterSel,
@@ -327,65 +344,20 @@ if (doRasterize) {
       null,
     ),
   );
-  // ─── GROUP MODE: vector nodes grouped, fully editable ─────────────────
-} else {
-  // Create the ContainerNode in the same context as the original
-  const containerDef = ContainerNodeDefinition.createDefault();
-  const builder = AddChildNodesCommandBuilder.create();
-  builder.addContainerNode(containerDef);
-  if (isInsideGroup) builder.setInsertionTarget(parentNode);
-  doc.executeCommand(builder.createCommand(false, NodeChildType.Main));
-
-  // Locate the container in the correct context
-  const siblings = isInsideGroup ? [...parentNode.children] : [...doc.layers];
-  const containerNode = siblings.find(
-    (l) => l.constructor.name === "ContainerNode",
-  );
-
-  if (containerNode) {
-    // Move all shadow vector nodes into the group
-    doc.executeCommand(
-      DocumentCommand.createMoveNodes(
-        Selection.create(doc, shadowNodes),
-        containerNode,
-        NodeMoveType.Inside,
-        NodeChildType.Main,
-      ),
-    );
-
-    const cSel = Selection.create(doc, containerNode);
-    doc.executeCommand(
-      DocumentCommand.createSetDescription(cSel, "Directional Blur Shadow"),
-    );
-
-    // Position behind the original (Before → lower index → visually behind ✓)
-    doc.executeCommand(
-      DocumentCommand.createMoveNodes(
-        cSel,
-        originalNode,
-        NodeMoveType.Before,
-        null,
-      ),
-    );
-  }
 }
 
-// Return selection to the original object
-doc.executeCommand(DocumentCommand.createSetSelection(origSel));
+doc.executeCommand(
+  DocumentCommand.createSetSelection(Selection.create(doc, originalNode)),
+);
 
 console.log("─── Done! ───");
 const finalCtx = isInsideGroup ? [...parentNode.children] : [...doc.layers];
 finalCtx.forEach((l, i) => {
   const kids = l.children ? [...l.children].length : 0;
   console.log(
-    "[" +
-      i +
-      "] " +
-      l.constructor.name +
-      ": '" +
-      l.description +
-      "'" +
-      (kids ? " (" + kids + " children)" : ""),
+    "[" + i + "] " + l.constructor.name +
+    ": '" + l.description + "'" +
+    (kids ? " (" + kids + " children)" : ""),
   );
 });
 console.log("✓ Directional Blur Shadow placed behind the object");
