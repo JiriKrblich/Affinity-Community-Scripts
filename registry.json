@@ -585,6 +585,34 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/curvemockupoverlay.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/curve-mockup-overlay.js"
+    },
+    {
+      "id": "smart-exporter",
+      "name": "Smart Exporter",
+      "description": "Export the selected artboard or selected objects to multiple formats in one run.",
+      "author": "JiriKrblich",
+      "version": "1.0.0",
+      "category": "Export",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/smart-exporter.js"
+    },
+    {
+      "id": "Shape-Scatter",
+      "name": "Shape Scatter",
+      "description": "Instantly scatter perfect clones of any vector shape. Features auto-canvas detection, exact style preservation, dynamic size/rotation jitter, and overlap prevention across multiple patterns (Random, Grid, Burst). Real-time previews bake into a single, optimized node to keep your layers panel perfectly clean.",
+      "author": "hellsfaun",
+      "version": "1.0.0",
+      "category": "Generator",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/curvemockupoverlay.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Shape-Scatter.js"
+    },
+    {
+      "id": "SmartQuotesConverter",
+      "name": "Smart Quotes Converter",
+      "description": "Replaces all straight quotes in your document with proper typographic smart quotes across every text frame on every spread.",
+      "author": "MeowWereTalking",
+      "version": "4.0.0",
+      "category": "Text",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/SmartQuotesConverter.js"
     }
   ]
 }
