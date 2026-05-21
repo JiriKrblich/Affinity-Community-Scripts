@@ -433,6 +433,7 @@
       "author": "BlackMortimer-13",
       "version": "1.0.0",
       "category": "Effect",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/vectorlathe.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/vector-lathe--revolve--v1.js"
     },
     {
@@ -622,6 +623,36 @@
       "version": "1.0.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/selectbymatchingcolor.js"
+    },
+    {
+      "id": "pizzacutter",
+      "name": "Pizza Cutter",
+      "description": "Slice a selected object into a precise pie or grid pieces",
+      "author": "hellsfaun",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/pizzacutter.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/pizzacutter.js"
+    },
+    {
+      "id": "RadialRepeat",
+      "name": "Pizza Cutter",
+      "description": "Select one or more objects, then duplicate them automatically in a radial layout around the center of the selection. The script supports multiple circular rows, live preview, controls for radius, spacing, rotation, and scaling, plus a row template mode for assigning different selected objects to specific rows",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/RadialRepeat.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/RadialRepeat.js"
+    },
+    {
+      "id": "AestheticColorizer",
+      "name": "Aesthetic Colorizer",
+      "description": "This script lets you select objects, pick a base color, and instantly colorize the selection with coordinated tints and shades derived from that color.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Color",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/AestheticColorizer.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/AestheticColorizer.js"
     }
   ]
 }

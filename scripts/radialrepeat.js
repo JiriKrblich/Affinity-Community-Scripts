@@ -1,262 +1,557 @@
-"use strict";
+'use strict';
 
-const { Document } = require("/document");
-const {
-  DocumentCommand,
-  AddChildNodesCommandBuilder,
-  CompoundCommandBuilder,
-  NodeChildType,
-  NodeMoveType,
-} = require("/commands");
-const { TransformBuilder } = require("/geometry");
-const { ContainerNodeDefinition } = require("/nodes");
-const { Dialog, DialogResult } = require("/dialog");
-const { Selection } = require("/selections");
+// Radial Orbit Repeat Live v7.1
+// Duplicates the current selection around one or more circular rows.
+// Preview is rebuilt live from the original selection and committed only on OK.
+// During preview the original is hidden; on OK it is removed so only the radial copies remain.
+// With multiple selected objects, placements cycle through them: A, B, C, A, B, C...
+// Row Template Mode can instead map selected objects per row, e.g. A.B.A.
+// The committed copies are placed inside a container.
+
+const { Document } = require('/document');
+const { Dialog, DialogResult } = require('/dialog');
+const { DocumentCommand, CompoundCommandBuilder, AddChildNodesCommandBuilder } = require('/commands');
+const { Transform } = require('/geometry');
+const { ContainerNodeDefinition } = require('/nodes');
+const { UnitType } = require('/units');
+const { NodeMoveType, NodeChildType } = require('affinity:dom');
+
+const SCRIPT_TITLE = 'Radial Orbit Repeat Live v7.1';
+const MAX_TOTAL_INSTANCES = 5000;
+const PREVIEW_HIDE_OFFSET = 1000000;
+const PREVIEW_HIDE_SCALE = 0.0001;
 
 const doc = Document.current;
+
 if (!doc) {
-  alert("Open a document first.");
+  showError('Open a document in Affinity.');
 } else {
-  function undoN(n) { for (let i = 0; i < n; i++) doc.undo(); }
-  function validBB(b) {
-    return b && isFinite(b.x) && isFinite(b.y) && isFinite(b.width) && isFinite(b.height) && (b.width > 0 || b.height > 0);
+  const selectedNodes = getSelectedNodes(doc);
+
+  if (!selectedNodes.length) {
+    showError('Select at least one object.');
+  } else {
+    runRadialRepeat(doc, selectedNodes);
   }
-  function nodeBBOrFallback(n) {
-    const b = n.getSpreadBaseBox(false); if (validBB(b)) return b;
-    const b2 = n.getSpreadBaseBox(true); if (validBB(b2)) return b2;
+}
+
+function showError(message) {
+  try {
+    const d = Dialog.create(SCRIPT_TITLE);
+    d.addColumn().addGroup('Error').addStaticText('', message);
+    d.show();
+  } catch (e) {
+    alert(message);
+  }
+}
+
+function pushUnique(nodes, node) {
+  if (!node) return;
+
+  for (const existing of nodes) {
+    try {
+      if (existing.isSameNode && existing.isSameNode(node)) return;
+    } catch (e) {
+      // Ignore stale node handles.
+    }
+  }
+
+  nodes.push(node);
+}
+
+function getSelectedNodes(document) {
+  const nodes = [];
+  const selection = document.selection;
+
+  try {
+    if (selection && typeof selection.length === 'number') {
+      for (let i = 0; i < selection.length; i++) {
+        pushUnique(nodes, selection.at(i).node);
+      }
+    }
+  } catch (e) {
+    // Fall through to alternate selection APIs.
+  }
+
+  try {
+    if (selection && selection.items) {
+      for (const item of selection.items) {
+        pushUnique(nodes, item.node);
+      }
+    }
+  } catch (e) {
+    // Fall through to nodes.toArray().
+  }
+
+  try {
+    if (selection && selection.nodes) {
+      for (const node of selection.nodes.toArray()) {
+        pushUnique(nodes, node);
+      }
+    }
+  } catch (e) {
+    // No supported selection API returned nodes.
+  }
+
+  return nodes;
+}
+
+function readNodeBox(node) {
+  try {
+    const b = node.getSpreadBaseBox(false);
+
+    if (b && b.width !== undefined && b.height !== undefined) {
+      return {
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height
+      };
+    }
+
+    if (b && b.x0 !== undefined && b.x1 !== undefined && b.y0 !== undefined && b.y1 !== undefined) {
+      return {
+        x: b.x0,
+        y: b.y0,
+        width: b.x1 - b.x0,
+        height: b.y1 - b.y0
+      };
+    }
+  } catch (e) {
+    // Unsupported node type.
+  }
+
+  return null;
+}
+
+function buildSelectionGeometry(nodes) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  let count = 0;
+
+  for (const node of nodes) {
+    const b = readNodeBox(node);
+    if (!b) continue;
+
+    x0 = Math.min(x0, b.x);
+    y0 = Math.min(y0, b.y);
+    x1 = Math.max(x1, b.x + b.width);
+    y1 = Math.max(y1, b.y + b.height);
+    count++;
+  }
+
+  if (!count) return null;
+
+  return {
+    center: {
+      x: (x0 + x1) / 2,
+      y: (y0 + y1) / 2
+    },
+    box: {
+      x: x0,
+      y: y0,
+      width: x1 - x0,
+      height: y1 - y0
+    }
+  };
+}
+
+function clamp(value, minValue, maxValue) {
+  return Math.max(minValue, Math.min(maxValue, value));
+}
+
+function degToRad(value) {
+  return value * Math.PI / 180;
+}
+
+function countTotalInstances(params) {
+  let total = 0;
+
+  for (let row = 0; row < params.rows; row++) {
+    total += Math.max(1, params.instances + row * params.addedInstancesPerRow);
+  }
+
+  return total;
+}
+
+function buildPlacements(params, center) {
+  const total = countTotalInstances(params);
+
+  if (total > MAX_TOTAL_INSTANCES) {
+    throw new Error('Too many instances (' + total + ')). Limit is ' + MAX_TOTAL_INSTANCES + '.');
+  }
+
+  const placements = [];
+
+  for (let row = 0; row < params.rows; row++) {
+    const count = Math.max(1, params.instances + row * params.addedInstancesPerRow);
+    const radius = Math.max(0, params.radius + row * params.rowSpacing);
+    const rowOffset = params.rowRotation * row;
+    const rowScale = Math.pow(params.rowScaling, row);
+
+    for (let i = 0; i < count; i++) {
+      const circleT = i / count;
+      const scaleT = count > 1 ? i / (count - 1) : 0;
+      const angleDeg = rowOffset + circleT * 360;
+      const angleRad = degToRad(angleDeg);
+      const scale = (params.startScale + (params.endScale - params.startScale) * scaleT) * rowScale * (params.sizeScale || 1);
+      const rotationDeg = params.customRotation ? params.customAngle : angleDeg;
+
+      placements.push({
+        row,
+        x: center.x + Math.cos(angleRad) * radius,
+        y: center.y + Math.sin(angleRad) * radius,
+        scale: Math.max(0.001, scale),
+        rotation: degToRad(rotationDeg)
+      });
+    }
+  }
+
+  return placements;
+}
+
+function buildPlacementTransform(sourceCenter, placement) {
+  return Transform
+    .createTranslate(placement.x, placement.y)
+    .multiply(Transform.createRotate(placement.rotation))
+    .multiply(Transform.createScale(placement.scale, placement.scale))
+    .multiply(Transform.createTranslate(-sourceCenter.x, -sourceCenter.y));
+}
+
+function getNodeCenter(node, fallbackCenter) {
+  const box = readNodeBox(node);
+
+  if (!box) return fallbackCenter;
+
+  return {
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2
+  };
+}
+
+function indexToTemplateLetter(index) {
+  let n = index;
+  let label = '';
+
+  do {
+    label = String.fromCharCode(65 + (n % 26)) + label;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+
+  return label;
+}
+
+function buildObjectLabelText(count) {
+  const labels = [];
+
+  for (let i = 0; i < count; i++) {
+    labels.push((i + 1) + '=' + indexToTemplateLetter(i));
+  }
+
+  return labels.join('  ');
+}
+
+function buildDefaultRowPattern(rowCount, templateCount) {
+  const rows = Math.max(1, Math.round(rowCount));
+  const templates = Math.max(1, templateCount);
+  const pattern = [];
+
+  for (let row = 0; row < rows; row++) {
+    pattern.push(String((row % templates) + 1));
+  }
+
+  return pattern.join('.');
+}
+
+function parseTemplateToken(token, templateCount) {
+  const clean = String(token || '').trim().toUpperCase();
+  if (!clean) return null;
+
+  const asNumber = parseInt(clean, 10);
+  if (!isNaN(asNumber)) {
+    return clamp(asNumber - 1, 0, templateCount - 1);
+  }
+
+  let value = 0;
+
+  for (let i = 0; i < clean.length; i++) {
+    const code = clean.charCodeAt(i);
+    if (code < 65 || code > 90) return null;
+    value = value * 26 + (code - 64);
+  }
+
+  return clamp(value - 1, 0, templateCount - 1);
+}
+
+function parseRowTemplatePattern(text, templateCount) {
+  if (templateCount <= 1) return [0];
+
+  const tokens = String(text || '')
+    .split(/[^0-9A-Za-z]+/)
+    .filter(token => token.length > 0);
+  const result = [];
+
+  for (const token of tokens) {
+    const parsed = parseTemplateToken(token, templateCount);
+    if (parsed !== null) result.push(parsed);
+  }
+
+  return result.length ? result : [0];
+}
+
+function getTemplateIndexForPlacement(placementIndex, placement, nodes, params) {
+  if (nodes.length <= 1) return 0;
+
+  if (params.rowTemplateMode) {
+    const map = params.rowTemplateMap && params.rowTemplateMap.length ? params.rowTemplateMap : [0];
+    return map[placement.row % map.length] % nodes.length;
+  }
+
+  return placementIndex % nodes.length;
+}
+
+function buildPreviewHideTransform(sourceCenter) {
+  return Transform
+    .createTranslate(sourceCenter.x + PREVIEW_HIDE_OFFSET, sourceCenter.y + PREVIEW_HIDE_OFFSET)
+    .multiply(Transform.createScale(PREVIEW_HIDE_SCALE, PREVIEW_HIDE_SCALE))
+    .multiply(Transform.createTranslate(-sourceCenter.x, -sourceCenter.y));
+}
+
+function createRadialRepeatCommand(nodes, geometry, params, hideOriginal) {
+  const placements = buildPlacements(params, geometry.center);
+  const sourceCenters = nodes.map(node => getNodeCenter(node, geometry.center));
+  const cb = CompoundCommandBuilder.create();
+  let commandCount = 0;
+
+  for (let placementIndex = 0; placementIndex < placements.length; placementIndex++) {
+    const templateIndex = getTemplateIndexForPlacement(placementIndex, placements[placementIndex], nodes, params);
+    const node = nodes[templateIndex];
+    const transform = buildPlacementTransform(sourceCenters[templateIndex], placements[placementIndex]);
+
+    cb.addCommand(
+      DocumentCommand.createTransform(node.selfSelection, transform, { duplicateNodes: true }),
+      false
+    );
+    commandCount++;
+  }
+
+  if (hideOriginal) {
+    const hideTransform = buildPreviewHideTransform(geometry.center);
+
+    for (const node of nodes) {
+      cb.addCommand(
+        DocumentCommand.createTransform(node.selfSelection, hideTransform, { duplicateNodes: false }),
+        false
+      );
+      commandCount++;
+    }
+  }
+
+  return commandCount ? cb.createCommand() : null;
+}
+
+function clearPreviews(document) {
+  try {
+    document.executeCommand(DocumentCommand.createClearPreviews());
+  } catch (e) {
+    console.log(SCRIPT_TITLE + ' clear preview failed: ' + e);
+  }
+}
+
+function deleteOriginalNodes(document, nodes) {
+  for (const node of nodes) {
+    try {
+      document.deleteSelection(node.selfSelection);
+    } catch (e) {
+      console.log(SCRIPT_TITLE + ' delete original failed: ' + e);
+    }
+  }
+}
+
+function groupIntoContainer(document, nodes, name) {
+  if (!nodes || !nodes.length) return null;
+
+  try {
+    const definition = ContainerNodeDefinition.create(name);
+    const builder = AddChildNodesCommandBuilder.create();
+    builder.setInsertionTargetSelection(nodes[0].selfSelection);
+    builder.addContainerNode(definition);
+
+    const addCommand = builder.createCommand();
+    document.executeCommand(addCommand);
+
+    const container = addCommand.newNodes && addCommand.newNodes[0];
+    if (!container) return null;
+
+    const moveBuilder = CompoundCommandBuilder.create();
+
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      moveBuilder.addCommand(
+        DocumentCommand.createMoveNodes(nodes[i].selfSelection, container, NodeMoveType.Inside, NodeChildType.Main),
+        false
+      );
+    }
+
+    document.executeCommand(moveBuilder.createCommand());
+    return container;
+  } catch (e) {
+    console.log(SCRIPT_TITLE + ' group result failed: ' + e);
     return null;
   }
-  function getZRank(node) {
-    let rank = 0, sib = node.previousSibling;
-    while (sib) { rank++; sib = sib.previousSibling; }
-    return rank;
+}
+
+function runRadialRepeat(document, nodes) {
+  const geometry = buildSelectionGeometry(nodes);
+
+  if (!geometry) {
+    showError('Cannot read bounds of the selected object.');
+    return;
   }
 
-  const rawNodes = doc.selection.nodes.toArray().filter(Boolean);
-  if (rawNodes.length === 0) { alert("Select one or more objects first."); }
-  else {
-    let origNodes, initSteps = 0;
-    if (rawNodes.length === 1) {
-      origNodes = [rawNodes[0]];
-    } else {
-      const fp = rawNodes[0].parent;
-      const groupEditMode = fp && !fp.isSpreadNode && !fp.isDocumentNode
-        && rawNodes.every(n => n.parent && n.parent.isSameNode(fp));
-      origNodes = groupEditMode ? [fp] : rawNodes;
+  const dlg = Dialog.create('Radial Repeat');
+  dlg.initialWidth = 620;
+
+  const col = dlg.addColumn();
+
+  const instancesGrp = col.addGroup('Instances & Rows');
+  const instancesCtrl = instancesGrp.addUnitValueEditor('Instances', UnitType.Number, UnitType.Number, 6, 1, 500);
+  instancesCtrl.precision = 0;
+  const radiusCtrl = instancesGrp.addUnitValueEditor('Radius (px)', UnitType.Number, UnitType.Number, 250, 0, 100000);
+  radiusCtrl.precision = 1;
+  radiusCtrl.showPopupSlider = true;
+  const sizeCtrl = instancesGrp.addUnitValueEditor('Size (%)', UnitType.Percentage, UnitType.Percentage, 100, 1, 1000);
+  sizeCtrl.precision = 1;
+  sizeCtrl.showPopupSlider = true;
+  const rowsCtrl = instancesGrp.addUnitValueEditor('Rows', UnitType.Number, UnitType.Number, 1, 1, 100);
+  rowsCtrl.precision = 0;
+  const rowSpacingCtrl = instancesGrp.addUnitValueEditor('Row Spacing (px)', UnitType.Number, UnitType.Number, 50, 0, 100000);
+  rowSpacingCtrl.precision = 1;
+  rowSpacingCtrl.showPopupSlider = true;
+  const addedCtrl = instancesGrp.addUnitValueEditor('Added Instances Per Row', UnitType.Number, UnitType.Number, 0, 0, 500);
+  addedCtrl.precision = 0;
+  const rowRotationCtrl = instancesGrp.addUnitValueEditor('Row Rotation', UnitType.Degree, UnitType.Degree, 0, -3600, 3600);
+  rowRotationCtrl.precision = 1;
+
+  const rotationGrp = col.addGroup('Rotation');
+  const customRotationCtrl = rotationGrp.addSwitch('Enable Custom Rotation', false);
+  const customAngleCtrl = rotationGrp.addUnitValueEditor('Angle (deg)', UnitType.Degree, UnitType.Degree, 0, -3600, 3600);
+  customAngleCtrl.precision = 1;
+
+  const scalingGrp = col.addGroup('Scaling');
+  const startScaleCtrl = scalingGrp.addUnitValueEditor('Instances Start Scale (%)', UnitType.Percentage, UnitType.Percentage, 100, 1, 1000);
+  startScaleCtrl.precision = 1;
+  startScaleCtrl.showPopupSlider = true;
+  const endScaleCtrl = scalingGrp.addUnitValueEditor('Instances End Scale (%)', UnitType.Percentage, UnitType.Percentage, 100, 1, 1000);
+  endScaleCtrl.precision = 1;
+  endScaleCtrl.showPopupSlider = true;
+  const rowScaleCtrl = scalingGrp.addUnitValueEditor('Row Scaling (%)', UnitType.Percentage, UnitType.Percentage, 100, 1, 1000);
+  rowScaleCtrl.precision = 1;
+  rowScaleCtrl.showPopupSlider = true;
+
+  const templateCol = dlg.addColumn();
+  const templateGrp = templateCol.addGroup('Template Mode');
+  const rowTemplateModeCtrl = templateGrp.addSwitch('Enable Row Template Mode', false);
+  const objectLabelsCtrl = templateGrp.addStaticText('Selected Objects', buildObjectLabelText(nodes.length));
+  const defaultPattern = buildDefaultRowPattern(rowsCtrl.value, nodes.length);
+  const rowPatternCtrl = templateGrp.addTextBox('Row Object Pattern', defaultPattern);
+  rowPatternCtrl.isFullWidth = true;
+  rowPatternCtrl.isMultiLine = true;
+  rowPatternCtrl.rowSpan = 2;
+  const rowPatternHelpCtrl = templateGrp.addStaticText(
+    'Pattern Help',
+    'Use numbers or letters to choose the object for each row. Example: for 5 rows, 1.1.1.1.1 uses object 1 on every row; 1.2.1.2.1 alternates objects. To change color per row, select colored variants first, e.g. 1=red and 2=blue, then type the row order you want.'
+  );
+  rowPatternHelpCtrl.isFullWidth = true;
+  const rowTemplateRequirementCtrl = templateGrp.addStaticText(
+    '! Requirement',
+    'Row Template Mode only works if you selected two or more objects before running this script.'
+  );
+  rowTemplateRequirementCtrl.isFullWidth = true;
+
+  function updateTemplateControls() {
+    objectLabelsCtrl.isEnabled = nodes.length > 1;
+  }
+
+  function readValues() {
+    const rows = clamp(Math.round(rowsCtrl.value), 1, 100);
+
+    return {
+      instances: clamp(Math.round(instancesCtrl.value), 1, 500),
+      radius: clamp(radiusCtrl.value, 0, 100000),
+      sizeScale: clamp(sizeCtrl.value, 1, 1000) / 100,
+      rows,
+      rowSpacing: clamp(rowSpacingCtrl.value, 0, 100000),
+      addedInstancesPerRow: clamp(Math.round(addedCtrl.value), 0, 500),
+      rowRotation: clamp(rowRotationCtrl.value, -3600, 3600),
+      customRotation: !!customRotationCtrl.value,
+      customAngle: clamp(customAngleCtrl.value, -3600, 3600),
+      startScale: clamp(startScaleCtrl.value, 1, 1000) / 100,
+      endScale: clamp(endScaleCtrl.value, 1, 1000) / 100,
+      rowScaling: clamp(rowScaleCtrl.value, 1, 1000) / 100,
+      rowTemplateMode: rowTemplateModeCtrl.value && nodes.length > 1,
+      rowTemplateMap: parseRowTemplatePattern(rowPatternCtrl.text, nodes.length)
+    };
+  }
+
+  let inPreview = false;
+
+  function applyPreview() {
+    if (inPreview) return;
+    inPreview = true;
+
+    try {
+      const params = readValues();
+      clearPreviews(document);
+
+      const cmd = createRadialRepeatCommand(nodes, geometry, params, true);
+      if (cmd) document.executeCommand(cmd, true);
+    } catch (e) {
+      console.log(SCRIPT_TITLE + ' preview failed: ' + e);
+      clearPreviews(document);
+    } finally {
+      inPreview = false;
     }
+  }
 
-    const revealCb = CompoundCommandBuilder.create();
-    let anyHidden = false;
-    for (const n of origNodes) {
-      const vi = n.visibilityInterface;
-      if (vi && !vi.isVisibleInDomain) {
-        revealCb.addCommand(DocumentCommand.createSetVisibility(Selection.create(doc, n), true));
-        anyHidden = true;
+  instancesCtrl.onValueChangedHandler = applyPreview;
+  radiusCtrl.onValueChangedHandler = applyPreview;
+  sizeCtrl.onValueChangedHandler = applyPreview;
+  rowsCtrl.onValueChangedHandler = applyPreview;
+  rowSpacingCtrl.onValueChangedHandler = applyPreview;
+  addedCtrl.onValueChangedHandler = applyPreview;
+  rowRotationCtrl.onValueChangedHandler = applyPreview;
+  customRotationCtrl.onValueChangedHandler = applyPreview;
+  customAngleCtrl.onValueChangedHandler = applyPreview;
+  startScaleCtrl.onValueChangedHandler = applyPreview;
+  endScaleCtrl.onValueChangedHandler = applyPreview;
+  rowScaleCtrl.onValueChangedHandler = applyPreview;
+  rowTemplateModeCtrl.onValueChangedHandler = function() {
+    updateTemplateControls();
+    applyPreview();
+  };
+  rowPatternCtrl.onValueChangedHandler = applyPreview;
+
+  updateTemplateControls();
+  applyPreview();
+  const result = dlg.show();
+
+  if (result.value === DialogResult.Ok.value) {
+    const finalParams = readValues();
+    clearPreviews(document);
+
+    try {
+      const cmd = createRadialRepeatCommand(nodes, geometry, finalParams, false);
+      if (cmd) {
+        document.executeCommand(cmd);
+        groupIntoContainer(document, cmd.newNodes || [], 'Radial Repeat');
+        deleteOriginalNodes(document, nodes);
       }
+    } catch (e) {
+      showError('Aplicarea a esuat:\n' + e.message);
     }
-    if (anyHidden) { doc.executeCommand(revealCb.createCommand()); initSteps++; }
-
-    const validSrcs = origNodes.filter(n => nodeBBOrFallback(n) !== null);
-    if (validSrcs.length === 0) { alert("No visible content to array."); }
-    else {
-      origNodes = validSrcs;
-      const K = origNodes.length;
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const n of origNodes) {
-        const b = nodeBBOrFallback(n);
-        minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
-        maxX = Math.max(maxX, b.x + b.width); maxY = Math.max(maxY, b.y + b.height);
-      }
-      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-      const KEEP_ORIGIN = false;
-
-      function buildXforms(p) {
-        const xforms = [];
-        const rotRad = (p.rotDeg * Math.PI) / 180;
-        const rowShiftRad = (p.radialShiftDeg * Math.PI) / 180;
-        let count = 0;
-        for (let r = 0; r < p.radialRows; r++) {
-          const ci = p.instances + r * p.instancesIncrement;
-          if (ci <= 0) break;
-          const step = (2 * Math.PI) / ci;
-          const curRadius = p.radius + r * p.radialSpacing;
-          const curShift = r * rowShiftRad;
-          const ringScStart = p.scaleStart * Math.pow(p.rowScale, r);
-          const ringScEnd   = p.scaleEnd   * Math.pow(p.rowScale, r);
-          for (let i = 0; i < ci; i++) {
-            const src = origNodes[count % K];
-            const bb = nodeBBOrFallback(src);
-            const sox = bb.x + bb.width / 2, soy = bb.y + bb.height / 2;
-            const a = -Math.PI / 2 + i * step + curShift;
-            const rot = p.rotEnabled ? rotRad : i * step + curShift;
-            const sc = ringScStart + (ringScEnd - ringScStart) * (ci > 1 ? i / (ci - 1) : 0);
-            const tb = new TransformBuilder();
-            tb.translate(-sox, -soy);
-            if (Math.abs(sc - 1) > 0.0001) tb.scale(sc, sc);
-            if (Math.abs(rot) > 0.0001) tb.rotate(rot);
-            tb.translate(cx + curRadius * Math.cos(a), cy + curRadius * Math.sin(a));
-            xforms.push({ src, xf: tb.transform });
-            count++;
-          }
-        }
-        return xforms;
-      }
-
-      // Compound PUR de Above — fara alte tipuri de comenzi mixate
-      function execAboveReorder(ordered) {
-        if (ordered.length < 2) return false;
-        const cb = CompoundCommandBuilder.create();
-        for (let i = 1; i < ordered.length; i++) {
-          cb.addCommand(DocumentCommand.createMoveNodes(
-            Selection.create(doc, ordered[i]),
-            ordered[i - 1],
-            NodeMoveType.Above,
-            NodeChildType.Main,
-          ));
-        }
-        doc.executeCommand(cb.createCommand());
-        return true;
-      }
-
-      // ── doPreview ─────────────────────────────────────────────────
-      // OFF (Woven): z natural dupa dup, fara reorder explicit
-      // ON (Sequential): reorder explicit in ordinea xforms = placement order
-      function doPreview(p) {
-        const xforms = buildXforms(p);
-
-        // Pas 1: dup batch
-        const dupCb = CompoundCommandBuilder.create();
-        for (const { src, xf } of xforms)
-          dupCb.addCommand(DocumentCommand.createTransform(Selection.create(doc, src), xf, { duplicateNodes: true }));
-        const dupCmd = dupCb.createCommand();
-        doc.executeCommand(dupCmd);
-        const dupNodes = dupCmd.newNodes;
-
-        // Pas 2: hide sources
-        const hideCb = CompoundCommandBuilder.create();
-        for (const src of origNodes)
-          hideCb.addCommand(DocumentCommand.createSetVisibility(Selection.create(doc, src), false));
-        doc.executeCommand(hideCb.createCommand());
-
-        // Pas 3: doar pt Sequential Stack ON — reorder explicit
-        if (p.sequentialStack && K > 1) {
-          const did = execAboveReorder(Array.from(dupNodes));
-          if (did) return 3;
-        }
-        return 2;
-      }
-
-      // ── doApply — identic cu v6b ──────────────────────────────────
-      function doApply(p) {
-        // 1 — Container
-        const cndB = AddChildNodesCommandBuilder.create();
-        cndB.addContainerNode(ContainerNodeDefinition.createDefault());
-        const cCmd = cndB.createCommand(false, NodeChildType.Main);
-        doc.executeCommand(cCmd);
-        const containerNode = cCmd.newNodes[0];
-
-        // 2 — Batch dup (dupNodes e in ordinea xforms/creare — verificat empiric)
-        const xforms = buildXforms(p);
-        const dupCb = CompoundCommandBuilder.create();
-        for (const { src, xf } of xforms)
-          dupCb.addCommand(DocumentCommand.createTransform(Selection.create(doc, src), xf, { duplicateNodes: true }));
-        const dupCmd = dupCb.createCommand();
-        doc.executeCommand(dupCmd);
-        const dupNodes = dupCmd.newNodes;
-
-        // 3 — Muta tot Inside container (reverse loop) + show
-        const moveCb = CompoundCommandBuilder.create();
-        for (let i = dupNodes.length - 1; i >= 0; i--) {
-          moveCb.addCommand(DocumentCommand.createMoveNodes(
-            Selection.create(doc, dupNodes[i]), containerNode, NodeMoveType.Inside, NodeChildType.Main));
-          moveCb.addCommand(DocumentCommand.createSetVisibility(Selection.create(doc, dupNodes[i]), true));
-        }
-        doc.executeCommand(moveCb.createCommand());
-
-        // 4 — Reordonare cu Above (compound PUR, calculat DUPA Inside)
-        let ordered;
-        if (p.sequentialStack && K > 1) {
-          ordered = Array.from(dupNodes); // ordinea plasarii pe inel
-        } else {
-          // Woven: sortat dupa zRank din container (ascending)
-          ordered = Array.from(dupNodes).sort((a, b) => getZRank(a) - getZRank(b));
-        }
-        execAboveReorder(ordered);
-
-        // 5 — Hide sources (compound separat)
-        if (!KEEP_ORIGIN) {
-          const hideCb = CompoundCommandBuilder.create();
-          for (const src of origNodes)
-            hideCb.addCommand(DocumentCommand.createSetVisibility(Selection.create(doc, src), false));
-          doc.executeCommand(hideCb.createCommand());
-        }
-      }
-
-      // ── Dialog ────────────────────────────────────────────────────
-      const multiSrc = K > 1;
-      const srcLabel = multiSrc ? ` — ${K} Alternating` : "";
-      const dlg = Dialog.create(`Radial Repeat${srcLabel}`);
-      const col = dlg.addColumn();
-
-      const grpDist = col.addGroup("Instances & Rows");
-      const instEd    = grpDist.addUnitValueEditor("Instances", "", "", 6, 1, 500);            instEd.precision = 0;
-      const radEd     = grpDist.addUnitValueEditor("Radius (px)", "px", "px", 50, 0.1, 99999); radEd.precision = 1;
-      const radRowsEd = grpDist.addUnitValueEditor("Rows", "", "", 1, 1, 100);                 radRowsEd.precision = 0;
-      const radSpcEd  = grpDist.addUnitValueEditor("Row Spacing (px)", "px", "px", 50, 0, 99999); radSpcEd.precision = 1;
-      const instIncEd = grpDist.addUnitValueEditor("Added Instances Per Row", "", "", 0, -100, 500); instIncEd.precision = 0;
-      const radShiftEd= grpDist.addUnitValueEditor("Row Rotation", "deg", "deg", 0, -360, 360); radShiftEd.precision = 1;
-
-      const grpRot = col.addGroup("Rotation");
-      const rotSw = grpRot.addSwitch("Enable Custom Rotation", false);
-      const rotEd = grpRot.addUnitValueEditor("Angle (deg)", "deg", "deg", 0, -3600, 3600); rotEd.precision = 1;
-
-      const grpScl = col.addGroup("Scaling");
-      const scStEd = grpScl.addUnitValueEditor("Instances Start Scale (%)", "%", "%", 100, 1, 1000); scStEd.precision = 1;
-      const scEnEd = grpScl.addUnitValueEditor("Instances End Scale (%)", "%", "%", 100, 1, 1000); scEnEd.precision = 1;
-      const scRowEd= grpScl.addUnitValueEditor("Row Scaling (%)", "%", "%", 100, 1, 1000);           scRowEd.precision = 1;
-
-      let seqStackSw = null;
-      if (multiSrc) {
-        const grpStack = col.addGroup("Layer Order");
-        seqStackSw = grpStack.addSwitch("Sequential Stack", false);
-      }
-
-      const sepGrp = col.addGroup("");
-      sepGrp.enableSeparator = true;
-      const btns = sepGrp.addButtonSet("", ["Preview", "Apply"], 0);
-
-      function getParams() {
-        return {
-          instances:          Math.max(1, Math.round(instEd.value)),
-          instancesIncrement: Math.round(instIncEd.value),
-          radius:             Math.max(0.1, radEd.value),
-          radialRows:         Math.max(1, Math.round(radRowsEd.value)),
-          radialSpacing:      Math.max(0, radSpcEd.value),
-          radialShiftDeg:     radShiftEd.value,
-          rotEnabled:         rotSw.value,
-          rotDeg:             rotEd.value,
-          scaleStart:         Math.max(0.01, scStEd.value / 100),
-          scaleEnd:           Math.max(0.01, scEnEd.value / 100),
-          rowScale:           Math.max(0.01, scRowEd.value / 100),
-          sequentialStack:    seqStackSw ? seqStackSw.value : false,
-        };
-      }
-
-      let previewSteps = doPreview(getParams());
-      let running = true;
-      while (running) {
-        btns.selectedIndex = 0;
-        const r = dlg.show();
-        const p = getParams();
-        const mode = btns.selectedIndex;
-        if (r.value === DialogResult.Ok.value) {
-          undoN(previewSteps);
-          if (mode === 1) { doApply(p); running = false; }
-          else { previewSteps = doPreview(p); }
-        } else {
-          undoN(previewSteps); undoN(initSteps); running = false;
-        }
-      }
-    }
+  } else {
+    clearPreviews(document);
   }
 }
