@@ -636,7 +636,7 @@
     },
     {
       "id": "RadialRepeat",
-      "name": "Pizza Cutter",
+      "name": "Radial Repeat",
       "description": "Select one or more objects, then duplicate them automatically in a radial layout around the center of the selection. The script supports multiple circular rows, live preview, controls for radius, spacing, rotation, and scaling, plus a row template mode for assigning different selected objects to specific rows",
       "author": "BlackMortimer-13",
       "version": "1.0.0",
