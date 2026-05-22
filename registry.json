@@ -662,7 +662,7 @@
       "author": "hellsfaun",
       "version": "1.0.0",
       "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/makebutton.jpg",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/makebutton.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/makebutton.js"
     },
     {
@@ -673,7 +673,7 @@
       "contributors": "BlackMortimer-13",
       "version": "1.1.0",
       "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/groupcleanup.jpg",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/groupcleanup.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/groupcleanup.js"
     },
     {
@@ -683,7 +683,7 @@
       "author": "jn-373",
       "version": "1.0.0",
       "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/empty-clipping-masks.jpg",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/empty-clipping-masks.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/empty-clipping-masks.js"
     }
   ]
