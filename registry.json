@@ -664,6 +664,17 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/makebutton.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/makebutton.js"
+    },
+    {
+      "id": "groupcleanup",
+      "name": "Group Cleanup",
+      "description": "Deletes empty groups and releases plain single-item groups.",
+      "author": "hellsfaun",
+      "contributors": "BlackMortimer-13",
+      "version": "1.1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/groupcleanup.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/groupcleanup.js"
     }
   ]
 }
