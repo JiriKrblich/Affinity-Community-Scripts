@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-05-21",
+  "last_updated": "2026-05-22",
   "scripts": [
     {
       "id": "blendtool",
@@ -654,6 +654,16 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/RadialRepeat.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/radial-repeat.js"
+    },
+    {
+      "id": "makebutton",
+      "name": "Make Button",
+      "description": "Instantly creates perfectly padded rounded button backgrounds behind selected text layers with live preview, customizable fill/stroke styling, linked padding controls, and automatic grouping.",
+      "author": "hellsfaun",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/makebutton.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/makebutton.js"
     }
   ]
 }
