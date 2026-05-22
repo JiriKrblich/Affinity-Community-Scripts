@@ -71,9 +71,10 @@
     {
       "id": "generatecropmarks",
       "name": "Generate Crop Marks",
-      "description": "Automatically generate 5mm corner crops and internal grid ticks with a 2mm offset for any selection in Affinity, placing them on a dedicated 0.25pt locked production layer.",
+      "description": "Generates crop/cut marks for selected objects and Data Merge Layout grids. For DML nodes always asks the user for rows/columns via dialog. Adds L-shaped corner marks and internal grid ticks to a locked Production Marks layer.",
       "author": "sakura",
-      "version": "1.0",
+      "contributors": "pgraficzny",
+      "version": "2.0",
       "category": "Print",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/generatecropmarks.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/generatecropmarks.js"
