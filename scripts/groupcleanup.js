@@ -1,7 +1,7 @@
 /**
  * name: Group Cleanup
  * description: Deletes empty groups and releases plain single-item groups.
- * version: 1.1.0
+ * version: 1.2.0
  * author: BlackMortimer-13, hellsfaun
  * based-on: DeleteEmptyGroups by BlackMortimer-13
  */
@@ -323,6 +323,15 @@ if (!doc) {
     const child = node.firstChild;
     if (!child) return false;
 
+    try {
+      child.moveToParent();
+      if (!hasParent(child, node)) {
+        return true;
+      }
+    } catch (err) {
+      console.log("    Direct moveToParent() failed: " + err);
+    }
+
     const moveTypeCandidates = getMoveTypeCandidates();
     for (const moveType of moveTypeCandidates) {
       try {
@@ -346,15 +355,6 @@ if (!doc) {
             err,
         );
       }
-    }
-
-    try {
-      child.moveToParent();
-      if (!hasParent(child, node)) {
-        return true;
-      }
-    } catch (err) {
-      console.log("    Direct moveToParent() failed: " + err);
     }
 
     console.log(
@@ -410,9 +410,13 @@ if (!doc) {
         if (!isEmptyGroupOrContainer(node)) continue;
 
         console.log("  Deleting: " + name + " [" + getNodeTypeName(node) + "]");
-        node.delete();
-        totalDeleted++;
-        actionsThisPass++;
+        try {
+          node.delete();
+          totalDeleted++;
+          actionsThisPass++;
+        } catch (err) {
+          console.log("    Delete failed: " + err);
+        }
       }
     }
 
@@ -432,12 +436,17 @@ if (!doc) {
         const childName = getChildName(child);
 
         console.log("  Releasing: " + name + " -> " + childName);
-        if (releaseSingleItemGroup(node)) {
-          totalReleased++;
-          actionsThisPass++;
-        } else {
+        try {
+          if (releaseSingleItemGroup(node)) {
+            totalReleased++;
+            actionsThisPass++;
+          } else {
+            totalReleaseFailed++;
+            console.log("    Release skipped: " + name);
+          }
+        } catch (err) {
           totalReleaseFailed++;
-          console.log("    Release skipped: " + name);
+          console.log("    Release failed: " + err);
         }
       }
     }

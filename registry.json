@@ -671,7 +671,7 @@
       "description": "Deletes empty groups and releases plain single-item groups.",
       "author": "hellsfaun",
       "contributors": "BlackMortimer-13",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/groupcleanup.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/groupcleanup.js"
