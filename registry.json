@@ -685,6 +685,16 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/empty-clipping-masks.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/empty-clipping-masks.js"
+    },
+    {
+      "id": "squircle",
+      "name": "Apple Style Squircle Tool",
+      "description": "Create Squircles from Squares in Apple App Icon Style with Live-Preview option.",
+      "author": "Dan Schumacher",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/squircle.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/squircle.js"
     }
   ]
 }
