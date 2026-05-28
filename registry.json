@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-05-22",
+  "last_updated": "2026-05-28",
   "scripts": [
     {
       "id": "blendtool",
@@ -695,6 +695,16 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/squircle.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/squircle.js"
+    },
+    {
+      "id": "AdvancedMarkdown",
+      "name": "Advanced Markdown to Affinity Publisher",
+      "description": "Import your Markdown file and instantly transform it into a fully styled Affinity Publisher layout.",
+      "author": "Torsten Dinkheller",
+      "version": "5.01.001",
+      "category": "Text",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/AdvancedMarkdown.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/AdvancedMarkdown.js"
     }
   ]
 }
