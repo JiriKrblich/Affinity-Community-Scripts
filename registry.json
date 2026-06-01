@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-05-28",
+  "last_updated": "2026-06-01",
   "scripts": [
     {
       "id": "blendtool",
@@ -705,6 +705,16 @@
       "category": "Text",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/AdvancedMarkdown.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/AdvancedMarkdown.js"
+    },
+    {
+      "id": "copy-selection-to-opposite-page",
+      "name": "Duplicate Selection to Opposite Page",
+      "description": "Select one or more objects on a page, then run the script to duplicate them automatically to the opposite paired page in the same relative position. The script detects the source page from the selected objects, chooses the matching target page automatically, and supports paired-page logic such as 2↔3, 4↔5, 6↔7, and so on.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/copy-selection-to-opposite-page.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/copy-selection-to-opposite-page.js"
     }
   ]
 }
