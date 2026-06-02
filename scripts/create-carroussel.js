@@ -1,3 +1,9 @@
+/**
+ * name: Create Carroussel
+ * description: Creates a new single document ready for a Carroussel image, with up to 20 panels divided with Guidelines.
+ * version: 1.1.0
+ * author: rbonelli
+ */
 
 'use strict';
 
@@ -15,16 +21,17 @@ const widthCtrl  = grpPanel.addUnitValueEditor('Width (px)',  UnitType.Pixel, Un
 const heightCtrl = grpPanel.addUnitValueEditor('Height (px)', UnitType.Pixel, UnitType.Pixel, 1350, 1, 10000);
 
 const grpCarr = col.addGroup('Carroussel settings');
-const numPanelsCtrl = grpCarr.addComboBox('Number of panels', ['2','3','4','5','6','7','8'], 2);
+const panelOptions = ['2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18','19','20'];
+const numPanelsCtrl = grpCarr.addComboBox('Number of panels', panelOptions, 2); // index 2 = 4 panels (default)
 
 const result = dlg.runModal();
 if (!result.equals(DialogResult.Ok)) {
   console.log('Cancelled.');
 } else {
-  const panelW   = Math.round(widthCtrl.value);
-  const panelH   = Math.round(heightCtrl.value);
-  const numPanels = parseInt(['2','3','4','5','6','7','8'][numPanelsCtrl.selectedIndex]);
-  const docW     = panelW * numPanels;
+  const panelW    = Math.round(widthCtrl.value);
+  const panelH    = Math.round(heightCtrl.value);
+  const numPanels = parseInt(panelOptions[numPanelsCtrl.selectedIndex]);
+  const docW      = panelW * numPanels;
 
   const opts = NewDocumentOptions.createDefault();
   opts.units          = UnitType.Pixel;

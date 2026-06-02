@@ -373,7 +373,7 @@
       "name": "Export Carroussel",
       "description": "Export a single document as individual panels of a specified size.",
       "author": "rbonelli",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "category": "Export",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/exportcarousel.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/export-carroussel.js"
@@ -383,7 +383,7 @@
       "name": "Create Carroussel",
       "description": "Creates a new single document ready for a Carroussel image, with X panels divided with Guidelines.",
       "author": "rbonelli",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "Artboards",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/createcarousel.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/create-carroussel.js"

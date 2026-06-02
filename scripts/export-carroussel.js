@@ -1,3 +1,9 @@
+/**
+ * name: Export Carroussel
+ * description: Export a single document as individual panels of a specified size.
+ * version: 1.2.0
+ * author: rbonelli
+ */
 
 'use strict';
 const { Document, FileExportOptions, FileExportArea } = require('/document');
@@ -36,7 +42,8 @@ const widthCtrl  = grpPanel.addUnitValueEditor('Width (px)',  UnitType.Pixel, Un
 const heightCtrl = grpPanel.addUnitValueEditor('Height (px)', UnitType.Pixel, UnitType.Pixel, docH, 1, docH);
 
 const grpExp = col.addGroup('Export settings');
-const numPanelsCtrl = grpExp.addComboBox('Number of panels', ['2','3','4','5','6','7','8'], 2);
+const panelOptions = ['2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18','19','20'];
+const numPanelsCtrl = grpExp.addComboBox('Number of panels', panelOptions, 2); // index 2 = 4 panels (default)
 const formatCtrl    = grpExp.addComboBox('Format', ['PNG', 'JPEG (melhor qualidade)', 'JPEG (alta qualidade)', 'WebP (melhor qualidade)'], 0);
 const prefixCtrl    = grpExp.addTextBox('File prefix', 'panel');
 
@@ -50,7 +57,7 @@ if (!result.equals(DialogResult.Ok)) { console.log('Cancelled.'); }
 else {
   const panelW    = Math.round(widthCtrl.value);
   const panelH    = Math.round(heightCtrl.value);
-  const numPanels = parseInt(['2','3','4','5','6','7','8'][numPanelsCtrl.selectedIndex]);
+  const numPanels = parseInt(panelOptions[numPanelsCtrl.selectedIndex]);
   const format    = ['PNG', 'JPEG (melhor qualidade)', 'JPEG (alta qualidade)', 'WebP (melhor qualidade)'][formatCtrl.selectedIndex];
   const ext       = format.startsWith('PNG') ? 'png' : format.startsWith('JPEG') ? 'jpg' : 'webp';
   const prefix    = prefixCtrl.text.trim() || 'panel';
