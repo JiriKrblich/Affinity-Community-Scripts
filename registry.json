@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-06-01",
+  "last_updated": "2026-06-13",
   "scripts": [
     {
       "id": "blendtool",
@@ -745,6 +745,15 @@
       "category": "Generator",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/progressive-transform.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/progressive-transform.js"
+    },
+    {
+      "id": "ExportSelectedLayerAsCmykPsd",
+      "name": "Export Selected Layer(s) as CMYK PSD for Printing",
+      "description": "This allows you to export only the selected layers as CMYK PSD file for printing (helpful for DTF Printing)",
+      "author": "Paulius Asamoah Sem",
+      "version": "1.0.0",
+      "category": "Export",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ExportSelectedLayerAsCmykPsd.js"
     }
   ]
 }
