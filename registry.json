@@ -735,6 +735,16 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/centerline-tracer.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/centerline-tracer.js"
+    },
+    {
+      "id": "progressive-transform",
+      "name": "Progressive Transform",
+      "description": "Select multiple objects in Affinity, then run this script. Applies progressive scale, rotation, fill color, and opacity across selected objects in selection order. Progression is evenly divided based on the number of selected objects.",
+      "author": "WaveF",
+      "version": "1.0.0",
+      "category": "Generator",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/progressive-transform.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/progressive-transform.js"
     }
   ]
 }
