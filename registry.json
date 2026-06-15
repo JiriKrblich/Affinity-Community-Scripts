@@ -754,6 +754,25 @@
       "version": "1.0.0",
       "category": "Export",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ExportSelectedLayerAsCmykPsd.js"
+    },
+    {
+      "id": "joinpaths",
+      "name": "Join Paths",
+      "description": "Joins selected open paths within specified radius. Make one path from multiple open paths",
+      "author": "EricP",
+      "version": "1.0.0",
+      "category": "Path",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/joinpaths.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/joinpaths.js"
+    },
+    {
+      "id": "EnvelopeWarpStudio",
+      "name": "Envelope Studio Pro",
+      "description": "Multi-stage Illustrator-style warp engine with origin, direction, advanced falloff, custom profiles, live preview, and JSON presets.",
+      "author": "tzvi20",
+      "version": "3.0.0",
+      "category": "Object",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/EnvelopeWarpStudio.js"
     }
   ]
 }
