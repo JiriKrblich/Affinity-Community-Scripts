@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-06-13",
+  "last_updated": "2026-06-16",
   "scripts": [
     {
       "id": "blendtool",
@@ -773,6 +773,16 @@
       "version": "3.0.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/EnvelopeWarpStudio.js"
+    },
+    {
+      "id": "swiss_grid_generator_en",
+      "name": "Swiss Grid Explorer",
+      "description": "Parametric grid generator for Affinity Designer, Publisher and Photo. Generates native guides for columns, rows, margins and gutter directly on the document, with live preview. Includes 6 iconic presets based on historical references (Brockmann 8x8, Gerstner 6x6, Vignelli 3x4, Tschichold 2x3, Digital 12, Slides 4x3), each scaling proportionally to any page size. Single undo step for the entire grid. Optional baseline grid. Available in English and Spanish (two separate scripts). Generates only native guides, no layers or vector objects.",
+      "author": "Victor Crespo (3dvic · github.com/vicc3d)",
+      "version": "1.1.0",
+      "category": "Layout",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/swiss_grid_generator_en.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swiss_grid_generator_en.js"
     }
   ]
 }
