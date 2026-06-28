@@ -1,17 +1,7 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-06-24",
+  "last_updated": "2026-06-28",
   "scripts": [
-    {
-      "id": "blendtool",
-      "name": "Blend Tool",
-      "description": "Select 2 vector objects, then run. Supports path as 3rd object.",
-      "author": "robinsnest56",
-      "version": "9.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/blendtool.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/blendtool.js"
-    },
     {
       "id": "markdown_import_to_text_frame",
       "name": "Markdown import to text frame",
@@ -792,6 +782,17 @@
       "version": "1.0.0",
       "category": "Export",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/batchSubgroupExporter.js"
+    },
+    {
+      "id": "blendtool_soulmate",
+      "name": "Blend Tool (混合工具)",
+      "description": "Rewrite from Blend-tool by robinsnest56. Select 2 vector objects, then run. Supports path as 3rd object.",
+      "author": "Soulmate",
+      "contributors": "robinsnest56",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/blendtool_soulmate.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/blendtool_soulmate.js"
     }
   ]
 }
