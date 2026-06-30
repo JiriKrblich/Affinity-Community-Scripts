@@ -1,798 +1,807 @@
 {
-  "repository": "Affinity Community Scripts",
-  "last_updated": "2026-06-28",
-  "scripts": [
-    {
-      "id": "markdown_import_to_text_frame",
-      "name": "Markdown import to text frame",
-      "description": "Markdown import to text frame",
-      "author": "rabidgremlin",
-      "version": "1.0",
-      "category": "Text",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/markdown_import_to_text_frame.js"
-    },
-    {
-      "id": "helloworldexample",
-      "name": "Hello, World Example",
-      "description": "Affinity scripting Hello, World!",
-      "author": "rabidgremlin",
-      "version": "1.0",
-      "category": "Other",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/helloworldexample.js"
-    },
-    {
-      "id": "copytoartboards",
-      "name": "Copy to artboards",
-      "description": "Duplicates selected object(s) onto every other artboard in the document",
-      "author": "BlackMortimer-13",
-      "version": "1.0",
-      "category": "Artboards",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/CopytoAllArtboards.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/copytoartboards.js"
-    },
-    {
-      "id": "swapobjectsbycenter",
-      "name": "Swap objects by center",
-      "description": "Swap the locations of two selected objects by their center points.",
-      "author": "daani-rika",
-      "version": "2.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/swapbycenter.gif",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swapobjectsbycenter.js"
-    },
-    {
-      "id": "smart_jpeg_export",
-      "name": "Smart JPEG export",
-      "description": "Exports all/selected artboards, spreads or docs with max. size limit",
-      "author": "JiriKrblich",
-      "version": "1.0",
-      "category": "Export",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/smart_jpeg_export.js"
-    },
-    {
-      "id": "single-char_linebreak_fix",
-      "name": "Single-char linebreak fix",
-      "description": "Replaces spaces after lone single characters with non-breaking spaces (Slavic languages)",
-      "author": "JiriKrblich",
-      "version": "1.0",
-      "category": "Text",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/single-char_linebreak_fix.js"
-    },
-    {
-      "id": "generatecropmarks",
-      "name": "Generate Crop Marks",
-      "description": "Generates crop/cut marks for selected objects and Data Merge Layout grids. For DML nodes always asks the user for rows/columns via dialog. Adds L-shaped corner marks and internal grid ticks to a locked Production Marks layer.",
-      "author": "sakura",
-      "contributors": "pgraficzny",
-      "version": "2.0",
-      "category": "Print",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/generatecropmarks.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/generatecropmarks.js"
-    },
-    {
-      "id": "customgradientmap",
-      "name": "Custom Gradient Map",
-      "description": "Creates a custom gradient map based on a selected gradient swatch.",
-      "author": "RE4LLY",
-      "version": "1.0",
-      "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/customgradientmap.js"
-    },
-    {
-      "id": "zigzageffect",
-      "name": "Zig Zag Effect",
-      "description": "This script transforms a selected shape or line into a zig zag pattern. Simply select a shape or path, run the script, and it will automatically apply a zig zag effect to it.",
-      "author": "BlackMortimer-13",
-      "version": "2.0",
-      "category": "Effect",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ZigZag.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/zigzageffect.js"
-    },
-    {
-      "id": "bentoboxgenerator",
-      "name": "Bento Box Generator",
-      "description": "Generates Bento Grid/Box on the current page/artboard",
-      "author": "JiriKrblich",
-      "version": "1.1",
-      "category": "Generator",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/bentobox.gif",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/bentoboxgenerator.js"
-    },
-    {
-      "id": "replacecolorfill",
-      "name": "ReColorFill",
-      "description": "Allows users to quickly change the fill color/gradients of selected shapes.",
-      "author": "BlackMortimer-13",
-      "version": "4.0",
-      "category": "Color",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ReColorFill.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replacecolorfill.js"
-    },
-    {
-      "id": "hangingcharsandprepositions",
-      "name": "Hanging chars and prepositions",
-      "description": "Replaces spaces after lone single characters or prepositions with non-breaking spaces (for slavic languages). Based on initial script by JiriKrblich",
-      "author": "nodeus",
-      "version": "1.0",
-      "category": "Text",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/hangingcharsandprepositions.js"
-    },
-    {
-      "id": "RGBImagesLeftovers",
-      "name": "RGB Finder",
-      "description": "Looks for all embedded and linked RGB images in an open Affinity document. Useful for CMYK documents.",
-      "author": "hrum",
-      "version": "1.0",
-      "category": "Print",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/RGBImagesLeftovers.js"
-    },
-    {
-      "id": "dithering",
-      "name": "Dithering",
-      "description": "Adjustable halftone dithering effect with 12 dithering algorithms.",
-      "author": "bitmancer",
-      "version": "1.0",
-      "category": "Effect",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/dithering.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/dithering.js"
-    },
-    {
-      "id": "replacecolorstroke",
-      "name": "ReColorStroke",
-      "description": "Allows users to quickly change the stroke color or gradients of selected shapes.",
-      "author": "BlackMortimer-13",
-      "version": "2.0",
-      "category": "Color",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ReColorStroke.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replacecolorstroke.js"
-    },
-    {
-      "id": "PuckerBloatEffect",
-      "name": "PuckerBloatEffect",
-      "description": "Applies a Pucker & Bloat effect to the selected object(s), pulling anchor points inward (Pucker) or outward (Bloat) to distort",
-      "author": "BlackMortimer-13",
-      "version": "1.0",
-      "category": "Effect",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Pucker&Bloat.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/PuckerBloatEffect.js"
-    },
-    {
-      "id": "DeleteEmptyGroups",
-      "name": "DeleteEmptyGroups",
-      "description": "Deletes empty groups left behind by the user.",
-      "author": "BlackMortimer-13",
-      "version": "1.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/DeleteEmptyFolders.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/deleteemptygroups.js"
-    },
-    {
-      "id": "randomizeobjects",
-      "name": "Randomize Objects",
-      "description": "Randomization of size, position, rotation, skew, opacity, color, and stroke of selected objects.",
-      "author": "zaum",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/randomizeobjects.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/randomizeobjects.js"
-    },
-    {
-      "id": "DirectionalBlurShadow",
-      "name": "Directional Blur Shadow",
-      "description": "Directional Blur Shadow creates a directional shadow of an object that progressively blurs, fades and tapers as it moves away from the object.",
-      "author": "rbonelli",
-      "version": "1.1.0",
-      "category": "Effect",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/directionblur.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DirectionalBlurShadow.js"
-    },
-    {
-      "id": "oklchcolor",
-      "name": "OKLCH Color",
-      "description": "Edit, paste and save OKLCH colors.",
-      "author": "JiriKrblich",
-      "version": "1.0.0",
-      "category": "Color",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/oklch.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/oklch_color.js"
-    },
-    {
-      "id": "split_to_grid",
-      "name": "Split to grid",
-      "description": "Split vector object into n*n grid",
-      "author": "JiriKrblich",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/splittogrid.gif",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/split_to_grid.js"
-    },
-    {
-      "id": "crack-and-explode",
-      "name": "Crack and Explode",
-      "description": "Create radial cracks in the shape and explode it.",
-      "author": "rbonelli",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/explode.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/crack-and-explode.js"
-    },
-    {
-      "id": "distributeshapesonpaths",
-      "name": "Distribute Shapes on Paths",
-      "description": "Places copies of designated target layers along selected vector shapes or paths. Choose the target layer by name from the dropdown or rename it to target. Multiple matching layers are distributed in round-robin order. Supports vector, group, symbol, and pixel layers, with insertion modes for path, center, nodes, and corners.",
-      "author": "EricP",
-      "version": "1.1.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/distributeshapes.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/distributeshapesonpaths.js"
-    },
-    {
-      "id": "replace-all-with-key-object",
-      "name": "ReplaceObjectwithObject",
-      "description": "The script replaces all selected objects with duplicates of the key object (select 2 objects then press Option on Mac or Alt on Windows on the object you want to become the key object), while preserving position and rotation, with optional size matching.",
-      "author": "BlackMortimer-13",
-      "version": "2.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ReplaceObjectsWithObject.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replaceobjectswithobject.js"
-    },
-    {
-      "id": "separate-fill-and-stroke",
-      "name": "SeparateFill&Stroke",
-      "description": "Separates combined fill and stroke appearances into independent objects for easier editing and output control.",
-      "author": "BlackMortimer-13",
-      "version": "1.0.0",
-      "category": "Color",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/SeparateStroke&Fill.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/separate-fill-and-stroke.js"
-    },
-    {
-      "id": "arrange-on-path",
-      "name": "Arrange on Path",
-      "description": "Distributes selected objects evenly along auto-detected vector paths, with support for multiple paths, randomization, interpolation, smart sorting, open/closed paths, and repeat mode for tiling objects along the path.",
-      "author": "BlackMortimer-13",
-      "version": "1.0.0",
-      "category": "Path",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ArrangeObjectsOnPath.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/arrange-on-path-v1.js"
-    },
-    {
-      "id": "swap-objects",
-      "name": "Swap Objects",
-      "description": "The script swaps selected objects based on a custom mapping, with optional orientation and dimension swapping. Select at least 2 objects, choose how they should swap in the dialog, then use Preview or Apply.",
-      "author": "BlackMortimer-13",
-      "version": "2.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/SwapObjects.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swapobjects.js"
-    },
-    {
-      "id": "Toggle-Layer-Visibility-Across-All-Pages",
-      "name": "Toggle Layer Visibility Across All Pages",
-      "description": "Layer States alternative. Select a layer, then run this script. It reads the layer's name and current visibility, then toggles all layers with the same name across every page/spread.",
-      "author": "hrum",
-      "version": "1.0.0",
-      "category": "Layer",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Toggle-Layer-Visibility-Across-All-Pages.js"
-    },
-    {
-      "id": "Move-Layer-to-Top-Across-All-Pages",
-      "name": "Move Layer to Top Across All Pages",
-      "description": "Select a layer, then run this script. It finds all layers with the same name across every page/spread and moves them to the top of the layer stack.",
-      "author": "hrum",
-      "version": "1.0.0",
-      "category": "Layer",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Move-Layer-to-Top-Across-All-Pages.js"
-    },
-    {
-      "id": "Roughen-Edges",
-      "name": "Roughen Edges",
-      "description": "Rough up vector paths with controls over amplitute, frequency, noise etc.",
-      "author": "Nic Kraneis",
-      "version": "1.0.0",
-      "category": "Effect",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Roughen-Edges.js"
-    },
-    {
-      "id": "Glitch-effect",
-      "name": "Glitch effect",
-      "description": "Create a glitch effect on a vector object.",
-      "author": "Nic Kraneis",
-      "version": "1.0.0",
-      "category": "Effect",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Glitch-effect.js"
-    },
-    {
-      "id": "Pattern-Maker",
-      "name": "Pattern Maker",
-      "description": "Create patterns from an object. Supports brick and drop patterns.",
-      "author": "Nic Kraneis",
-      "version": "1.0.0",
-      "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Pattern-Maker.js"
-    },
-    {
-      "id": "cropmarks",
-      "name": "Cropmarks",
-      "description": "Places cutting marks 2 mm away from the Trimbox in the same color as the registration marks",
-      "author": "Wolfgang Wiesen",
-      "version": "4.0.0",
-      "category": "Print",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/cropmarks.js"
-    },
-    {
-      "id": "styleconsistencychecker",
-      "name": "Style Consistency Checker",
-      "description": "Easily maintain design consistency by inspecting and remapping font faces, sizes, and stroke weights. Also includes a tool to clean up invisible garbage nodes",
-      "author": "Shigeru Kobayashi",
-      "version": "1.0.1",
-      "category": "Utility",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/affinity-style-consistency-checker.js"
-    },
-    {
-      "id": "FillPathWithObjects",
-      "name": "Fill Path With Objects",
-      "description": "This script fills a selected closed vector path with multiple copies of one or more template objects. It supports different grid types (rectangular, hex, circular, radial, etc.), randomization, scaling, rotation, and spacing controls. Select a closed path and objects, adjust settings, then preview or apply.  ",
-      "author": "BlackMortimer-13",
-      "version": "1.0.0",
-      "category": "Generator",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/FillPathWithObjects.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/fill-path-with-objects-v1.js"
-    },
-    {
-      "id": "gridify",
-      "name": "Gridify",
-      "description": "Spread selected objects into a grid with various options of spacing, scaling and jitter.",
-      "author": "Nic Kraneis",
-      "version": "1.0.0",
-      "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/gridify.js"
-    },
-    {
-      "id": "ExtrudeTool",
-      "name": "Extrude Tool",
-      "description": "This script generates a 3D-like extrusion effect by connecting selected vector shapes. Once executed, the tool automatically calculates, subdivides, and renders the connecting geometry, organizing the resulting faces while preserving your original shapes as caps",
-      "author": "BlackMortimer-13",
-      "version": "4.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Extrude.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/extrudetool.js"
-    },
-    {
-      "id": "ExportCarroussel",
-      "name": "Export Carroussel",
-      "description": "Export a single document as individual panels of a specified size.",
-      "author": "rbonelli",
-      "version": "1.2.0",
-      "category": "Export",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/exportcarousel.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/export-carroussel.js"
-    },
-    {
-      "id": "CreateCarroussel",
-      "name": "Create Carroussel",
-      "description": "Creates a new single document ready for a Carroussel image, with X panels divided with Guidelines.",
-      "author": "rbonelli",
-      "version": "1.1.0",
-      "category": "Artboards",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/createcarousel.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/create-carroussel.js"
-    },
-    {
-      "id": "3Dfun",
-      "name": "3D fun",
-      "description": "Creates faux 3D objects",
-      "author": " S1m0nP1",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/fun3D.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/3Dfun.js"
-    },
-    {
-      "id": "rename-artboards",
-      "name": "Artboard Batch Renamer",
-      "description": "Renames all artboards in the current document in bulk. When executed, a dialog prompts for a base name, which is then applied to all artboards with automatic sequential numbering and zero-padding — ensuring correct alphabetical sort order when exporting files (e.g., Name 01, Name 02... instead of Name 1, Name 2). For 100+ artboards, padding adjusts to 3 digits automatically. If only one artboard exists, no number is appended.",
-      "author": " Heitor Hatherly",
-      "version": "1.0.0",
-      "category": "Artboards",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/rename-artboards.js"
-    },
-    {
-      "id": "twist-effect",
-      "name": "Twist Effect",
-      "description": "This script applies a progressive polar rotation (twist) to selected curves, shapes, or groups, mimicking Adobe Illustrator's twist effect. Select your vector elements first; the script subdivides Bezier curves, twists points radially based on distance from the center, and reconstructs the path.",
-      "author": "BlackMortimer-13",
-      "version": "2.0.0",
-      "category": "Effect",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Twist.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/twist-effect.js"
-    },
-    {
-      "id": "tile-generator",
-      "name": "Tile Generator",
-      "description": "This script generates tile-based patterns from a selected object. It supports multiple layout styles, including a basic grid, brick offset, half-drop, diamond, hexagonal, radial burst, spiral, wave, pinwheel, and random scatter. It also includes progressive hue shifting, which reads the source object’s solid fill color and shifts the hue across all tiles, for example by 180° to create complementary colors.",
-      "author": "S1m0nP1",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/tilegenerator.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/tile-generator.js"
-    },
-    {
-      "id": "vector-lathe-revolve",
-      "name": "Vector Lathe (Revolve)",
-      "description": "This script revolves a selected vector path into a lathe-style 3D form. Select one path first, then run it; the script creates the revolved geometry, applies shading, and organizes the result into containers for visible faces and caps.",
-      "author": "BlackMortimer-13",
-      "version": "1.0.0",
-      "category": "Effect",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/vectorlathe.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/vector-lathe--revolve--v1.js"
-    },
-    {
-      "id": "combine4braille_affinity",
-      "name": "Combine Text For Braille Output",
-      "description": "When you intend to send a copy of your work to a blind person, it can take a lot of time to merge all the text boxes over many pages into one Word file. This Claude generated script starts at the beginning of the document and collects all the text from the text boxes and merges it into a txt file on your desktop. This can then be opened in Word for final processing before sending to Braille.",
-      "author": "BaconThatsIt",
-      "version": "1.0.0",
-      "category": "Export",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/combine4braille_affinity.js"
-    },
-    {
-      "id": "export-dds-bc3-dxt5",
-      "name": "Export DDS",
-      "description": "Exports the current Affinity document as a DDS file using BC3/DXT5 compression with auto-generated mipmaps.",
-      "author": "jeffthor10",
-      "version": "1.0.0",
-      "category": "Export",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/export-dds-bc3-dxt5.js"
-    },
-    {
-      "id": "artboard_fitter",
-      "name": "Artboard Fitter",
-      "description": "Resizes artboards based on content with custom padding and axis selection (Height, Width, or Both). Automatically groups elements, centers them, and maintains proportions without distortion regardless of DPI.",
-      "author": "Heitor Hatherly",
-      "version": "1.0.0",
-      "category": "Artboards",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/artboard_fitter.js"
-    },
-    {
-      "id": "ProfessionalChartGenerator",
-      "name": "Professional Chart Generator - CSV Import",
-      "description": "Generates pie charts and bar charts from an imported CSV file",
-      "author": "Ouriel MAKAYA",
-      "version": "4.0.0",
-      "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ProfessionalChartGenerator.js"
-    },
-    {
-      "id": "aff.logo",
-      "name": "Affinity Logo Grid",
-      "description": "Creates editable orthogonal, angled, tangent, circular, node, and Bezier handle construction guides from selected logo/SVG vectors.",
-      "author": "Yore-Des",
-      "version": "1.1.0",
-      "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/aff.logo.js"
-    },
-    {
-      "id": "block-shadow-tool",
-      "name": "Vector Block Shadow Tool",
-      "description": "Replicate the Block Shadow functionality from CorelDRAW by generating a solid, 2D vector extrusion from a source object. Unlike a drop shadow, this must result in a flat vector path capable of being sent to a plotter or vinyl cutter.",
-      "author": "jn-373",
-      "version": "1.4.0",
-      "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/block-shadow-tool.js"
-    },
-    {
-      "id": "scatter",
-      "name": "Vector Block Shadow Tool",
-      "description": "Scatters selected objects with adjustable parameters. Select a single group to scatter its children.",
-      "author": "Claude via Matt I.",
-      "version": "1.1.0",
-      "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/scatter.js"
-    },
-    {
-      "id": "selectplus",
-      "name": "SELECT+",
-      "description": "Utility that select layers by relationship (eg. all layers within a group), containment (objects inside another shape), random distribution, or pattern-based rules.",
-      "author": "EricP",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/selectplus.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/selectplus.js"
-    },
-    {
-      "id": "arabic-rtl-pro",
-      "name": "Arabic RTL Pro",
-      "description": "Converts selected Arabic text into visual RTL text for Affinity, with lam-alef shaping, right alignment, optional tatweel removal, harakat ordering, and precise global plus individual harakat size and X/Y offset controls.",
-      "author": "Dimas Nirwan",
-      "version": "1.1.0",
-      "category": "Text",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/arabicrtlpro.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/arabic-rtl-pro.js"
-    },
-    {
-      "id": "hebrew-RTL-flip-helper",
-      "name": "Hebrew RTL Flip Helper",
-      "description": "Fixes Hebrew RTL issues with selectable modes.",
-      "author": "Tzvi20",
-      "version": "1.4.0",
-      "category": "Text",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/hebrew-RTL-flip-helper.js"
-    },
-    {
-      "id": "type-scale-builder",
-      "name": "Type Scale Builder PT Fix 1.2",
-      "description": "Type Scale Builder is an Affinity 3 JavaScript script that generates a modular typography system from a user-defined base text size. It lets designers choose a scale ratio, rounding mode, line-height logic, font, preview text, and the number of steps above/below the body size. The script then creates a clean editorial type specimen inside the current document, showing each generated style with its size, line-height, and preview sentence.",
-      "author": "Seba",
-      "version": "1.2.0",
-      "category": "Text",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/typescalebuilder.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/type-scale-builder.js"
-    },
-    {
-      "id": "image-trace-superior",
-      "name": "Image Trace Superior",
-      "description": "Converts raster/image layers into clean, scalable black-and-white vectors directly inside Affinity — no external tools needed. Engine: marching-squares contour tracer with adaptive Bezier smoothing, corner-aware RDP simplification, and anti-staircase curve fitting.",
-      "author": "Dimas Nirwan",
-      "version": "1.1.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ImageTraceSuperior.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/image-trace-superior.js"
-    },
-    {
-      "id": "DuplicateatSelectedNodes",
-      "name": "Duplicate at Selected Nodes",
-      "description": "Duplicates the front/top selected object at every selected on-curve node on the other selected curve objects.",
-      "author": "Dimas Nirwan",
-      "version": "1.0.0",
-      "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DuplicateatSelectedNodes.js"
-    },
-    {
-      "id": "simplify_curves",
-      "name": "Simplify Curves",
-      "description": "Script for reducing points of object curves",
-      "author": "JiriKrblich",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/simplify_curves.gif",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/simplify_curves.js"
-    },
-    {
-      "id": "Block_Text",
-      "name": "Block_Text",
-      "description": "Scales selected art text to match the widest, left-aligns all objects, and spaces them vertically with a all objects, and spates them verticaly with a configurable point gap.",
-      "author": "pgraficzny",
-      "version": "1.1.0",
-      "category": "Text",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/block_text.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/block_text.js"
-    },
-    {
-      "id": "curvemockupoverlay",
-      "name": "Curve Mockup Overlay",
-      "description": "Draw presentation-style fake anchor points and Bezier handles over the selected curve.",
-      "author": "JiriKrblich",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/curvemockupoverlay.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/curve-mockup-overlay.js"
-    },
-    {
-      "id": "smart-exporter",
-      "name": "Smart Exporter",
-      "description": "Export the selected artboard or selected objects to multiple formats in one run.",
-      "author": "JiriKrblich",
-      "version": "1.0.0",
-      "category": "Export",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/smart-exporter.js"
-    },
-    {
-      "id": "Shape-Scatter",
-      "name": "Shape Scatter",
-      "description": "Instantly scatter perfect clones of any vector shape. Features auto-canvas detection, exact style preservation, dynamic size/rotation jitter, and overlap prevention across multiple patterns (Random, Grid, Burst). Real-time previews bake into a single, optimized node to keep your layers panel perfectly clean.",
-      "author": "hellsfaun",
-      "version": "1.0.0",
-      "category": "Generator",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Shape-Scatter.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Shape-Scatter.js"
-    },
-    {
-      "id": "SmartQuotesConverter",
-      "name": "Smart Quotes Converter",
-      "description": "Replaces all straight quotes in your document with proper typographic smart quotes across every text frame on every spread.",
-      "author": "MeowWereTalking",
-      "version": "4.0.0",
-      "category": "Text",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/SmartQuotesConverter.js"
-    },
-    {
-      "id": "selectbymatchingcolor",
-      "name": "Select By Matching Color",
-      "description": "Selects all objects in the parent layer whose fill OR stroke color matches that of the currently selected object. Comparison is done in RGBA8 (including alpha channel).",
-      "author": "kevinblancharddesign-hub",
-      "version": "1.0.0",
-      "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/selectbymatchingcolor.js"
-    },
-    {
-      "id": "pizzacutter",
-      "name": "Pizza Cutter",
-      "description": "Slice a selected object into a precise pie or grid pieces",
-      "author": "hellsfaun",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/pizzacutter.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/pizzacutter.js"
-    },
-    {
-      "id": "AestheticColorizer",
-      "name": "Aesthetic Colorizer",
-      "description": "This script lets you select objects, pick a base color, and instantly colorize the selection with coordinated tints and shades derived from that color.",
-      "author": "BlackMortimer-13",
-      "version": "1.0.0",
-      "category": "Color",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/AestheticColorizer.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/AestheticColorizer.js"
-    },
-    {
-      "id": "radial-repeat",
-      "name": "Radial Repeat",
-      "description": "Select one or more objects, then duplicate them automatically in a radial layout around the center of the selection. The script supports multiple circular rows, live preview, controls for radius, spacing, rotation, and scaling, plus a row template mode for assigning different selected objects to specific rows",
-      "author": "BlackMortimer-13",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/RadialRepeat.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/radial-repeat.js"
-    },
-    {
-      "id": "makebutton",
-      "name": "Make Button",
-      "description": "Instantly creates perfectly padded rounded button backgrounds behind selected text layers with live preview, customizable fill/stroke styling, linked padding controls, and automatic grouping.",
-      "author": "hellsfaun",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/makebutton.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/makebutton.js"
-    },
-    {
-      "id": "groupcleanup",
-      "name": "Group Cleanup",
-      "description": "Deletes empty groups and releases plain single-item groups.",
-      "author": "hellsfaun",
-      "contributors": "BlackMortimer-13",
-      "version": "1.2.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/groupcleanup.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/groupcleanup.js"
-    },
-    {
-      "id": "empty-clipping-masks",
-      "name": "Empty Clipping Masks",
-      "description": "Deletes all children from every selected object. Clear all shapes inside objects in one click.",
-      "author": "jn-373",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/empty-clipping-masks.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/empty-clipping-masks.js"
-    },
-    {
-      "id": "squircle",
-      "name": "Apple Style Squircle Tool",
-      "description": "Create Squircles from Squares in Apple App Icon Style with Live-Preview option.",
-      "author": "Dan Schumacher",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/squircle.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/squircle.js"
-    },
-    {
-      "id": "AdvancedMarkdown",
-      "name": "Advanced Markdown to Affinity Publisher",
-      "description": "Import your Markdown file and instantly transform it into a fully styled Affinity Publisher layout.",
-      "author": "Torsten Dinkheller",
-      "version": "5.01.001",
-      "category": "Text",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/AdvancedMarkdown.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/AdvancedMarkdown.js"
-    },
-    {
-      "id": "copy-selection-to-opposite-page",
-      "name": "Duplicate Selection to Opposite Page",
-      "description": "Select one or more objects on a page, then run the script to duplicate them automatically to the opposite paired page in the same relative position. The script detects the source page from the selected objects, chooses the matching target page automatically, and supports paired-page logic such as 2↔3, 4↔5, 6↔7, and so on.",
-      "author": "BlackMortimer-13",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/copy-selection-to-opposite-page.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/copy-selection-to-opposite-page.js"
-    },
-    {
-      "id": "quick-mirror",
-      "name": "Quick Mirror",
-      "description": "Mirrors the selected layer to the left, right, top, or bottom with an adjustable gap.",
-      "author": "hellsfaun",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/quick-mirror.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/quick-mirror.js"
-    },
-    {
-      "id": "centerline-tracer",
-      "name": "Centerline Tracer",
-      "description": "Converts raster line art into clean, editable centerline vector paths in Affinity.",
-      "author": "do-nuko",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/centerline-tracer.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/centerline-tracer.js"
-    },
-    {
-      "id": "progressive-transform",
-      "name": "Progressive Transform",
-      "description": "Select multiple objects in Affinity, then run this script. Applies progressive scale, rotation, fill color, and opacity across selected objects in selection order. Progression is evenly divided based on the number of selected objects.",
-      "author": "WaveF",
-      "version": "1.0.0",
-      "category": "Generator",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/progressive-transform.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/progressive-transform.js"
-    },
-    {
-      "id": "ExportSelectedLayerAsCmykPsd",
-      "name": "Export Selected Layer(s) as CMYK PSD for Printing",
-      "description": "This allows you to export only the selected layers as CMYK PSD file for printing (helpful for DTF Printing)",
-      "author": "Paulius Asamoah Sem",
-      "version": "1.0.0",
-      "category": "Export",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ExportSelectedLayerAsCmykPsd.js"
-    },
-    {
-      "id": "joinpaths",
-      "name": "Join Paths",
-      "description": "Joins selected open paths within specified radius. Make one path from multiple open paths",
-      "author": "EricP",
-      "version": "1.0.0",
-      "category": "Path",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/joinpaths.jpg",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/joinpaths.js"
-    },
-    {
-      "id": "EnvelopeWarpStudio",
-      "name": "Envelope Studio Pro",
-      "description": "Multi-stage Illustrator-style warp engine with origin, direction, advanced falloff, custom profiles, live preview, and JSON presets.",
-      "author": "tzvi20",
-      "version": "3.0.0",
-      "category": "Object",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/EnvelopeWarpStudio.js"
-    },
-    {
-      "id": "swiss_grid_generator_en",
-      "name": "Swiss Grid Explorer",
-      "description": "Parametric grid generator for Affinity Designer, Publisher and Photo. Generates native guides for columns, rows, margins and gutter directly on the document, with live preview. Includes 6 iconic presets based on historical references (Brockmann 8x8, Gerstner 6x6, Vignelli 3x4, Tschichold 2x3, Digital 12, Slides 4x3), each scaling proportionally to any page size. Single undo step for the entire grid. Optional baseline grid. Available in English and Spanish (two separate scripts). Generates only native guides, no layers or vector objects.",
-      "author": "Victor Crespo (3dvic · github.com/vicc3d)",
-      "version": "1.1.0",
-      "category": "Layout",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/swiss_grid_generator_en.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swiss_grid_generator_en.js"
-    },
-    {
-      "id": "batchSubgroupExporter",
-      "name": "Batch Subgroup Exporter",
-      "description": "Export multiple sub-group in an order from the same parent group",
-      "author": "Madrubberduck",
-      "version": "1.0.0",
-      "category": "Export",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/batchSubgroupExporter.js"
-    },
-    {
-      "id": "blendtool_soulmate",
-      "name": "Blend Tool (混合工具)",
-      "description": "Rewrite from Blend-tool by robinsnest56. Select 2 vector objects, then run. Supports path as 3rd object.",
-      "author": "Soulmate",
-      "contributors": "robinsnest56",
-      "version": "1.0.0",
-      "category": "Object",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/blendtool_soulmate.png",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/blendtool_soulmate.js"
-    }
-  ]
+    "repository":  "Affinity Community Scripts",
+    "last_updated":  "2026-06-30",
+    "scripts":  [
+                    {
+                        "id":  "markdown_import_to_text_frame",
+                        "name":  "Markdown import to text frame",
+                        "description":  "Markdown import to text frame",
+                        "author":  "rabidgremlin",
+                        "version":  "1.0",
+                        "category":  "Text",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/markdown_import_to_text_frame.js"
+                    },
+                    {
+                        "id":  "helloworldexample",
+                        "name":  "Hello, World Example",
+                        "description":  "Affinity scripting Hello, World!",
+                        "author":  "rabidgremlin",
+                        "version":  "1.0",
+                        "category":  "Other",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/helloworldexample.js"
+                    },
+                    {
+                        "id":  "copytoartboards",
+                        "name":  "Copy to artboards",
+                        "description":  "Duplicates selected object(s) onto every other artboard in the document",
+                        "author":  "BlackMortimer-13",
+                        "version":  "1.0",
+                        "category":  "Artboards",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/CopytoAllArtboards.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/copytoartboards.js"
+                    },
+                    {
+                        "id":  "swapobjectsbycenter",
+                        "name":  "Swap objects by center",
+                        "description":  "Swap the locations of two selected objects by their center points.",
+                        "author":  "daani-rika",
+                        "version":  "2.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/swapbycenter.gif",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swapobjectsbycenter.js"
+                    },
+                    {
+                        "id":  "smart_jpeg_export",
+                        "name":  "Smart JPEG export",
+                        "description":  "Exports all/selected artboards, spreads or docs with max. size limit",
+                        "author":  "JiriKrblich",
+                        "version":  "1.0",
+                        "category":  "Export",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/smart_jpeg_export.js"
+                    },
+                    {
+                        "id":  "single-char_linebreak_fix",
+                        "name":  "Single-char linebreak fix",
+                        "description":  "Replaces spaces after lone single characters with non-breaking spaces (Slavic languages)",
+                        "author":  "JiriKrblich",
+                        "version":  "1.0",
+                        "category":  "Text",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/single-char_linebreak_fix.js"
+                    },
+                    {
+                        "id":  "generatecropmarks",
+                        "name":  "Generate Crop Marks",
+                        "description":  "Generates crop/cut marks for selected objects and Data Merge Layout grids. For DML nodes always asks the user for rows/columns via dialog. Adds L-shaped corner marks and internal grid ticks to a locked Production Marks layer.",
+                        "author":  "sakura",
+                        "contributors":  "pgraficzny",
+                        "version":  "2.0",
+                        "category":  "Print",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/generatecropmarks.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/generatecropmarks.js"
+                    },
+                    {
+                        "id":  "customgradientmap",
+                        "name":  "Custom Gradient Map",
+                        "description":  "Creates a custom gradient map based on a selected gradient swatch.",
+                        "author":  "RE4LLY",
+                        "version":  "1.0",
+                        "category":  "Object",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/customgradientmap.js"
+                    },
+                    {
+                        "id":  "zigzageffect",
+                        "name":  "Zig Zag Effect",
+                        "description":  "This script transforms a selected shape or line into a zig zag pattern. Simply select a shape or path, run the script, and it will automatically apply a zig zag effect to it.",
+                        "author":  "BlackMortimer-13",
+                        "version":  "2.0",
+                        "category":  "Effect",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ZigZag.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/zigzageffect.js"
+                    },
+                    {
+                        "id":  "bentoboxgenerator",
+                        "name":  "Bento Box Generator",
+                        "description":  "Generates Bento Grid/Box on the current page/artboard",
+                        "author":  "JiriKrblich",
+                        "version":  "1.1",
+                        "category":  "Generator",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/bentobox.gif",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/bentoboxgenerator.js"
+                    },
+                    {
+                        "id":  "replacecolorfill",
+                        "name":  "ReColorFill",
+                        "description":  "Allows users to quickly change the fill color/gradients of selected shapes.",
+                        "author":  "BlackMortimer-13",
+                        "version":  "4.0",
+                        "category":  "Color",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ReColorFill.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replacecolorfill.js"
+                    },
+                    {
+                        "id":  "hangingcharsandprepositions",
+                        "name":  "Hanging chars and prepositions",
+                        "description":  "Replaces spaces after lone single characters or prepositions with non-breaking spaces (for slavic languages). Based on initial script by JiriKrblich",
+                        "author":  "nodeus",
+                        "version":  "1.0",
+                        "category":  "Text",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/hangingcharsandprepositions.js"
+                    },
+                    {
+                        "id":  "RGBImagesLeftovers",
+                        "name":  "RGB Finder",
+                        "description":  "Looks for all embedded and linked RGB images in an open Affinity document. Useful for CMYK documents.",
+                        "author":  "hrum",
+                        "version":  "1.0",
+                        "category":  "Print",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/RGBImagesLeftovers.js"
+                    },
+                    {
+                        "id":  "dithering",
+                        "name":  "Dithering",
+                        "description":  "Adjustable halftone dithering effect with 12 dithering algorithms.",
+                        "author":  "bitmancer",
+                        "version":  "1.0",
+                        "category":  "Effect",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/dithering.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/dithering.js"
+                    },
+                    {
+                        "id":  "replacecolorstroke",
+                        "name":  "ReColorStroke",
+                        "description":  "Allows users to quickly change the stroke color or gradients of selected shapes.",
+                        "author":  "BlackMortimer-13",
+                        "version":  "2.0",
+                        "category":  "Color",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ReColorStroke.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replacecolorstroke.js"
+                    },
+                    {
+                        "id":  "PuckerBloatEffect",
+                        "name":  "PuckerBloatEffect",
+                        "description":  "Applies a Pucker \u0026 Bloat effect to the selected object(s), pulling anchor points inward (Pucker) or outward (Bloat) to distort",
+                        "author":  "BlackMortimer-13",
+                        "version":  "1.0",
+                        "category":  "Effect",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Pucker\u0026Bloat.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/PuckerBloatEffect.js"
+                    },
+                    {
+                        "id":  "DeleteEmptyGroups",
+                        "name":  "DeleteEmptyGroups",
+                        "description":  "Deletes empty groups left behind by the user.",
+                        "author":  "BlackMortimer-13",
+                        "version":  "1.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/DeleteEmptyFolders.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/deleteemptygroups.js"
+                    },
+                    {
+                        "id":  "randomizeobjects",
+                        "name":  "Randomize Objects",
+                        "description":  "Randomization of size, position, rotation, skew, opacity, color, and stroke of selected objects.",
+                        "author":  "zaum",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/randomizeobjects.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/randomizeobjects.js"
+                    },
+                    {
+                        "id":  "DirectionalBlurShadow",
+                        "name":  "Directional Blur Shadow",
+                        "description":  "Directional Blur Shadow creates a directional shadow of an object that progressively blurs, fades and tapers as it moves away from the object.",
+                        "author":  "rbonelli",
+                        "version":  "1.1.0",
+                        "category":  "Effect",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/directionblur.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DirectionalBlurShadow.js"
+                    },
+                    {
+                        "id":  "oklchcolor",
+                        "name":  "OKLCH Color",
+                        "description":  "Edit, paste and save OKLCH colors.",
+                        "author":  "JiriKrblich",
+                        "version":  "1.0.0",
+                        "category":  "Color",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/oklch.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/oklch_color.js"
+                    },
+                    {
+                        "id":  "split_to_grid",
+                        "name":  "Split to grid",
+                        "description":  "Split vector object into n*n grid",
+                        "author":  "JiriKrblich",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/splittogrid.gif",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/split_to_grid.js"
+                    },
+                    {
+                        "id":  "crack-and-explode",
+                        "name":  "Crack and Explode",
+                        "description":  "Create radial cracks in the shape and explode it.",
+                        "author":  "rbonelli",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/explode.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/crack-and-explode.js"
+                    },
+                    {
+                        "id":  "distributeshapesonpaths",
+                        "name":  "Distribute Shapes on Paths",
+                        "description":  "Places copies of designated target layers along selected vector shapes or paths. Choose the target layer by name from the dropdown or rename it to target. Multiple matching layers are distributed in round-robin order. Supports vector, group, symbol, and pixel layers, with insertion modes for path, center, nodes, and corners.",
+                        "author":  "EricP",
+                        "version":  "1.1.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/distributeshapes.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/distributeshapesonpaths.js"
+                    },
+                    {
+                        "id":  "replace-all-with-key-object",
+                        "name":  "ReplaceObjectwithObject",
+                        "description":  "The script replaces all selected objects with duplicates of the key object (select 2 objects then press Option on Mac or Alt on Windows on the object you want to become the key object), while preserving position and rotation, with optional size matching.",
+                        "author":  "BlackMortimer-13",
+                        "version":  "2.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ReplaceObjectsWithObject.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replaceobjectswithobject.js"
+                    },
+                    {
+                        "id":  "separate-fill-and-stroke",
+                        "name":  "SeparateFill\u0026Stroke",
+                        "description":  "Separates combined fill and stroke appearances into independent objects for easier editing and output control.",
+                        "author":  "BlackMortimer-13",
+                        "version":  "1.0.0",
+                        "category":  "Color",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/SeparateStroke\u0026Fill.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/separate-fill-and-stroke.js"
+                    },
+                    {
+                        "id":  "arrange-on-path",
+                        "name":  "Arrange on Path",
+                        "description":  "Distributes selected objects evenly along auto-detected vector paths, with support for multiple paths, randomization, interpolation, smart sorting, open/closed paths, and repeat mode for tiling objects along the path.",
+                        "author":  "BlackMortimer-13",
+                        "version":  "1.0.0",
+                        "category":  "Path",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ArrangeObjectsOnPath.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/arrange-on-path-v1.js"
+                    },
+                    {
+                        "id":  "swap-objects",
+                        "name":  "Swap Objects",
+                        "description":  "The script swaps selected objects based on a custom mapping, with optional orientation and dimension swapping. Select at least 2 objects, choose how they should swap in the dialog, then use Preview or Apply.",
+                        "author":  "BlackMortimer-13",
+                        "version":  "2.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/SwapObjects.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swapobjects.js"
+                    },
+                    {
+                        "id":  "Toggle-Layer-Visibility-Across-All-Pages",
+                        "name":  "Toggle Layer Visibility Across All Pages",
+                        "description":  "Layer States alternative. Select a layer, then run this script. It reads the layer\u0027s name and current visibility, then toggles all layers with the same name across every page/spread.",
+                        "author":  "hrum",
+                        "version":  "1.0.0",
+                        "category":  "Layer",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Toggle-Layer-Visibility-Across-All-Pages.js"
+                    },
+                    {
+                        "id":  "Move-Layer-to-Top-Across-All-Pages",
+                        "name":  "Move Layer to Top Across All Pages",
+                        "description":  "Select a layer, then run this script. It finds all layers with the same name across every page/spread and moves them to the top of the layer stack.",
+                        "author":  "hrum",
+                        "version":  "1.0.0",
+                        "category":  "Layer",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Move-Layer-to-Top-Across-All-Pages.js"
+                    },
+                    {
+                        "id":  "Roughen-Edges",
+                        "name":  "Roughen Edges",
+                        "description":  "Rough up vector paths with controls over amplitute, frequency, noise etc.",
+                        "author":  "Nic Kraneis",
+                        "version":  "1.0.0",
+                        "category":  "Effect",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Roughen-Edges.js"
+                    },
+                    {
+                        "id":  "Glitch-effect",
+                        "name":  "Glitch effect",
+                        "description":  "Create a glitch effect on a vector object.",
+                        "author":  "Nic Kraneis",
+                        "version":  "1.0.0",
+                        "category":  "Effect",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Glitch-effect.js"
+                    },
+                    {
+                        "id":  "Pattern-Maker",
+                        "name":  "Pattern Maker",
+                        "description":  "Create patterns from an object. Supports brick and drop patterns.",
+                        "author":  "Nic Kraneis",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Pattern-Maker.js"
+                    },
+                    {
+                        "id":  "cropmarks",
+                        "name":  "Cropmarks",
+                        "description":  "Places cutting marks 2 mm away from the Trimbox in the same color as the registration marks",
+                        "author":  "Wolfgang Wiesen",
+                        "version":  "4.0.0",
+                        "category":  "Print",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/cropmarks.js"
+                    },
+                    {
+                        "id":  "styleconsistencychecker",
+                        "name":  "Style Consistency Checker",
+                        "description":  "Easily maintain design consistency by inspecting and remapping font faces, sizes, and stroke weights. Also includes a tool to clean up invisible garbage nodes",
+                        "author":  "Shigeru Kobayashi",
+                        "version":  "1.0.1",
+                        "category":  "Utility",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/affinity-style-consistency-checker.js"
+                    },
+                    {
+                        "id":  "FillPathWithObjects",
+                        "name":  "Fill Path With Objects",
+                        "description":  "This script fills a selected closed vector path with multiple copies of one or more template objects. It supports different grid types (rectangular, hex, circular, radial, etc.), randomization, scaling, rotation, and spacing controls. Select a closed path and objects, adjust settings, then preview or apply.  ",
+                        "author":  "BlackMortimer-13",
+                        "version":  "1.0.0",
+                        "category":  "Generator",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/FillPathWithObjects.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/fill-path-with-objects-v1.js"
+                    },
+                    {
+                        "id":  "gridify",
+                        "name":  "Gridify",
+                        "description":  "Spread selected objects into a grid with various options of spacing, scaling and jitter.",
+                        "author":  "Nic Kraneis",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/gridify.js"
+                    },
+                    {
+                        "id":  "ExtrudeTool",
+                        "name":  "Extrude Tool",
+                        "description":  "This script generates a 3D-like extrusion effect by connecting selected vector shapes. Once executed, the tool automatically calculates, subdivides, and renders the connecting geometry, organizing the resulting faces while preserving your original shapes as caps",
+                        "author":  "BlackMortimer-13",
+                        "version":  "4.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Extrude.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/extrudetool.js"
+                    },
+                    {
+                        "id":  "ExportCarroussel",
+                        "name":  "Export Carroussel",
+                        "description":  "Export a single document as individual panels of a specified size.",
+                        "author":  "rbonelli",
+                        "version":  "1.2.0",
+                        "category":  "Export",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/exportcarousel.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/export-carroussel.js"
+                    },
+                    {
+                        "id":  "CreateCarroussel",
+                        "name":  "Create Carroussel",
+                        "description":  "Creates a new single document ready for a Carroussel image, with X panels divided with Guidelines.",
+                        "author":  "rbonelli",
+                        "version":  "1.1.0",
+                        "category":  "Artboards",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/createcarousel.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/create-carroussel.js"
+                    },
+                    {
+                        "id":  "3Dfun",
+                        "name":  "3D fun",
+                        "description":  "Creates faux 3D objects",
+                        "author":  " S1m0nP1",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/fun3D.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/3Dfun.js"
+                    },
+                    {
+                        "id":  "rename-artboards",
+                        "name":  "Artboard Batch Renamer",
+                        "description":  "Renames all artboards in the current document in bulk. When executed, a dialog prompts for a base name, which is then applied to all artboards with automatic sequential numbering and zero-padding — ensuring correct alphabetical sort order when exporting files (e.g., Name 01, Name 02... instead of Name 1, Name 2). For 100+ artboards, padding adjusts to 3 digits automatically. If only one artboard exists, no number is appended.",
+                        "author":  " Heitor Hatherly",
+                        "version":  "1.0.0",
+                        "category":  "Artboards",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/rename-artboards.js"
+                    },
+                    {
+                        "id":  "twist-effect",
+                        "name":  "Twist Effect",
+                        "description":  "This script applies a progressive polar rotation (twist) to selected curves, shapes, or groups, mimicking Adobe Illustrator\u0027s twist effect. Select your vector elements first; the script subdivides Bezier curves, twists points radially based on distance from the center, and reconstructs the path.",
+                        "author":  "BlackMortimer-13",
+                        "version":  "2.0.0",
+                        "category":  "Effect",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Twist.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/twist-effect.js"
+                    },
+                    {
+                        "id":  "tile-generator",
+                        "name":  "Tile Generator",
+                        "description":  "This script generates tile-based patterns from a selected object. It supports multiple layout styles, including a basic grid, brick offset, half-drop, diamond, hexagonal, radial burst, spiral, wave, pinwheel, and random scatter. It also includes progressive hue shifting, which reads the source object’s solid fill color and shifts the hue across all tiles, for example by 180° to create complementary colors.",
+                        "author":  "S1m0nP1",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/tilegenerator.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/tile-generator.js"
+                    },
+                    {
+                        "id":  "vector-lathe-revolve",
+                        "name":  "Vector Lathe (Revolve)",
+                        "description":  "This script revolves a selected vector path into a lathe-style 3D form. Select one path first, then run it; the script creates the revolved geometry, applies shading, and organizes the result into containers for visible faces and caps.",
+                        "author":  "BlackMortimer-13",
+                        "version":  "1.0.0",
+                        "category":  "Effect",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/vectorlathe.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/vector-lathe--revolve--v1.js"
+                    },
+                    {
+                        "id":  "combine4braille_affinity",
+                        "name":  "Combine Text For Braille Output",
+                        "description":  "When you intend to send a copy of your work to a blind person, it can take a lot of time to merge all the text boxes over many pages into one Word file. This Claude generated script starts at the beginning of the document and collects all the text from the text boxes and merges it into a txt file on your desktop. This can then be opened in Word for final processing before sending to Braille.",
+                        "author":  "BaconThatsIt",
+                        "version":  "1.0.0",
+                        "category":  "Export",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/combine4braille_affinity.js"
+                    },
+                    {
+                        "id":  "export-dds-bc3-dxt5",
+                        "name":  "Export DDS",
+                        "description":  "Exports the current Affinity document as a DDS file using BC3/DXT5 compression with auto-generated mipmaps.",
+                        "author":  "jeffthor10",
+                        "version":  "1.0.0",
+                        "category":  "Export",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/export-dds-bc3-dxt5.js"
+                    },
+                    {
+                        "id":  "artboard_fitter",
+                        "name":  "Artboard Fitter",
+                        "description":  "Resizes artboards based on content with custom padding and axis selection (Height, Width, or Both). Automatically groups elements, centers them, and maintains proportions without distortion regardless of DPI.",
+                        "author":  "Heitor Hatherly",
+                        "version":  "1.0.0",
+                        "category":  "Artboards",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/artboard_fitter.js"
+                    },
+                    {
+                        "id":  "ProfessionalChartGenerator",
+                        "name":  "Professional Chart Generator - CSV Import",
+                        "description":  "Generates pie charts and bar charts from an imported CSV file",
+                        "author":  "Ouriel MAKAYA",
+                        "version":  "4.0.0",
+                        "category":  "Object",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ProfessionalChartGenerator.js"
+                    },
+                    {
+                        "id":  "aff.logo",
+                        "name":  "Affinity Logo Grid",
+                        "description":  "Creates editable orthogonal, angled, tangent, circular, node, and Bezier handle construction guides from selected logo/SVG vectors.",
+                        "author":  "Yore-Des",
+                        "version":  "1.1.0",
+                        "category":  "Object",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/aff.logo.js"
+                    },
+                    {
+                        "id":  "block-shadow-tool",
+                        "name":  "Vector Block Shadow Tool",
+                        "description":  "Replicate the Block Shadow functionality from CorelDRAW by generating a solid, 2D vector extrusion from a source object. Unlike a drop shadow, this must result in a flat vector path capable of being sent to a plotter or vinyl cutter.",
+                        "author":  "jn-373",
+                        "version":  "1.4.0",
+                        "category":  "Object",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/block-shadow-tool.js"
+                    },
+                    {
+                        "id":  "scatter",
+                        "name":  "Vector Block Shadow Tool",
+                        "description":  "Scatters selected objects with adjustable parameters. Select a single group to scatter its children.",
+                        "author":  "Claude via Matt I.",
+                        "version":  "1.1.0",
+                        "category":  "Object",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/scatter.js"
+                    },
+                    {
+                        "id":  "selectplus",
+                        "name":  "SELECT+",
+                        "description":  "Utility that select layers by relationship (eg. all layers within a group), containment (objects inside another shape), random distribution, or pattern-based rules.",
+                        "author":  "EricP",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/selectplus.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/selectplus.js"
+                    },
+                    {
+                        "id":  "arabic-rtl-pro",
+                        "name":  "Arabic RTL Pro",
+                        "description":  "Converts selected Arabic text into visual RTL text for Affinity, with lam-alef shaping, right alignment, optional tatweel removal, harakat ordering, and precise global plus individual harakat size and X/Y offset controls.",
+                        "author":  "Dimas Nirwan",
+                        "version":  "1.1.0",
+                        "category":  "Text",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/arabicrtlpro.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/arabic-rtl-pro.js"
+                    },
+                    {
+                        "id":  "hebrew-RTL-flip-helper",
+                        "name":  "Hebrew RTL Flip Helper",
+                        "description":  "Fixes Hebrew RTL issues with selectable modes.",
+                        "author":  "Tzvi20",
+                        "version":  "1.4.0",
+                        "category":  "Text",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/hebrew-RTL-flip-helper.js"
+                    },
+                    {
+                        "id":  "type-scale-builder",
+                        "name":  "Type Scale Builder PT Fix 1.2",
+                        "description":  "Type Scale Builder is an Affinity 3 JavaScript script that generates a modular typography system from a user-defined base text size. It lets designers choose a scale ratio, rounding mode, line-height logic, font, preview text, and the number of steps above/below the body size. The script then creates a clean editorial type specimen inside the current document, showing each generated style with its size, line-height, and preview sentence.",
+                        "author":  "Seba",
+                        "version":  "1.2.0",
+                        "category":  "Text",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/typescalebuilder.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/type-scale-builder.js"
+                    },
+                    {
+                        "id":  "image-trace-superior",
+                        "name":  "Image Trace Superior",
+                        "description":  "Converts raster/image layers into clean, scalable black-and-white vectors directly inside Affinity — no external tools needed. Engine: marching-squares contour tracer with adaptive Bezier smoothing, corner-aware RDP simplification, and anti-staircase curve fitting.",
+                        "author":  "Dimas Nirwan",
+                        "version":  "1.1.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ImageTraceSuperior.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/image-trace-superior.js"
+                    },
+                    {
+                        "id":  "DuplicateatSelectedNodes",
+                        "name":  "Duplicate at Selected Nodes",
+                        "description":  "Duplicates the front/top selected object at every selected on-curve node on the other selected curve objects.",
+                        "author":  "Dimas Nirwan",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DuplicateatSelectedNodes.js"
+                    },
+                    {
+                        "id":  "simplify_curves",
+                        "name":  "Simplify Curves",
+                        "description":  "Script for reducing points of object curves",
+                        "author":  "JiriKrblich",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/simplify_curves.gif",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/simplify_curves.js"
+                    },
+                    {
+                        "id":  "Block_Text",
+                        "name":  "Block_Text",
+                        "description":  "Scales selected art text to match the widest, left-aligns all objects, and spaces them vertically with a all objects, and spates them verticaly with a configurable point gap.",
+                        "author":  "pgraficzny",
+                        "version":  "1.1.0",
+                        "category":  "Text",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/block_text.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/block_text.js"
+                    },
+                    {
+                        "id":  "curvemockupoverlay",
+                        "name":  "Curve Mockup Overlay",
+                        "description":  "Draw presentation-style fake anchor points and Bezier handles over the selected curve.",
+                        "author":  "JiriKrblich",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/curvemockupoverlay.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/curve-mockup-overlay.js"
+                    },
+                    {
+                        "id":  "smart-exporter",
+                        "name":  "Smart Exporter",
+                        "description":  "Export the selected artboard or selected objects to multiple formats in one run.",
+                        "author":  "JiriKrblich",
+                        "version":  "1.0.0",
+                        "category":  "Export",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/smart-exporter.js"
+                    },
+                    {
+                        "id":  "Shape-Scatter",
+                        "name":  "Shape Scatter",
+                        "description":  "Instantly scatter perfect clones of any vector shape. Features auto-canvas detection, exact style preservation, dynamic size/rotation jitter, and overlap prevention across multiple patterns (Random, Grid, Burst). Real-time previews bake into a single, optimized node to keep your layers panel perfectly clean.",
+                        "author":  "hellsfaun",
+                        "version":  "1.0.0",
+                        "category":  "Generator",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Shape-Scatter.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Shape-Scatter.js"
+                    },
+                    {
+                        "id":  "SmartQuotesConverter",
+                        "name":  "Smart Quotes Converter",
+                        "description":  "Replaces all straight quotes in your document with proper typographic smart quotes across every text frame on every spread.",
+                        "author":  "MeowWereTalking",
+                        "version":  "4.0.0",
+                        "category":  "Text",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/SmartQuotesConverter.js"
+                    },
+                    {
+                        "id":  "selectbymatchingcolor",
+                        "name":  "Select By Matching Color",
+                        "description":  "Selects all objects in the parent layer whose fill OR stroke color matches that of the currently selected object. Comparison is done in RGBA8 (including alpha channel).",
+                        "author":  "kevinblancharddesign-hub",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/selectbymatchingcolor.js"
+                    },
+                    {
+                        "id":  "pizzacutter",
+                        "name":  "Pizza Cutter",
+                        "description":  "Slice a selected object into a precise pie or grid pieces",
+                        "author":  "hellsfaun",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/pizzacutter.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/pizzacutter.js"
+                    },
+                    {
+                        "id":  "AestheticColorizer",
+                        "name":  "Aesthetic Colorizer",
+                        "description":  "This script lets you select objects, pick a base color, and instantly colorize the selection with coordinated tints and shades derived from that color.",
+                        "author":  "BlackMortimer-13",
+                        "version":  "1.0.0",
+                        "category":  "Color",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/AestheticColorizer.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/AestheticColorizer.js"
+                    },
+                    {
+                        "id":  "radial-repeat",
+                        "name":  "Radial Repeat",
+                        "description":  "Select one or more objects, then duplicate them automatically in a radial layout around the center of the selection. The script supports multiple circular rows, live preview, controls for radius, spacing, rotation, and scaling, plus a row template mode for assigning different selected objects to specific rows",
+                        "author":  "BlackMortimer-13",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/RadialRepeat.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/radial-repeat.js"
+                    },
+                    {
+                        "id":  "makebutton",
+                        "name":  "Make Button",
+                        "description":  "Instantly creates perfectly padded rounded button backgrounds behind selected text layers with live preview, customizable fill/stroke styling, linked padding controls, and automatic grouping.",
+                        "author":  "hellsfaun",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/makebutton.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/makebutton.js"
+                    },
+                    {
+                        "id":  "groupcleanup",
+                        "name":  "Group Cleanup",
+                        "description":  "Deletes empty groups and releases plain single-item groups.",
+                        "author":  "hellsfaun",
+                        "contributors":  "BlackMortimer-13",
+                        "version":  "1.2.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/groupcleanup.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/groupcleanup.js"
+                    },
+                    {
+                        "id":  "empty-clipping-masks",
+                        "name":  "Empty Clipping Masks",
+                        "description":  "Deletes all children from every selected object. Clear all shapes inside objects in one click.",
+                        "author":  "jn-373",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/empty-clipping-masks.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/empty-clipping-masks.js"
+                    },
+                    {
+                        "id":  "squircle",
+                        "name":  "Apple Style Squircle Tool",
+                        "description":  "Create Squircles from Squares in Apple App Icon Style with Live-Preview option.",
+                        "author":  "Dan Schumacher",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/squircle.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/squircle.js"
+                    },
+                    {
+                        "id":  "AdvancedMarkdown",
+                        "name":  "Advanced Markdown to Affinity Publisher",
+                        "description":  "Import your Markdown file and instantly transform it into a fully styled Affinity Publisher layout.",
+                        "author":  "Torsten Dinkheller",
+                        "version":  "5.01.001",
+                        "category":  "Text",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/AdvancedMarkdown.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/AdvancedMarkdown.js"
+                    },
+                    {
+                        "id":  "copy-selection-to-opposite-page",
+                        "name":  "Duplicate Selection to Opposite Page",
+                        "description":  "Select one or more objects on a page, then run the script to duplicate them automatically to the opposite paired page in the same relative position. The script detects the source page from the selected objects, chooses the matching target page automatically, and supports paired-page logic such as 2↔3, 4↔5, 6↔7, and so on.",
+                        "author":  "BlackMortimer-13",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/copy-selection-to-opposite-page.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/copy-selection-to-opposite-page.js"
+                    },
+                    {
+                        "id":  "quick-mirror",
+                        "name":  "Quick Mirror",
+                        "description":  "Mirrors the selected layer to the left, right, top, or bottom with an adjustable gap.",
+                        "author":  "hellsfaun",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/quick-mirror.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/quick-mirror.js"
+                    },
+                    {
+                        "id":  "centerline-tracer",
+                        "name":  "Centerline Tracer",
+                        "description":  "Converts raster line art into clean, editable centerline vector paths in Affinity.",
+                        "author":  "do-nuko",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/centerline-tracer.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/centerline-tracer.js"
+                    },
+                    {
+                        "id":  "progressive-transform",
+                        "name":  "Progressive Transform",
+                        "description":  "Select multiple objects in Affinity, then run this script. Applies progressive scale, rotation, fill color, and opacity across selected objects in selection order. Progression is evenly divided based on the number of selected objects.",
+                        "author":  "WaveF",
+                        "version":  "1.0.0",
+                        "category":  "Generator",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/progressive-transform.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/progressive-transform.js"
+                    },
+                    {
+                        "id":  "ExportSelectedLayerAsCmykPsd",
+                        "name":  "Export Selected Layer(s) as CMYK PSD for Printing",
+                        "description":  "This allows you to export only the selected layers as CMYK PSD file for printing (helpful for DTF Printing)",
+                        "author":  "Paulius Asamoah Sem",
+                        "version":  "1.0.0",
+                        "category":  "Export",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ExportSelectedLayerAsCmykPsd.js"
+                    },
+                    {
+                        "id":  "joinpaths",
+                        "name":  "Join Paths",
+                        "description":  "Joins selected open paths within specified radius. Make one path from multiple open paths",
+                        "author":  "EricP",
+                        "version":  "1.0.0",
+                        "category":  "Path",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/joinpaths.jpg",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/joinpaths.js"
+                    },
+                    {
+                        "id":  "EnvelopeWarpStudio",
+                        "name":  "Envelope Studio Pro",
+                        "description":  "Multi-stage Illustrator-style warp engine with origin, direction, advanced falloff, custom profiles, live preview, and JSON presets.",
+                        "author":  "tzvi20",
+                        "version":  "3.0.0",
+                        "category":  "Object",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/EnvelopeWarpStudio.js"
+                    },
+                    {
+                        "id":  "swiss_grid_generator_en",
+                        "name":  "Swiss Grid Explorer",
+                        "description":  "Parametric grid generator for Affinity Designer, Publisher and Photo. Generates native guides for columns, rows, margins and gutter directly on the document, with live preview. Includes 6 iconic presets based on historical references (Brockmann 8x8, Gerstner 6x6, Vignelli 3x4, Tschichold 2x3, Digital 12, Slides 4x3), each scaling proportionally to any page size. Single undo step for the entire grid. Optional baseline grid. Available in English and Spanish (two separate scripts). Generates only native guides, no layers or vector objects.",
+                        "author":  "Victor Crespo (3dvic · github.com/vicc3d)",
+                        "version":  "1.1.0",
+                        "category":  "Layout",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/swiss_grid_generator_en.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swiss_grid_generator_en.js"
+                    },
+                    {
+                        "id":  "batchSubgroupExporter",
+                        "name":  "Batch Subgroup Exporter",
+                        "description":  "Export multiple sub-group in an order from the same parent group",
+                        "author":  "Madrubberduck",
+                        "version":  "1.0.0",
+                        "category":  "Export",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/batchSubgroupExporter.js"
+                    },
+                    {
+                        "id":  "blendtool_soulmate",
+                        "name":  "Blend Tool (混合工具)",
+                        "description":  "Rewrite from Blend-tool by robinsnest56. Select 2 vector objects, then run. Supports path as 3rd object.",
+                        "author":  "Soulmate",
+                        "contributors":  "robinsnest56",
+                        "version":  "1.0.0",
+                        "category":  "Object",
+                        "image":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/blendtool_soulmate.png",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/blendtool_soulmate.js"
+                    },
+                    {
+                        "id":  "equation-editor",
+                        "name":  "Equation Editor",
+                        "description":  "LaTeX equation editor for Affinity Publisher 2. Type a formula and click OK to place a crisp scalable vector equation on canvas. Select and re-run to edit in-place. Uses a local MathJax server (localhost:3737) with automatic cloud fallback.",
+                        "author":  "nkarkare",
+                        "version":  "5.0",
+                        "category":  "Generator",
+                        "download_url":  "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/equation_editor.js"
+                    }
+                ]
 }
