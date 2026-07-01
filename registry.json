@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-06-28",
+  "last_updated": "2026-07-01",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -789,10 +789,19 @@
       "description": "Rewrite from Blend-tool by robinsnest56. Select 2 vector objects, then run. Supports path as 3rd object.",
       "author": "Soulmate",
       "contributors": "robinsnest56",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/blendtool_soulmate.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/blendtool_soulmate.js"
+    },
+    {
+      "id": "Artboard_Countour",
+      "name": "Artboard Countour",
+      "description": "Reads the number of artboards in the document and their dimensions, adds a 2pt magenta border, and names the artboards according to their measurements. Useful for creating cut lines.",
+      "author": "Bruno Belo",
+      "version": "1.0.0",
+      "category": "Artboards",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Artboard_Countour.js"
     }
   ]
 }
