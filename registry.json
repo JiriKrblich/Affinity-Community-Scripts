@@ -802,6 +802,16 @@
       "version": "1.0.0",
       "category": "Artboards",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Artboard_Countour.js"
+    },
+    {
+      "id": "color-palette-gen",
+      "name": "Color Palette Generator",
+      "description": "Extracts all fill, stroke, and gradient colors from selected nodes or entire spread. Displays swatches with RGB, CMYK, HSL, and HEX values, plus gradient stops. Groups outputs by fills, strokes, and gradients.",
+      "author": "nodeus",
+      "version": "9.1.1",
+      "category": "Generator",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/color-palette-gen.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/color-palette-gen.js"
     }
   ]
 }
