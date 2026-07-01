@@ -822,6 +822,15 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/redundantnodesremover.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/redundantnodesremover.js"
+    },
+    {
+      "id": "BBTools_Shadow_2_Live_Preview",
+      "name": "BBTools Shadow 2",
+      "description": "Replicates BBTools Shadow 2 (Photoshop) for Affinity Designer / Photo / Publisher.",
+      "author": "gabrielcrown",
+      "version": "1.3.1",
+      "category": "Effect",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/BBTools_Shadow_2_Live_Preview.js"
     }
   ]
 }
