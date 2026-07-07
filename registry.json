@@ -840,6 +840,17 @@
       "version": "5.0",
       "category": "Generator",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/equation_editor.js"
+    },
+    {
+      "id": "harmonic_scale_snap_en",
+      "name": "Harmonic Scale - Snap Font Size",
+      "description": "Companion to Swiss Grid Explorer. Select text (or a text frame) and the script reads its current font size, computes the nearest value in a harmonic scale (base x ratio^n: Phi, √2, 3:2, 4:3, 5:4, octave,
+      or a custom ratio), and snaps the selection to it -- useful for keeping type sizes on a consistent modular scale across a document. Available in English and Spanish (two separate scripts).",
+      "author": "Victor Crespo (3dvic · github.com/vicc3d)",
+      "version": "1.0",
+      "category": "Text",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/harmonic_scale_snap_en.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/harmonic_scale_snap_en.js"
     }
   ]
 }
