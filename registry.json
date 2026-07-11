@@ -799,7 +799,7 @@
       "name": "Artboard Countour",
       "description": "Reads the number of artboards in the document and their dimensions, adds a 2pt magenta border, and names the artboards according to their measurements. Useful for creating cut lines.",
       "author": "Bruno Belo",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "category": "Artboards",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Artboard_Countour.js"
     },
