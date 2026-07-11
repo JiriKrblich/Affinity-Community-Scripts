@@ -30,6 +30,8 @@ You don't need to know how to use Git or Pull Requests. Just open a new **Issue*
 
 **Author:** (Your name or handle)
 
+**Contact:** (Your email, website,..)
+
 **Description:** (What does this script do? How should it be used?)
 
 **Preview image:** (drag and drop 16x9 preview image)
