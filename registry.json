@@ -833,8 +833,8 @@
     },
     {
       "id": "BBTools_Shadow_2_Live_Preview",
-      "name": "BBTools Shadow 2",
-      "description": "Replicates BBTools Shadow 2 (Photoshop) for Affinity Designer / Photo / Publisher.",
+      "name": "Realistic Shadow (Live Preview)",
+      "description": "Duplicates the selected layer, applies a colour overlay + Gaussian blur, and shears/scales it into a standing perspective shadow anchored at the object's base. Dialog controls (Angle, Scale, Blur, Opacity, Color) update the shadow live on the canvas as you drag — each change rewinds to a pre-shadow undo snapshot and reapplies, so previews don't stack. Cancel restores the original state; OK commits the last previewed result.",
       "author": "gabrielcrown",
       "version": "1.3.1",
       "category": "Effect",
