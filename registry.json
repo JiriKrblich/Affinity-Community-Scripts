@@ -878,6 +878,26 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/CentroidAndOpticalCenterFinder.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/CentroidAndOpticalCenterFinder.js"
+    },
+    {
+      "id": "DocumentCleanup",
+      "name": "Document Cleanup",
+      "description": "Removes all elements outside the document.",
+      "author": "Andreas Peier",
+      "version": "1.0.6",
+      "category": "Layout",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/DocumentCleanup.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DocumentCleanup.js"
+    },
+    {
+      "id": "DocumentCleanupGE",
+      "name": "Dokument aufräumen",
+      "description": "Entfernt alle Elemente ausserhalb des Dokumentes.",
+      "author": "Andreas Peier",
+      "version": "1.0.6",
+      "category": "Layout",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/DocumentCleanup.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DocumentCleanupGE.js"
     }
   ]
 }
