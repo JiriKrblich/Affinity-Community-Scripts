@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-07-07",
+  "last_updated": "2026-07-12",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -858,6 +858,16 @@
       "category": "Text",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/harmonic_scale_snap_en.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/harmonic_scale_snap_en.js"
+    },
+    {
+      "id": "ColorBoostsaturatesyourcolors",
+      "name": "Color Boost saturates your colors",
+      "description": "Adds a single Color Boost Selective Colour adjustment layer that saturates all six colour ranges using classic CMY complement logic — each range gets its primary inks added and its contaminating ink removed (e.g. Reds get −Cyan +Magenta +Yellow). Neutrals (whites/greys/blacks) stay untouched, so it enriches colour without shifting the overall tone. The layer opacity is the master strength control (25% default, gentle); raise it to taste. Re-running the script replaces the previous layer, so you can iterate freely, and everything stays non-destructive and undoable. Works in Affinity Photo (or the Photo persona) on any open image. Default is 25% (subtle), the Preview is set to 75%.",
+      "author": "bolloplayer",
+      "version": "1.0",
+      "category": "Effect",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ColorBoostsaturatesyourcolors.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ColorBoostsaturatesyourcolors.js"
     }
   ]
 }
