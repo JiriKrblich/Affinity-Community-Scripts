@@ -184,8 +184,9 @@
       "name": "Directional Blur Shadow",
       "description": "Directional Blur Shadow creates a directional shadow of an object that progressively blurs, fades and tapers as it moves away from the object.",
       "author": "rbonelli",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "category": "Effect",
+      "contributors": "Erhard.otto",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/directionblur.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DirectionalBlurShadow.js"
     },

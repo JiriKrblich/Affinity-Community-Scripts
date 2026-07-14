@@ -1,7 +1,7 @@
 /**
  * name: Directional Blur Shadow
  * description: Directional Blur Shadow creates a directional shadow of an object that progressively blurs, fades and tapers as it moves away from the object.
- * version: 3.0.0
+ * version: 1.1.0
  * author: rbonelli
  */
 
