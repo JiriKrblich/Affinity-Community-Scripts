@@ -918,6 +918,16 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/chartbuilder.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/chartbuilder.js"
+    },
+    {
+      "id": "CMYKColorPixelLayerGroup",
+      "name": "CMYK Color Pixel Layer Group",
+      "description": "Create a grouped set of pixel layers for blue, red, yellow, and black, as well as line work, all set to a blend mode of Multiply and tagged with color.",
+      "author": "Sir Cake",
+      "version": "1.0.0",
+      "category": "Color",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/chartbuilder.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/chartbuilder.js"
     }
   ]
 }
