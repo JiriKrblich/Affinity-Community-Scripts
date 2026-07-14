@@ -1,4 +1,3 @@
-Your javascript code
 'use strict';
 
 // Join paths: grows chains from each open path in order. Starting from the first

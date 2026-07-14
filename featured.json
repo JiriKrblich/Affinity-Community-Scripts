@@ -1,7 +1,8 @@
 {
   "featured": [
+    "physicsdrop",
+    "swiss_grid_generator_en",
     "bentoboxgenerator",
-    "blendtool_soulmate",
-    "swiss_grid_generator_en"
+    "blendtool_soulmate"
   ]
 }

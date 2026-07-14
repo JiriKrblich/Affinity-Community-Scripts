@@ -929,6 +929,27 @@
       "category": "Color",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/CMYKColorPixelLayerGroup.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/CMYKColorPixelLayerGroup.js"
+    },
+    {
+      "id": "Renamer",
+      "name": "Renamer",
+      "description": "Batch-rename selected layers and objects in Affinity with remove, replace, prefix, suffix, overwrite, and automatic numbering tools. Supports selection order or position-based order, plus reverse numbering for fast and consistent naming of repeated elements.",
+      "author": "WaveF",
+      "version": "0.8.0",
+      "category": "Layer",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Renamer.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Renamer.js"
+    },
+    {
+      "id": "physicsdrop",
+      "name": "Physics Drop",
+      "description": "Physics Drop simulates gravity inside an Affinity document — selected objects fall, bounce, and stack on each other, colliding using their actual shape outlines (including true glyph hulls for text, derived from bezier control points) rather than plain bounding boxes.",
+      "author": "Cyoung",
+      "version": "1.0.0",
+      "category": "Object",
+      "url": "https://instagram.com/temusoundbar",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/physicsdrop.gif",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/physicsdrop.js"
     }
   ]
 }
