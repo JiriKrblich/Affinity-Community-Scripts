@@ -908,6 +908,16 @@
       "category": "Color",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/gradient-tweak.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/gradient-tweak.js"
+    },
+    {
+      "id": "chartbuilder",
+      "name": "Chart Builder",
+      "description": "Build bar, column, and pie diagrams based on the data in the text object directly in affinity.",
+      "author": "Erhard.otto",
+      "version": "1.3.1",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/chartbuilder.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/chartbuilder.js"
     }
   ]
 }
