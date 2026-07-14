@@ -874,7 +874,7 @@
       "name": "Centroid & Optical Center Finder",
       "description": "Calculates and draws the mathematical centroid (Red) and the visual/optical center (Blue) for selected shapes. https://bjango.com/articles/opticaladjustments/",
       "author": "CrackHub",
-      "version": "1.0",
+      "version": "1.1.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/CentroidAndOpticalCenterFinder.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/CentroidAndOpticalCenterFinder.js"
