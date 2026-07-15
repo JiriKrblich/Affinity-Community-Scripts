@@ -1,14 +1,26 @@
 
 'use strict';
 
-// ── Gradient Tweak v16 (English) ──────────────────────────────
-// New: power redistribution and jitter of colour stop spacing
+// ── Gradient Tweak v24 EN ─────────────────────────────────────
+// NEW: If a character range is marked with the Text tool (not the
+// whole object), ONLY that range is edited — each character can
+// have its own fill/stroke.
+//
+// Technique: doc.selection carries a TextSelection as a sub-
+// selection when a character range is marked. StoryDelta.
+// createBrushFill/createPenFill + doc.formatText(delta,
+// doc.selection, preview) writes specifically to the marked range
+// only (verified: neighbouring characters remain unchanged).
+//
+// Without a marked character range (whole object selected):
+// behaves like v23 — writing cascades to the whole text.
 
 const { Dialog, DialogResult } = require('/dialog');
 const { Document }             = require('/document');
 const { FillDescriptor }       = require('/fills');
 const { Gradient, Colour }     = require('/colours');
 const { DocumentCommand }      = require('/commands');
+const { StoryDelta }           = require('/storydelta');
 
 const EPSILON = 0.0001;
 
@@ -51,7 +63,7 @@ function resolveHue(hsl, partnerHsl) {
   return n.s < 0.001 ? { h: partnerHsl.h, s: n.s, l: n.l, alpha: n.alpha } : n;
 }
 
-// ── Colour wheel intermediate stops (max 6, min 6°) ──────────
+// ── Colour wheel intermediate stops ────────────────────────────
 
 function colorWheelStops(s1, s2, dir) {
   const MAX_PTS = 6, MIN_FRAC = 6 / 360;
@@ -84,7 +96,6 @@ function colorWheelStops(s1, s2, dir) {
 
 function buildStops(rawStops, blendDir, dupCount, doMirror) {
   let stops = rawStops.slice();
-
   if (blendDir !== 0) {
     const result = [];
     for (let i = 0; i < stops.length; i++) {
@@ -95,7 +106,6 @@ function buildStops(rawStops, blendDir, dupCount, doMirror) {
     }
     stops = result;
   }
-
   if (dupCount > 1) {
     const scale = 1.0 / dupCount;
     const result = [];
@@ -131,111 +141,142 @@ function buildStops(rawStops, blendDir, dupCount, doMirror) {
   return stops;
 }
 
-// ── Stop spacing redistribution ───────────────────────────────
+// ── Colour stop spacing redistribution ─────────────────────────
 
 function getFMIndices(stops) {
   return stops.map((s, i) => s.colHandle !== null ? i : -1).filter(i => i >= 0);
 }
-
 function getSegments(stops, fmIdxs) {
   const segs = [];
   for (let k = 0; k < fmIdxs.length - 1; k++) {
-    const startIdx = fmIdxs[k], endIdx = fmIdxs[k + 1];
-    const midIdxs = [];
-    for (let i = startIdx + 1; i < endIdx; i++) midIdxs.push(i);
-    segs.push({ startIdx, midIdxs, endIdx });
+    const si = fmIdxs[k], ei = fmIdxs[k+1], midIdxs = [];
+    for (let i = si+1; i < ei; i++) midIdxs.push(i);
+    segs.push({ startIdx: si, midIdxs, endIdx: ei });
   }
   return segs;
 }
-
-// Power redistribution: exp>1 → denser at start, exp<1 → denser at end
-function powerRedistribute(fmPositions, exp) {
-  const n = fmPositions.length;
-  if (n < 3) return fmPositions.slice();
-  const p0 = fmPositions[0], p1 = fmPositions[n-1];
-  const result = [p0];
-  for (let i = 1; i < n - 1; i++)
-    result.push(p0 + Math.pow(i / (n - 1), exp) * (p1 - p0));
-  result.push(p1);
-  return result;
+function powerRedistribute(fp, exp) {
+  const n = fp.length;
+  if (n < 3) return fp.slice();
+  const p0 = fp[0], p1 = fp[n-1], r = [p0];
+  for (let i = 1; i < n-1; i++) r.push(p0 + Math.pow(i/(n-1), exp) * (p1-p0));
+  r.push(p1); return r;
 }
-
-// Jitter: random spacing change in percent
-function jitterRedistribute(fmPositions, minPct, maxPct) {
-  const n = fmPositions.length;
-  if (n < 3) return fmPositions.slice();
-  const gaps = [];
-  for (let i = 0; i < n - 1; i++)
-    gaps.push(fmPositions[i + 1] - fmPositions[i]);
-  const newGaps = gaps.map(g => {
-    const pct = minPct + Math.random() * (maxPct - minPct);
-    return Math.max(0.0001, g * (1 + pct / 100));
-  });
-  const totalOrig = fmPositions[n-1] - fmPositions[0];
-  const scale = totalOrig / newGaps.reduce((a, b) => a + b, 0);
-  const scaled = newGaps.map(g => g * scale);
-  const result = [fmPositions[0]];
-  let pos = fmPositions[0];
-  for (let i = 0; i < scaled.length - 1; i++) { pos += scaled[i]; result.push(pos); }
-  result.push(fmPositions[n-1]);
-  return result;
+function jitterRedistribute(fp, mn, mx) {
+  const n = fp.length;
+  if (n < 3) return fp.slice();
+  const g = [];
+  for (let i = 0; i < n-1; i++) g.push(fp[i+1]-fp[i]);
+  const ng = g.map(x => Math.max(0.0001, x*(1+(mn+Math.random()*(mx-mn))/100)));
+  const tot = fp[n-1]-fp[0], sc = tot/ng.reduce((a,b)=>a+b,0);
+  const sc2 = ng.map(x=>x*sc);
+  const r = [fp[0]]; let p = fp[0];
+  for (let i = 0; i < sc2.length-1; i++) { p += sc2[i]; r.push(p); }
+  r.push(fp[n-1]); return r;
 }
-
-// Scale intermediate stops relative to new colour stop positions
-function redistributeZM(stops, fmIdxs, newFMPositions) {
-  const segs   = getSegments(stops, fmIdxs);
-  const result = stops.map(s => ({ ...s }));
+function redistZM(stops, fmIdxs, nfp) {
+  const segs = getSegments(stops, fmIdxs);
+  const res  = stops.map(s => ({...s}));
   for (let si = 0; si < segs.length; si++) {
-    const seg      = segs[si];
-    const oldStart = stops[seg.startIdx].position;
-    const oldEnd   = stops[seg.endIdx].position;
-    const newStart = newFMPositions[si];
-    const newEnd   = newFMPositions[si + 1];
-    const oldLen   = oldEnd - oldStart;
-    result[seg.startIdx].position = newStart;
-    result[seg.endIdx].position   = newEnd;
-    if (oldLen > 0.00001) {
-      for (const mi of seg.midIdxs) {
-        const rel = (stops[mi].position - oldStart) / oldLen;
-        result[mi].position = newStart + rel * (newEnd - newStart);
-      }
-    }
+    const seg = segs[si];
+    const os = stops[seg.startIdx].position, oe = stops[seg.endIdx].position;
+    const ns = nfp[si], ne = nfp[si+1], ol = oe-os;
+    res[seg.startIdx].position = ns;
+    res[seg.endIdx].position   = ne;
+    if (ol > 0.00001)
+      for (const mi of seg.midIdxs)
+        res[mi].position = ns + (stops[mi].position - os)/ol * (ne-ns);
   }
-  return result;
+  return res;
+}
+function applyRedistribution(stops, exp, jmn, jmx, uj) {
+  const idx = getFMIndices(stops);
+  if (idx.length < 2) return stops.slice();
+  let fp = idx.map(i => stops[i].position);
+  if (Math.abs(exp-1) > 0.001) fp = powerRedistribute(fp, exp);
+  if (uj && (jmn!==0||jmx!==0)) fp = jitterRedistribute(fp, jmn, jmx);
+  let res = redistZM(stops, idx, fp);
+  const oMn = stops[0].position, oMx = stops[stops.length-1].position;
+  const cMn = res[0].position,   cMx = res[res.length-1].position;
+  const sp  = cMx - cMn;
+  if (sp > 0.00001)
+    res = res.map(s => ({...s, position: oMn+(s.position-cMn)/sp*(oMx-oMn)}));
+  return res;
 }
 
-function applyRedistribution(stops, exp, jitMin, jitMax, useJitter) {
-  const fmIdxs = getFMIndices(stops);
-  if (fmIdxs.length < 2) return stops.slice();
-  let fmPos = fmIdxs.map(i => stops[i].position);
-  if (Math.abs(exp - 1.0) > 0.001)
-    fmPos = powerRedistribute(fmPos, exp);
-  if (useJitter && (jitMin !== 0 || jitMax !== 0))
-    fmPos = jitterRedistribute(fmPos, jitMin, jitMax);
-  let result = redistributeZM(stops, fmIdxs, fmPos);
-  // Normalise to original range
-  const origMin = stops[0].position, origMax = stops[stops.length-1].position;
-  const curMin  = result[0].position, curMax = result[result.length-1].position;
-  const span    = curMax - curMin;
-  if (span > 0.00001)
-    result = result.map(s => ({
-      ...s, position: origMin + (s.position - curMin) / span * (origMax - origMin)
-    }));
-  return result;
-}
-
-// ── Build FillDescriptor ──────────────────────────────────────
+// ── Build FillDescriptor ────────────────────────────────────────
 
 function buildFD(newStops, origFd, origFill) {
-  const gradInput = newStops.map(s => ({
+  const gi = newStops.map(s => ({
     colour:   makeColour(s),
     position: s.position,
-    midpoint: (s.midpoint != null) ? s.midpoint : 0.5
+    midpoint: s.midpoint != null ? s.midpoint : 0.5
   }));
-  const ng  = Gradient.create(gradInput);
+  const ng  = Gradient.create(gi);
   const ngf = origFill.cloneWithNewGradient(ng);
   return FillDescriptor.create(ngf, origFd.isScaleWithObject,
     origFd.transform, origFd.blendMode, origFd.isAnchoredToSpread);
+}
+
+// ── Detect marked character range ──────────────────────────────
+// Checks whether doc.selection contains a real (non-empty)
+// TextSelection sub-selection. Returns {node, startIdx, endIdx}
+// or null if no character range is marked.
+
+function getMarkedTextRange(doc) {
+  if (doc.selection.length === 0) return null;
+  const item = doc.selection.at(0);
+  const node = item.node;
+  if (!node.storyInterface) return null;
+
+  let textSel = null;
+  for (const s of item.subSelections) {
+    if (s[Symbol.toStringTag] === 'TextSelection') { textSel = s; break; }
+  }
+  if (!textSel || textSel.rangeCount === 0) return null;
+
+  // caret/anchor give the actual selection; sort them
+  const caret  = textSel.caret;
+  const anchor = textSel.anchor;
+  const startIdx = Math.min(caret, anchor);
+  const endIdx   = Math.max(caret, anchor);
+  if (endIdx <= startIdx) return null; // just a caret, no range
+
+  return { node, startIdx, endIdx };
+}
+
+// ── isText detection ────────────────────────────────────────────
+
+function isTextNode(node) {
+  const tag = node[Symbol.toStringTag] || '';
+  return tag === 'ArtTextNode' || tag === 'FrameTextNode';
+}
+
+// Reads FD for the range or character 0 (whole-object fallback)
+function getReadFD(node, usePen, rangeInfo) {
+  if (isTextNode(node)) {
+    const story = node.storyInterface?.story;
+    if (!story || story.length === 0) return null;
+    const idx = rangeInfo ? rangeInfo.startIdx : 0;
+    const a = story.getGlyphAtts(idx);
+    return usePen ? a.penFill : a.brushFill;
+  }
+  return usePen ? node.penFillDescriptor : node.brushFillDescriptor;
+}
+
+// ── Write ────────────────────────────────────────────────────
+// With a marked character range: StoryDelta + doc.formatText
+// (only that range). Otherwise: node level (cascades to whole text).
+
+function applyFD(doc, newFd, usePen, rangeInfo) {
+  if (rangeInfo) {
+    const delta = usePen ? StoryDelta.createPenFill(newFd) : StoryDelta.createBrushFill(newFd);
+    doc.formatText(delta, doc.selection, false);
+  } else if (usePen) {
+    doc.executeCommand(DocumentCommand.createSetPenFill(doc.selection, newFd));
+  } else {
+    doc.executeCommand(DocumentCommand.createSetBrushFill(doc.selection, newFd));
+  }
 }
 
 // ── Main ──────────────────────────────────────────────────────
@@ -251,89 +292,109 @@ function showMsg(msg) {
 }
 
 if (sel.length === 0) {
-  showMsg('Please select an object with a gradient fill first.');
+  showMsg('Please select an object first.');
 } else {
-  const node = sel.at(0).node;
-  const fd   = node.brushFillDescriptor;
-  if (!fd || fd.fill.fillType.value !== 3) {
-    showMsg('The object has no gradient fill - no action.');
-  } else {
-    const origFill   = fd.fill;
-    const rawStops   = readRawStops(origFill.gradient);
-    const origFdSnap = fd;
+  const rangeInfo = getMarkedTextRange(doc);
+  const node   = rangeInfo ? rangeInfo.node : sel.at(0).node;
+  const isText = isTextNode(node);
 
-    const dlg = Dialog.create('Gradient Tweak');
-    dlg.initialWidth = 420;
-    dlg.setIsResizable(true);
-    const col1 = dlg.addColumn();
+  const label = {
+    srcGrp:    rangeInfo ? 'Gradient source (marked range)'
+             : isText     ? 'Gradient source (Text)'
+             :              'Gradient source',
+    fillOpt:   isText ? 'Text fill (default)' : 'Fill (default)',
+    strokeOpt: isText ? 'Text stroke' : 'Stroke',
+    noFill:    isText ? 'The text fill has no gradient.' : 'The fill has no gradient.',
+    noStroke:  isText ? 'The text stroke has no gradient.' : 'The stroke has no gradient.',
+  };
 
-    const grp1    = col1.addGroup('Colour Blending');
-    const rgBlend = grp1.addRadioGroup('',
-      ['Linear', 'Colour wheel CW', 'Colour wheel CCW'], 0);
+  const dlg = Dialog.create('Gradient Tweak');
+  dlg.initialWidth = 420;
+  dlg.setIsResizable(true);
+  const col1 = dlg.addColumn();
 
-    const grp2  = col1.addGroup('Duplicates');
-    const dupEd = grp2.addUnitValueEditor('Count', 'none', 'none', 2, 2, 32);
-    dupEd.value = 2;
-    const rgDup = grp2.addRadioGroup('',
-      ['No duplicate', 'Duplicate', 'Duplicate and mirror'], 0);
-    dupEd.isEnabled = false;
+  const grp0  = col1.addGroup(label.srcGrp);
+  const rgSrc = grp0.addRadioGroup('', [label.fillOpt, label.strokeOpt], 0);
 
-    const grp3  = col1.addGroup('Stop spacing - Power function');
-    const expEd = grp3.addUnitValueEditor('Exponent', 'none', 'none', 1, 0.1, 10.0);
-    expEd.value = 1.0;
-    grp3.addStaticText('', 'Exp < 1: denser at end  |  Exp > 1: denser at start');
+  const grp1    = col1.addGroup('Colour Blending');
+  const rgBlend = grp1.addRadioGroup('',
+    ['Linear', 'Colour wheel CW', 'Colour wheel CCW'], 0);
 
-    const grp4     = col1.addGroup('Stop spacing - Jitter');
-    const cbJit    = grp4.addCheckBox('Enable jitter', false);
-    const jitMinEd = grp4.addUnitValueEditor('Min. jitter %', 'none', 'none', -30, -99, 0);
-    jitMinEd.value = -30;
-    const jitMaxEd = grp4.addUnitValueEditor('Max. jitter %', 'none', 'none',  50,   0, 500);
-    jitMaxEd.value = 50;
-    jitMinEd.isEnabled = false;
-    jitMaxEd.isEnabled = false;
+  const grp2  = col1.addGroup('Duplicates');
+  const dupEd = grp2.addUnitValueEditor('Count', 'none', 'none', 2, 2, 32);
+  dupEd.value = 2;
+  const rgDup = grp2.addRadioGroup('',
+    ['No duplicate', 'Duplicate', 'Duplicate and mirror'], 0);
+  dupEd.isEnabled = false;
 
-    const grp5   = col1.addGroup('');
-    const btnSet = grp5.addButtonSet('', ['Preview', 'Apply'], 0);
+  const grp3  = col1.addGroup('Stop spacing - Power function');
+  const expEd = grp3.addUnitValueEditor('Exponent', 'none', 'none', 1, 0.1, 10.0);
+  expEd.value = 1.0;
+  grp3.addStaticText('', 'Exp < 1: denser at end  |  Exp > 1: denser at start');
 
-    dlg.setOnControlValueChangedHandler(() => {
-      dupEd.isEnabled    = rgDup.selectedIndex > 0;
-      const jitOn        = cbJit.value;
-      jitMinEd.isEnabled = jitOn;
-      jitMaxEd.isEnabled = jitOn;
-    });
+  const grp4     = col1.addGroup('Stop spacing - Jitter');
+  const cbJit    = grp4.addCheckBox('Enable jitter', false);
+  const jitMinEd = grp4.addUnitValueEditor('Min. jitter %', 'none', 'none', -30, -99, 0);
+  jitMinEd.value = -30;
+  const jitMaxEd = grp4.addUnitValueEditor('Max. jitter %', 'none', 'none',  50,   0, 500);
+  jitMaxEd.value = 50;
+  jitMinEd.isEnabled = false;
+  jitMaxEd.isEnabled = false;
 
-    let previewActive = false;
+  const grp5   = col1.addGroup('');
+  const btnSet = grp5.addButtonSet('', ['Preview', 'Apply'], 0);
 
-    while (true) {
-      const result = dlg.runModal();
-      if (!result || result.value !== DialogResult.Ok.value) {
-        if (previewActive) node.brushFillDescriptor = origFdSnap;
-        break;
-      }
-      const action   = btnSet.selectedIndex;
-      const blendDir = rgBlend.selectedIndex === 1 ?  1
-                     : rgBlend.selectedIndex === 2 ? -1 : 0;
-      const dupMode  = rgDup.selectedIndex;
-      const dupCount = dupMode === 0 ? 1 : Math.max(2, Math.round(dupEd.value));
-      const doMirror = dupMode === 2;
-      const expVal   = Math.max(0.1, expEd.value);
-      const useJit   = cbJit.value;
-      const jitMin   = jitMinEd.value;
-      const jitMax   = Math.max(jitMin, jitMaxEd.value);
+  dlg.setOnControlValueChangedHandler(() => {
+    dupEd.isEnabled    = rgDup.selectedIndex > 0;
+    jitMinEd.isEnabled = cbJit.value;
+    jitMaxEd.isEnabled = cbJit.value;
+  });
 
-      let newStops = buildStops(rawStops, blendDir, dupCount, doMirror);
-      newStops = applyRedistribution(newStops, expVal, jitMin, jitMax, useJit);
-      const newFd = buildFD(newStops, origFdSnap, origFill);
+  let undoCount = 0;
 
-      if (action === 0) {
-        node.brushFillDescriptor = origFdSnap;
-        node.brushFillDescriptor = newFd;
-        previewActive = true;
-      } else {
-        if (previewActive) node.brushFillDescriptor = origFdSnap;
-        doc.executeCommand(DocumentCommand.createSetBrushFill(doc.selection, newFd));
-        break;
-      }
+  while (true) {
+    const result = dlg.runModal();
+
+    if (!result || result.value !== DialogResult.Ok.value) {
+      for (let i = 0; i < undoCount; i++) doc.undo();
+      break;
+    }
+
+    const action   = btnSet.selectedIndex;
+    const usePen   = rgSrc.selectedIndex === 1;
+    const blendDir = rgBlend.selectedIndex === 1 ?  1
+                   : rgBlend.selectedIndex === 2 ? -1 : 0;
+    const dupMode  = rgDup.selectedIndex;
+    const dupCount = dupMode === 0 ? 1 : Math.max(2, Math.round(dupEd.value));
+    const doMirror = dupMode === 2;
+    const expVal   = Math.max(0.1, expEd.value);
+    const useJit   = cbJit.value;
+    const jitMin   = jitMinEd.value;
+    const jitMax   = Math.max(jitMin, jitMaxEd.value);
+
+    const fd = getReadFD(node, usePen, rangeInfo);
+    if (!fd || fd.fill.fillType.value !== 3) {
+      showMsg(usePen ? label.noStroke : label.noFill);
+      continue;
+    }
+
+    for (let i = 0; i < undoCount; i++) doc.undo();
+    undoCount = 0;
+
+    const fdFresh  = getReadFD(node, usePen, rangeInfo);
+    const origFill = fdFresh.fill;
+    const rawStops = readRawStops(origFill.gradient);
+
+    let newStops = buildStops(rawStops, blendDir, dupCount, doMirror);
+    newStops = applyRedistribution(newStops, expVal, jitMin, jitMax, useJit);
+    const newFd = buildFD(newStops, fdFresh, origFill);
+
+    if (action === 0) {
+      applyFD(doc, newFd, usePen, rangeInfo);
+      undoCount = 1;
+    } else {
+      applyFD(doc, newFd, usePen, rangeInfo);
+      break;
     }
   }
 }

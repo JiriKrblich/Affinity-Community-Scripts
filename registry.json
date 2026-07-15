@@ -903,9 +903,10 @@
     {
       "id": "gradient-tweak",
       "name": "Gradient Tweak",
-      "description": "Gradient Tweak modifies the colour stops of a gradient fill on a selected object in Affinity 3. Gradient type, geometry, midpoint markers, noise, and the native colour space of the original stops are fully preserved.",
-      "author": "Erhard.otto",
-      "version": "2.0.0",
+      "description": "Gradient Tweak modifies the colour stops of a gradient fill or stroke on a selected object in Affinity 3.0. It supports regular vector objects (shapes), whole text objects, and individual marked character ranges within a text.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "3.0.0",
       "category": "Color",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/gradient-tweak.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/gradient-tweak.js"
