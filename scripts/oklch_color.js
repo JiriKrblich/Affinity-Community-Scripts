@@ -1,25 +1,27 @@
-
 'use strict';
 
 // ═══════════════════════════════════════════════════════════════
-//  OKLCH Color Editor v2
-//  - Seeds sliders from selected object's fill colour
-//  - Preview ↺  : live preview on the object itself
-//  - Copy CSS   : shows oklch() string in a simple alert popup
-//  - Apply ✓    : commits colour permanently
-//  - Cancel     : undoes all preview, restores original colour
-//  Math: CSS Color Level 4 correct matrices (fixed b-row)
+//  OKLCH Color Editor v5 — Fill · Stroke · Gradient (per-stop)
+//  - Detects the primary object's editable colour targets:
+//      Fill (solid) · Fill · Stop N (gradient) · Stroke (solid)
+//  - "Target" dropdown picks which colour to edit.
+//  - Live OKLCH sliders, seeded from the chosen target's colour.
+//  - Solid Fill / Stroke changes apply to ALL selected objects;
+//    a gradient stop is rebuilt per object that has that stop.
+//  - OK keeps · Cancel restores (single undo step, no clearPreviews).
+//  Math: CSS Color Level 4 correct matrices (fixed b-row).
 // ═══════════════════════════════════════════════════════════════
 
-const { Dialog, DialogResult }  = require('/dialog');
-const { RGBA8 }                 = require('/colours');
-const { DocumentCommand }       = require('/commands');
-const { Document }              = require('/document');
-const { FillDescriptor }        = require('/fills');
-const { UnitType }              = require('/units');
-const { Selection }             = require('/selections');
-const { app }                   = require('/application');
+const { Dialog, DialogResult }                    = require('/dialog');
+const { Colour, RGBA8, Gradient }                 = require('/colours');
+const { DocumentCommand, CompoundCommandBuilder } = require('/commands');
+const { Document }                                = require('/document');
+const { FillDescriptor, FillType }                = require('/fills');
+const { UnitType }                                = require('/units');
+const { Selection }                               = require('/selections');
+const { app }                                     = require('/application');
 
+// ── OKLCH math ─────────────────────────────────────────────────
 function toLinear(x){return x<=0.04045?x/12.92:Math.pow((x+0.055)/1.055,2.4);}
 function toSrgb(x){return x<=0?0:x>=1?1:x<=0.0031308?12.92*x:1.055*Math.pow(x,1/2.4)-0.055;}
 
@@ -57,80 +59,181 @@ function toCss(L,C,H,alpha){
         : `oklch(${lp} ${cv} ${hv} / ${(alpha*100).toFixed(0)}%)`;
 }
 
+// ── Setup ──────────────────────────────────────────────────────
 const doc   = Document.current;
-const nodes = doc.selection.nodes.toArray().filter(Boolean);
+const nodes = doc ? doc.selection.nodes.toArray().filter(Boolean) : [];
+const primary = nodes[0] || null;
 function undoN(n){for(let i=0;i<n;i++)doc.undo();}
 
-function applyToSelection(L,C,H,alpha){
-    const {r,g,b,a}=oklchToRgb(L,C,H,alpha);
-    const fd=FillDescriptor.createSolid(RGBA8(r,g,b,a));
-    let n=0;
-    for(const node of nodes){
-        const sel=Selection.create(doc,node);
-        doc.executeCommand(DocumentCommand.createSetBrushFill(sel,fd)); n++;
-    }
-    return n;
+function colourToRgba8(c){
+    if(!c) return null;
+    try { if(typeof c.rgba8 !== 'undefined') return c.rgba8; } catch(e){}
+    try { return new Colour(c).rgba8; } catch(e){ return null; }
 }
 
-if(nodes.length===0){
-    app.alert('OKLCH Editor: please select at least one object first.');
-} else {
-    let curL=0.60,curC=0.15,curH=250.0,curA=1.0;
-    try{
-        const colour=nodes[0].brushFillInterface?.fillDescriptor?.fill?.colour;
-        if(colour){
-            const rgba=colour.rgba8, oc=rgbToOklch(rgba.r,rgba.g,rgba.b);
-            curL=oc.L; curC=oc.C; curH=oc.H; curA=rgba.alpha/255;
-        }
-    }catch(e){}
-
-    const dlg=Dialog.create('OKLCH Color Editor'); dlg.initialWidth=380;
-    const col=dlg.addColumn();
-
-    const gS=col.addGroup('OKLCH  —  L: 0–100  ·  C: 0–40  ·  H: 0–360°');
-    const slL=gS.addUnitValueEditor('L  Lightness',UnitType.Number,UnitType.Number,
-        Math.round(curL*1000)/10,0,100); slL.precision=1; slL.showPopupSlider=true;
-    const slC=gS.addUnitValueEditor('C  Chroma',UnitType.Number,UnitType.Number,
-        Math.round(curC*10000)/100,0,40); slC.precision=2; slC.showPopupSlider=true;
-    const slH=gS.addUnitValueEditor('H  Hue',UnitType.Degree,UnitType.Degree,
-        Math.round(curH*10)/10,0,360); slH.precision=1; slH.showPopupSlider=true;
-    const slA=gS.addUnitValueEditor('Alpha',UnitType.Percentage,UnitType.Percentage,
-        Math.round(curA*100),0,100); slA.precision=0; slA.showPopupSlider=true;
-
-    const gB=col.addGroup(''); gB.enableSeparator=true;
-    const btns=gB.addButtonSet('',['Preview ↺','Copy CSS','Apply ✓'],0);
-
-    let previewSteps=applyToSelection(curL,curC,curH,curA);
-    let running=true;
-
-    while(running){
-        btns.selectedIndex=0;
-        const res=dlg.show();
-        const L=slL.value/100, C=slC.value/100, H=slH.value, alpha=slA.value/100;
-        const mode=btns.selectedIndex;
-
-        if(res.value===DialogResult.Ok.value){
-            undoN(previewSteps);
-
-            if(mode===2){
-                applyToSelection(L,C,H,alpha);
-                console.log(`OKLCH ✓  ${toCss(L,C,H,alpha)}`);
-                running=false;
-
-            } else if(mode===1){
-                previewSteps=applyToSelection(L,C,H,alpha);
-                curL=L; curC=C; curH=H; curA=alpha;
-                app.alert(toCss(L,C,H,alpha)); // simple popup, no input field
-
-            } else {
-                previewSteps=applyToSelection(L,C,H,alpha);
-                curL=L; curC=C; curH=H; curA=alpha;
+// Enumerate editable colour targets from the primary node.
+function detectTargets(node){
+    const out = [];
+    if(!node) return out;
+    // Fill
+    try {
+        const fd = node.brushFillInterface && node.brushFillInterface.fillDescriptor;
+        if(fd){
+            const ft = fd.fill.fillType.value;
+            if(ft === FillType.Solid.value){
+                out.push({ kind:'fill', label:'Fill' });
+            } else if(ft === FillType.Gradient.value){
+                const n = fd.fill.gradient.stopCount;
+                for(let i=0;i<n;i++) out.push({ kind:'gstop', stopIndex:i, label:`Fill · Stop ${i+1}` });
             }
-
-        } else {
-            undoN(previewSteps);
-            console.log('OKLCH: cancelled.');
-            running=false;
         }
+    } catch(e){}
+    // Stroke (solid only)
+    try {
+        const ls = node.lineStyleInterface;
+        if(ls && !ls.isNoFill){
+            const sfd = ls.penFillDescriptor;
+            if(sfd && sfd.fill.fillType.value === FillType.Solid.value){
+                out.push({ kind:'stroke', label:'Stroke' });
+            }
+        }
+    } catch(e){}
+    return out;
+}
+
+// Read the original colour of a target from the primary node.
+function readSeed(t){
+    let rgba = { r:128, g:128, b:128, alpha:255 };
+    try {
+        if(t.kind === 'fill'){
+            rgba = primary.brushFillInterface.fillDescriptor.fill.colour.rgba8;
+        } else if(t.kind === 'stroke'){
+            rgba = primary.lineStyleInterface.penFillDescriptor.fill.colour.rgba8;
+        } else if(t.kind === 'gstop'){
+            const stop = primary.brushFillInterface.fillDescriptor.fill.gradient.stops[t.stopIndex];
+            rgba = colourToRgba8(stop.colour) || rgba;
+        }
+    } catch(e){}
+    const oc = rgbToOklch(rgba.r, rgba.g, rgba.b);
+    return { L:oc.L, C:oc.C, H:oc.H, alpha:(rgba.alpha!=null?rgba.alpha:255)/255 };
+}
+
+// Apply the OKLCH colour to a target across all selected nodes; 1 undo step.
+function applyTarget(t, L, C, H, alpha){
+    const { r, g, b, a } = oklchToRgb(L, C, H, alpha);
+    const newColour = RGBA8(r, g, b, a);
+    const compound = CompoundCommandBuilder.create();
+    let count = 0;
+
+    for(const node of nodes){
+        const sel = Selection.create(doc, node);
+        try {
+            if(t.kind === 'fill'){
+                compound.addCommand(DocumentCommand.createSetBrushFill(sel, FillDescriptor.createSolid(newColour)));
+                count++;
+            } else if(t.kind === 'stroke'){
+                const ls = node.lineStyleInterface;
+                if(ls && !ls.isNoFill){
+                    compound.addCommand(DocumentCommand.createSetPenFill(sel, FillDescriptor.createSolid(newColour)));
+                    count++;
+                }
+            } else if(t.kind === 'gstop'){
+                const fd = node.brushFillInterface && node.brushFillInterface.fillDescriptor;
+                if(fd && fd.fill.fillType.value === FillType.Gradient.value){
+                    const stops = fd.fill.gradient.stops;
+                    if(t.stopIndex < stops.length){
+                        const newStops = stops.map((s, idx) => ({
+                            colour: idx === t.stopIndex ? newColour : s.colour,
+                            position: s.position,
+                            midpoint: s.midpoint,
+                            smoothness: s.smoothness
+                        }));
+                        const newGrad = Gradient.create(newStops);
+                        const newFill = fd.fill.cloneWithNewGradient(newGrad);
+                        const newFd = fd.cloneWithNewFill(newFill);
+                        compound.addCommand(DocumentCommand.createSetBrushFill(sel, newFd));
+                        count++;
+                    }
+                }
+            }
+        } catch(e){}
+    }
+
+    if(count === 0) return 0;
+    doc.executeCommand(compound.createCommand());
+    return 1;
+}
+
+// ── Main ───────────────────────────────────────────────────────
+const targets = detectTargets(primary);
+
+if(!doc || nodes.length === 0){
+    app.alert('OKLCH Editor: please select at least one object first.');
+} else if(targets.length === 0){
+    app.alert('OKLCH Editor: the selected object has no editable solid fill, gradient, or stroke.');
+} else {
+    const dlg = Dialog.create('OKLCH Color Editor'); dlg.initialWidth = 380;
+    const col = dlg.addColumn();
+
+    const gT = col.addGroup('Target');
+    const targetCombo = gT.addComboBox('Edit', targets.map(t => t.label), 0);
+    targetCombo.isFullWidth = true;
+
+    const gS = col.addGroup('OKLCH  —  L: 0–100  ·  C: 0–40  ·  H: 0–360°');
+    const slL = gS.addUnitValueEditor('L  Lightness', UnitType.Number, UnitType.Number, 60, 0, 100); slL.precision = 1; slL.showPopupSlider = true;
+    const slC = gS.addUnitValueEditor('C  Chroma', UnitType.Number, UnitType.Number, 15, 0, 40);  slC.precision = 2; slC.showPopupSlider = true;
+    const slH = gS.addUnitValueEditor('H  Hue', UnitType.Degree, UnitType.Degree, 250, 0, 360);   slH.precision = 1; slH.showPopupSlider = true;
+    const slA = gS.addUnitValueEditor('Alpha', UnitType.Percentage, UnitType.Percentage, 100, 0, 100); slA.precision = 0; slA.showPopupSlider = true;
+
+    const gO = col.addGroup(''); gO.enableSeparator = true;
+    const cssTxt = gO.addStaticText('CSS', ''); cssTxt.isFullWidth = true;
+    gO.addStaticText('', 'Drag to preview live · OK keeps · Cancel restores').isFullWidth = true;
+
+    let previewSteps = 0;   // 0 or 1
+    let suppress = false;
+
+    function currentTarget(){ return targets[targetCombo.selectedIndex] || targets[0]; }
+
+    function seedSliders(t){
+        suppress = true;
+        const s = readSeed(t);
+        slL.value = Math.round(s.L * 1000) / 10;
+        slC.value = Math.round(s.C * 10000) / 100;
+        slH.value = Math.round(s.H * 10) / 10;
+        slA.value = Math.round(s.alpha * 100);
+        suppress = false;
+    }
+
+    function preview(){
+        if(suppress) return;
+        if(previewSteps){ undoN(previewSteps); previewSteps = 0; }
+        const L = slL.value / 100, C = slC.value / 100, H = slH.value, alpha = slA.value / 100;
+        previewSteps = applyTarget(currentTarget(), L, C, H, alpha);
+        cssTxt.text = `${currentTarget().label}:  ${toCss(L, C, H, alpha)}`;
+    }
+
+    // Live sliders.
+    [slL, slC, slH, slA].forEach(s => s.setOnValueChangedHandler(preview));
+
+    // Switching target: restore original, re-seed from the new target, preview.
+    targetCombo.setOnValueChangedHandler(() => {
+        if(previewSteps){ undoN(previewSteps); previewSteps = 0; }
+        seedSliders(currentTarget());
+        preview();
+    });
+
+    // Init.
+    seedSliders(currentTarget());
+    preview();
+
+    // runModal() throws ABORTED on Cancel; treat as "not OK".
+    let apply = false;
+    try { apply = dlg.runModal().value === DialogResult.Ok.value; } catch(e){ apply = false; }
+
+    if(apply){
+        console.log(`OKLCH ✓  ${cssTxt.text}`);
+    } else {
+        if(previewSteps) undoN(previewSteps);
+        console.log('OKLCH: cancelled.');
     }
 }
