@@ -196,7 +196,7 @@
       "description": "Edit, paste and save OKLCH colors.",
       "author": "JiriKrblich",
       "url": "https://jirikrblich.netlify.app",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "Color",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/oklch.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/oklch_color.js"
