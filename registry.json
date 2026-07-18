@@ -962,6 +962,17 @@
       "url": "https://github.com/caioyo/affinity-gradient-smoother",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/affinity-gradient-smoother.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/affinity-gradient-smoother.js"
+    },
+    {
+      "id": "curvaturecomb",
+      "name": "Curvature Comb",
+      "description": "Curvature Comb generates a curvature visualization for a selected vector curve in Affinity. It samples the curve, evaluates local curvature, and draws comb lines along the curve normal direction, so you can inspect fairness, transitions, and local shape quality.",
+      "author": "Moryn Sun",
+      "version": "1.0.1",
+      "category": "Object",
+      "email": "sunmoyun0831@gmail.com",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/curvaturecomb.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/curvaturecomb.js"
     }
   ]
 }
