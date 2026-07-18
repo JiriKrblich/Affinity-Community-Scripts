@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-07-17",
+  "last_updated": "2026-07-18",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -207,7 +207,7 @@
       "description": "Split vector object into n*n grid",
       "author": "JiriKrblich",
       "url": "https://jirikrblich.netlify.app",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/splittogrid.gif",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/split_to_grid.js"

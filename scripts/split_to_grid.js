@@ -1,8 +1,17 @@
 /**
  * name: Split to grid
  * description: Split vector object into an adjustable grid with live preview
- * version: 1.3.0
+ * version: 1.6.0
  * author: JiriKrblich
+ *
+ * v1.5 fix: the knife cut operates in SPREAD coordinates, but the script used
+ * node.baseBox (node-LOCAL). For any moved / rotated / nested object baseBox
+ * differs from the spread position, so every cut line missed the object and it
+ * produced a single un-cut piece (i.e. "no grid"). Now all cut geometry and the
+ * gap-strip detection use spread coordinates (getSpreadVisibleBox). Also adds a
+ * reentrancy guard around the live preview.
+ * v1.6: detect an OPEN (un-closed) path and stop with a clear message — knife
+ * cutting an open path cannot produce closed grid pieces.
  */
 
 'use strict';
@@ -16,6 +25,31 @@ const { Selection }            = require('/selections');
 // State
 let currentPieces = [];
 let config = { cols: 3, rows: 3, gap: 10 };
+
+// Object bounds in SPREAD coordinates (the space the knife cut works in).
+function spreadBox(node) {
+    try { return node.getSpreadVisibleBox ? node.getSpreadVisibleBox(true) : node.spreadVisibleBox; }
+    catch (e) { return node.spreadVisibleBox; }
+}
+
+// True if the node is a curve with at least one OPEN (un-closed) sub-path.
+// Shapes / images have no curvesInterface and are treated as closed/cuttable.
+function hasOpenPath(node) {
+    try {
+        const ci = node.curvesInterface;
+        if (!ci) return false;
+        const pc = ci.polyCurve;
+        if (!pc || pc.curveCount === 0) return false;
+        for (let i = 0; i < pc.curveCount; i++) {
+            let closed = true;
+            try { closed = pc.at(i).isClosed !== false; } catch (e) {}
+            if (!closed) return true;
+        }
+        return false;
+    } catch (e) {
+        return false; // can't tell -> let it proceed
+    }
+}
 
 // Cleanup: remove slices from previous preview
 function deletePieces() {
@@ -70,6 +104,11 @@ function generateGrid(origNode, origBox) {
             'Convert to Curves produced no output. Try manually converting the object first.');
     }
 
+    // Safety net: an open path cannot be split into closed grid pieces.
+    if (hasOpenPath(converted)) {
+        throw new Error('The selected path is not closed. Close the path before splitting to a grid.');
+    }
+
     let pieces = [converted];
 
     function cutAll(line) {
@@ -88,7 +127,7 @@ function generateGrid(origNode, origBox) {
         const keep = [], del = [];
         for (const p of pieces) {
             try {
-                const bb = p.baseBox;
+                const bb = spreadBox(p);
                 if (!bb) { keep.push(p); continue; }
                 const mid = axis === 'x' ? bb.x + bb.width / 2 : bb.y + bb.height / 2;
                 (mid > lo && mid < hi ? del : keep).push(p);
@@ -137,7 +176,7 @@ function run() {
         const dlg = Dialog.create('Split to Grid');
         dlg.addColumn().addGroup('').addStaticText('',
             'No object selected. Please select one object first.').isFullWidth = true;
-        dlg.show();
+        try { dlg.runModal(); } catch (eMsg) {}
         return;
     }
 
@@ -145,14 +184,25 @@ function run() {
 
     let origBox;
     try {
-        origBox = origNode.baseBox;
+        origBox = spreadBox(origNode);
         if (!origBox || origBox.width <= 0 || origBox.height <= 0) throw new Error();
     } catch (e) {
         const dlg = Dialog.create('Split to Grid');
         dlg.addColumn().addGroup('').addStaticText('',
             'Selected object has no valid dimensions.\n' +
             'Please select a shape or image (not a group or text frame).').isFullWidth = true;
-        dlg.show();
+        try { dlg.runModal(); } catch (eMsg) {}
+        return;
+    }
+
+    // An open path can't be knife-cut into closed grid pieces — stop early.
+    if (hasOpenPath(origNode)) {
+        const dlg = Dialog.create('Split to Grid');
+        dlg.addColumn().addGroup('').addStaticText('',
+            'The selected path is not closed.\n' +
+            'Close the path first (select its open end nodes and Close Curve),\n' +
+            'then run Split to Grid again.').isFullWidth = true;
+        try { dlg.runModal(); } catch (eMsg) {}
         return;
     }
 
@@ -191,17 +241,26 @@ function run() {
         config.gap  = Math.max(0, gapCtrl.value);
     }
 
+    // Reentrancy guard: executeCommand can pump native events and re-enter this
+    // handler mid-rebuild -> currentPieces clobbered / interleaved cuts -> crash.
+    let updating = false;
     function updatePreview() {
-        readConfig();
-        deletePieces();
+        if (updating) return false;
+        updating = true;
         try {
-            generateGrid(origNode, origBox);
-            statusTxt.text = `Preview: ${config.cols} x ${config.rows}, gap ${Math.round(config.gap)} px`;
-            return true;
-        } catch (e) {
+            readConfig();
             deletePieces();
-            statusTxt.text = `Could not split: ${e.message || e}`;
-            return false;
+            try {
+                generateGrid(origNode, origBox);
+                statusTxt.text = `Preview: ${config.cols} x ${config.rows}, gap ${Math.round(config.gap)} px`;
+                return true;
+            } catch (e) {
+                deletePieces();
+                statusTxt.text = `Could not split: ${e.message || e}`;
+                return false;
+            }
+        } finally {
+            updating = false;
         }
     }
 
@@ -212,7 +271,7 @@ function run() {
         errDlg.addColumn().addGroup('').addStaticText('',
             `${statusTxt.text}\n\nTip: convert it to curves first via Layer > Convert to Curves.`
         ).isFullWidth = true;
-        errDlg.show();
+        try { errDlg.runModal(); } catch (eMsg) {}
         return;
     }
 
@@ -220,14 +279,17 @@ function run() {
         updatePreview();
     };
 
-    const result = dialog.show();
+    // runModal() throws ABORTED on Cancel; treat that as "not OK" so the
+    // cancel-cleanup below (restore original, drop preview slices) still runs.
+    let apply = false;
+    try { apply = dialog.runModal().value === DialogResult.Ok.value; } catch (e) { apply = false; }
 
-    if (result.value === DialogResult.Ok.value) {
+    if (apply) {
         if (currentPieces.length === 0 && !updatePreview()) {
             try { doc.executeCommand(DocumentCommand.createSetVisibility(origNode.selfSelection, true)); } catch (_) {}
             const errDlg = Dialog.create('Split to Grid - Error');
             errDlg.addColumn().addGroup('').addStaticText('', statusTxt.text).isFullWidth = true;
-            errDlg.show();
+            try { errDlg.runModal(); } catch (eMsg) {}
             return;
         }
 
