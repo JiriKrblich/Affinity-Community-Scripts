@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-07-18",
+  "last_updated": "2026-07-19",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -968,7 +968,7 @@
       "name": "Curvature Comb",
       "description": "Curvature Comb generates a curvature visualization for a selected vector curve in Affinity. It samples the curve, evaluates local curvature, and draws comb lines along the curve normal direction, so you can inspect fairness, transitions, and local shape quality.",
       "author": "Moryn Sun",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "category": "Object",
       "email": "sunmoyun0831@gmail.com",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/curvaturecomb.png",

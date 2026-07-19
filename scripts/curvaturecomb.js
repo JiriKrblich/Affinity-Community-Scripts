@@ -1,23 +1,23 @@
 /**
- * name: Curvature Comb (曲率梳)
+ * name: Curvature Comb
  * description: Select 1 curve object, then run. Generates a curvature comb for curve quality analysis.
- * version: 1.0.1
+ * version: 1.0.2
  * author: Moryn Sun
  */
 
 "use strict";
 
 // ============================================================
-// 曲率梳 v1.0 —— 曲线质量分析工具
+// Curvature Comb v1.0 — Curve Quality Analysis Tool
 //
-// 用法：在 Affinity 中选中一条矢量曲线，运行本脚本。
-// 脚本沿曲线按弧长等距采样，在每个采样点计算符号曲率
+// Usage: Select a vector curve in Affinity, then run this script.
+// The script samples the curve at equal arc-length intervals,
+// computes the signed curvature at each sample point
 //   κ = (x'y'' − y'x'') / (x'² + y'²)^1.5
-// 并沿法线方向画出与 κ 成比例的梳齿，外加一条包络线，
-// 全部放进一个新 Group，不改动原曲线。
+// and draws comb teeth proportional to κ along the normal direction,
+// plus an envelope line, all placed into a new Group without
+// modifying the original curve.
 //
-// 所有 API 用法均逐字对齐你机器上已验证可运行的
-// Blend Tool v2.0.0 与 rename-artboards.js。
 // ============================================================
 
 const { Document } = require("/document");
@@ -35,14 +35,14 @@ const { RGBA8 } = require("/colours");
 const { BlendMode } = require("affinity:common");
 const { UnitType } = require("/units");
 
-// ── 基础数学 ────────────────────────────────────────────────
+// ── Basic math ────────────────────────────────────────────────
 function lerp(a, b, t) { return a + (b - a) * t; }
 function lerpPt(a, b, t) { return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) }; }
 function dist(p, q) { return Math.hypot(p.x - q.x, p.y - q.y); }
 
-const ARC_SAMPLE_STEPS = 64; // 弧长表每段 bezier 的细分步数
+const ARC_SAMPLE_STEPS = 64; // Number of subdivision steps per bezier segment for the arc-length table
 
-// 三次 Bezier 求值：B(t)
+// Evaluate a cubic Bezier: B(t)
 function evalBez(b, t) {
   const u = 1 - t;
   return {
@@ -51,7 +51,7 @@ function evalBez(b, t) {
   };
 }
 
-// 一阶导 B'(t) = 3(1-t)²(c1-p0) + 6(1-t)t(c2-c1) + 3t²(p3-c2)
+// First derivative B'(t) = 3(1-t)²(c1-p0) + 6(1-t)t(c2-c1) + 3t²(p3-c2)
 function bezD1(b, t) {
   const u = 1 - t;
   return {
@@ -60,7 +60,7 @@ function bezD1(b, t) {
   };
 }
 
-// 二阶导 B''(t) = 6(1-t)(c2-2c1+p0) + 6t(p3-2c2+c1)
+// Second derivative B''(t) = 6(1-t)(c2-2c1+p0) + 6t(p3-2c2+c1)
 function bezD2(b, t) {
   const u = 1 - t;
   return {
@@ -69,8 +69,9 @@ function bezD2(b, t) {
   };
 }
 
-// 符号曲率 κ = (x'y'' − y'x'') / |B'|³
-// 端点处 B' 可能退化（c1 与锚点重合），此时把 t 微移后重算。
+// Signed curvature κ = (x'y'' − y'x'') / |B'|³
+// At endpoints B' may degenerate (c1 coincides with the anchor point);
+// in that case nudge t slightly and recompute.
 function signedCurvature(b, t) {
   let d1 = bezD1(b, t);
   let len2 = d1.x*d1.x + d1.y*d1.y;
@@ -92,7 +93,7 @@ function signedCurvature(b, t) {
   };
 }
 
-// ── 世界坐标转换（照抄 Blend Tool） ─────────────────────────
+// ── World-coordinate conversion ─────────────────────────
 function bezToWorld(xf, seg) {
   return {
     start: xf.applyToPoint(seg.start),
@@ -102,7 +103,7 @@ function bezToWorld(xf, seg) {
   };
 }
 
-// ── PolyCurve 子曲线遍历（照抄 Blend Tool 的容错写法） ──────
+// ── PolyCurve subcurve traversal (defensive style) ──────
 function polyCurveAt(pc, index) {
   if (!pc || typeof pc.at !== "function") return null;
   try {
@@ -133,8 +134,8 @@ function polyCurveCount(pc) {
   return Math.max(1, n);
 }
 
-// 取选中对象的全部子曲线（世界坐标）
-// 返回 [{ bez: [...], isClosed: bool }, ...]
+// Get all subcurves of the selected object (in world coordinates)
+// Returns [{ bez: [...], isClosed: bool }, ...]
 function getWorldSubcurves(node) {
   const xf = node.transformInterface.transform;
   const pc = node.polyCurve;
@@ -149,9 +150,9 @@ function getWorldSubcurves(node) {
   return subs;
 }
 
-// ── 选区节点解析 ────────────────────────────────────────────
-// rename-artboards 用 sel.at(i).node 可用；Blend Tool 证明
-// 有些环境 sel.at(i) 本身就是节点。两种都试。
+// ── Selection node resolution ────────────────────────────────────────────
+// In some environments sel.at(i).node is required; in others sel.at(i)
+// itself is already the node. Try both.
 function resolveNode(item) {
   if (!item) return null;
   try {
@@ -173,9 +174,9 @@ function hasCurveData(node) {
   } catch (e) { return false; }
 }
 
-// ── 弧长表与均匀采样 ────────────────────────────────────────
-// 对一个子曲线（bezier 数组）建弧长表；
-// 每条记录 { bi, t, cum }，与 Blend Tool 的 buildArcTable 同构。
+// ── Arc-length table and uniform sampling ────────────────────────────────────────
+// Build an arc-length table for a subcurve (array of beziers);
+// each entry is { bi, t, cum }.
 function buildArcTable(beziers) {
   const tbl = [];
   let cum = 0;
@@ -194,7 +195,7 @@ function buildArcTable(beziers) {
   return tbl;
 }
 
-// 按弧长比例 frac ∈ [0,1] 反查参数位置 { bi, t }
+// Look up the parameter position { bi, t } for a given arc-length fraction frac ∈ [0,1]
 function paramAtFrac(tbl, frac) {
   const total = tbl[tbl.length - 1].cum;
   const c = Math.min(Math.max(frac, 0), 1) * total;
@@ -207,21 +208,22 @@ function paramAtFrac(tbl, frac) {
   const a = tbl[lo], b = tbl[hi];
   const span = b.cum - a.cum;
   const f = span < 1e-9 ? 0 : (c - a.cum) / span;
-  // 跨 bezier 边界时取占比更大的那段，t 在段内插值
+  // When crossing a bezier boundary, take the segment with the larger share
+  // and interpolate t within that segment
   if (a.bi === b.bi) return { bi: a.bi, t: a.t + (b.t - a.t) * f };
   return f < 0.5 ? { bi: a.bi, t: a.t + (1 - a.t) * f * 2 }
                  : { bi: b.bi, t: b.t * (f - 0.5) * 2 };
 }
 
-// 对一个子曲线做 n 个等弧长采样，返回
-// [{ pos, normal, kappa }]；normal 为单位法向（切向左转 90°）
+// Take n equal-arc-length samples of a subcurve, returning
+// [{ pos, normal, kappa }]; normal is the unit normal (tangent rotated 90° left)
 function sampleSubcurve(sub, n) {
   const tbl = buildArcTable(sub.bez);
   const total = tbl[tbl.length - 1].cum;
   if (total < 1e-9) return [];
   const out = [];
   for (let i = 0; i < n; i++) {
-    // 闭合曲线不重复首尾；开放曲线包含两端
+    // Closed curves don't repeat the start/end point; open curves include both ends
     const frac = sub.isClosed ? i / n : i / (n - 1);
     const { bi, t } = paramAtFrac(tbl, frac);
     const b = sub.bez[bi];
@@ -229,7 +231,7 @@ function sampleSubcurve(sub, n) {
     const { kappa, tangent } = signedCurvature(b, t);
     if (!tangent) { out.push({ pos, normal: null, kappa: 0 }); continue; }
     const tl = Math.hypot(tangent.x, tangent.y);
-    // 单位法向：切向 (tx,ty) 左转 90° → (-ty, tx)
+    // Unit normal: tangent (tx,ty) rotated 90° left → (-ty, tx)
     out.push({
       pos,
       normal: { x: -tangent.y / tl, y: tangent.x / tl },
@@ -239,8 +241,8 @@ function sampleSubcurve(sub, n) {
   return out;
 }
 
-// ── 生成描边节点定义（照抄 Blend Tool makeDef 结构） ────────
-// subPaths: [{ bez: [...], isClosed }], 生成一个无填充纯描边节点
+// ── Generate stroke node definitions ────────
+// subPaths: [{ bez: [...], isClosed }], generates a stroke-only node with no fill
 function makeStrokedDef(subPaths, name, rgba, weight) {
   const pc = PolyCurve.create();
   for (const sp of subPaths) {
@@ -263,17 +265,17 @@ function makeStrokedDef(subPaths, name, rgba, weight) {
   return def;
 }
 
-// 两点直线段表达成 bezier（控制点在 1/3、2/3 处）
+// Express a straight line segment between two points as a bezier (control points at 1/3 and 2/3)
 function lineBez(p, q) {
   return { start: p, c1: lerpPt(p, q, 1/3), c2: lerpPt(p, q, 2/3), end: q };
 }
 
-// ── 错误弹窗 ────────────────────────────────────────────────
+// ── Error dialog ────────────────────────────────────────────────
 function showError(msg) {
-  const d = Dialog.create("曲率梳");
+  const d = Dialog.create("Curvature Comb");
   d.initialWidth = 420;
   const col = d.addColumn();
-  const grp = col.addGroup("错误");
+  const grp = col.addGroup("Error");
   const txt = grp.addStaticText("", msg);
   txt.isFullWidth = true;
   d.runModal();
@@ -289,88 +291,89 @@ function dialogOk(result) {
 }
 
 // ════════════════════════════════════════════════════════════
-// 主流程
+// Main flow
 // ════════════════════════════════════════════════════════════
 function main() {
-  console.log("[comb] 脚本启动");
+  console.log("[comb] Script started");
 
   const doc = Document.current;
-  if (!doc) { showError("没有打开的文档。"); return; }
+  if (!doc) { showError("No document is open."); return; }
 
-  // ---- 读取选区 ----
+  // ---- Read selection ----
   const sel = doc.selection;
   if (!sel || sel.length < 1) {
-    showError("请先选中一条矢量曲线，再运行脚本。");
+    showError("Please select a vector curve first, then run the script.");
     return;
   }
   const node = resolveNode(sel.at(0));
   if (!hasCurveData(node)) {
-    showError("选中对象不是可编辑曲线（需要 Curve / 形状转曲后的对象）。");
+    showError("The selected object is not an editable curve (needs to be a Curve, or a shape converted to curves).");
     return;
   }
   const nodeName = node.userDescription || node.defaultDescription || "Curve";
   const subs = getWorldSubcurves(node);
   if (!subs.length) {
-    showError("选中曲线没有可用的 bezier 段。");
+    showError("The selected curve has no usable bezier segments.");
     return;
   }
-  console.log("[comb] 曲线 \"" + nodeName + "\": " + subs.length + " 条子曲线");
+  console.log("[comb] Curve \"" + nodeName + "\": " + subs.length + " subcurve(s)");
 
-  // ---- 参数对话框 ----
-  const dlg = Dialog.create("曲率梳");
+  // ---- Parameter dialog ----
+  const dlg = Dialog.create("Curvature Comb");
   dlg.initialWidth = 380;
   const col = dlg.addColumn();
 
-  const gS = col.addGroup("采样");
-  const samplesCtrl = gS.addUnitValueEditor("采样点数", UnitType.Number, UnitType.Number, 120, 8, 2000);
+  const gS = col.addGroup("Sampling");
+  const samplesCtrl = gS.addUnitValueEditor("Sample Count", UnitType.Number, UnitType.Number, 120, 8, 2000);
   samplesCtrl.precision = 0;
   samplesCtrl.showPopupSlider = true;
 
-  const gL = col.addGroup("梳齿");
-  const lenCtrl = gL.addUnitValueEditor("最大齿长 (px)", UnitType.Number, UnitType.Number, 60, 1, 5000);
+  const gL = col.addGroup("Comb Teeth");
+  const lenCtrl = gL.addUnitValueEditor("Max Tooth Length (px)", UnitType.Number, UnitType.Number, 60, 1, 5000);
   lenCtrl.precision = 0;
   lenCtrl.showPopupSlider = true;
-  const flipCtrl = gL.addSwitch("翻转方向", false);
-  const signedCtrl = gL.addSwitch("按曲率符号分侧（显示拐点）", true);
-  const scaleMode = gL.addComboBox("长度映射", [
-    "线性（齿长 ∝ κ）",
-    "平方根（压缩高曲率差异）",
+  const flipCtrl = gL.addSwitch("Flip Direction", false);
+  const signedCtrl = gL.addSwitch("Split by Curvature Sign (show inflection points)", true);
+  const scaleMode = gL.addComboBox("Length Mapping", [
+    "Linear (tooth length ∝ κ)",
+    "Square Root (compresses high-curvature differences)",
   ], 0);
 
-  const gE = col.addGroup("包络线");
-  const envCtrl = gE.addSwitch("生成包络线", true);
+  const gE = col.addGroup("Envelope");
+  const envCtrl = gE.addSwitch("Generate Envelope", true);
 
-  const gI = col.addGroup("信息");
-  const infoTxt = gI.addStaticText("", "目标: " + nodeName + "（" + subs.length + " 条子曲线）");
+  const gI = col.addGroup("Info");
+  const infoTxt = gI.addStaticText("", "Target: " + nodeName + " (" + subs.length + " subcurve(s))");
   infoTxt.isFullWidth = true;
 
   const result = dlg.runModal();
-  console.log("[comb] runModal 返回 value=" +
+  console.log("[comb] runModal returned value=" +
     (result && result.value !== undefined ? result.value : String(result)));
   if (!dialogOk(result)) {
-    console.log("[comb] 用户取消");
+    console.log("[comb] Cancelled by user");
     return;
   }
 
   const nSamples = Math.max(8, Math.min(2000, Math.round(Number(samplesCtrl.value)) || 120));
   const maxLen = Math.max(1, Number(lenCtrl.value) || 60);
-  // Affinity 文档 Y 轴朝下，基准方向取反才符合直觉；开关打开则再翻回去
+  // The Affinity document Y axis points downward, so the base direction must be
+  // inverted to match intuition; if the switch is enabled, flip it back again
   const flip = flipCtrl.value ? 1 : -1;
   const useSigned = signedCtrl.value;
   const useSqrt = scaleMode.selectedIndex === 1;
   const drawEnvelope = envCtrl.value;
 
   try {
-    // ---- 采样与曲率计算 ----
-    // 采样数按子曲线长度比例分配，每条至少 8 个
+    // ---- Sampling and curvature computation ----
+    // Distribute sample counts proportionally to subcurve length, at least 8 per subcurve
     const lengths = subs.map((s) => {
       const t = buildArcTable(s.bez);
       return t[t.length - 1].cum;
     });
     const totalLen = lengths.reduce((a, v) => a + v, 0);
-    if (totalLen < 1e-9) { showError("曲线长度为 0。"); return; }
+    if (totalLen < 1e-9) { showError("Curve length is 0."); return; }
 
-    const allSamples = []; // 每条子曲线一个数组
+    const allSamples = []; // One array per subcurve
     let kMax = 0;
     for (let i = 0; i < subs.length; i++) {
       const n = Math.max(8, Math.round(nSamples * (lengths[i] / totalLen)));
@@ -380,20 +383,21 @@ function main() {
     }
     console.log("[comb] κmax = " + kMax);
     if (kMax < 1e-12) {
-      showError("该曲线曲率处处接近 0（近似直线），没有可显示的梳齿。");
+      showError("This curve's curvature is close to 0 everywhere (nearly a straight line); there are no comb teeth to display.");
       return;
     }
 
-    // ---- 生成梳齿与包络 ----
-    const teethBez = [];        // 所有齿：开放直线段
-    const envelopeSubs = [];    // 每条子曲线一条包络折线
+    // ---- Generate comb teeth and envelope ----
+    const teethBez = [];        // All teeth: open straight-line segments
+    const envelopeSubs = [];    // One envelope polyline per subcurve
     for (let i = 0; i < subs.length; i++) {
       const tips = [];
       for (const s of allSamples[i]) {
         if (!s.normal) { tips.push(s.pos); continue; }
         let ratio = Math.abs(s.kappa) / kMax;
         if (useSqrt) ratio = Math.sqrt(ratio);
-        // 符号模式：齿的方向随 κ 符号翻转，拐点处梳齿换边
+        // Signed mode: tooth direction flips with the sign of κ,
+        // switching sides at inflection points
         const side = useSigned ? Math.sign(s.kappa) || 1 : 1;
         const L = ratio * maxLen * side * flip;
         const tip = { x: s.pos.x + s.normal.x * L, y: s.pos.y + s.normal.y * L };
@@ -407,10 +411,9 @@ function main() {
         envelopeSubs.push({ bez: envBez, isClosed: subs[i].isClosed });
       }
     }
-    console.log("[comb] 梳齿 " + teethBez.length + " 根");
+    console.log("[comb] " + teethBez.length + " tooth/teeth generated");
 
-    // ---- 插入文档：Group( 齿 + 包络 ) ----
-    // 与 Blend Tool 的 execVectorBlend 相同的两步命令模式
+    // ---- Insert into document: Group( teeth + envelope ) ----
     const cb = AddChildNodesCommandBuilder.create();
     cb.addContainerNode(ContainerNodeDefinition.create("Curvature Comb: " + nodeName));
     const ccmd = cb.createCommand(false, NodeChildType.Main);
@@ -419,8 +422,8 @@ function main() {
 
     const ch = AddChildNodesCommandBuilder.create();
     ch.setInsertionTarget(group);
-    // 所有齿放进同一个 PolyCurve 节点（每根齿一条子曲线），
-    // 避免生成几百个独立图层
+    // Put all teeth into a single PolyCurve node (one subcurve per tooth),
+    // to avoid generating hundreds of separate layers
     ch.addNode(makeStrokedDef(
       teethBez.map((b) => ({ bez: [b], isClosed: false })),
       "Comb Teeth", [255, 60, 60, 255], 0.5,
@@ -430,10 +433,10 @@ function main() {
     }
     doc.executeCommand(ch.createCommand(false, NodeChildType.Main));
 
-    console.log("[comb] 完成：已插入 Group \"Curvature Comb: " + nodeName + "\"");
+    console.log("[comb] Done: inserted Group \"Curvature Comb: " + nodeName + "\"");
   } catch (e) {
-    console.log("[comb] 失败: " + e.message + "\n" + e.stack);
-    showError("生成失败: " + e.message);
+    console.log("[comb] Failed: " + e.message + "\n" + e.stack);
+    showError("Generation failed: " + e.message);
   }
 }
 

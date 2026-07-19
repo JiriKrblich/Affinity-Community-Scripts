@@ -1,7 +1,7 @@
 /**
  * name: Affinity Gradient Smoother
- * description: Smooths gradients with quick presets, perceptual equalization, soft endpoint easing, and adaptive anti-banding.
- * version: 1.6.1
+ * description: Smooths gradients with quick presets and an adaptive automatic mode, using OKLCH or OKLab to produce natural transitions and reduce banding with Live Preview.
+ * version: 2.4.0
  * author: Caio Sousa Design
  * contributors: Caio
  */
@@ -18,46 +18,74 @@ const EPSILON = 0.000001;
 
 const PRESET_AUTOMATIC = 0;
 const PRESET_NATURAL = 1;
-const PRESET_SOFT = 2;
+const PRESET_ULTRA_SMOOTH = 2;
 const PRESET_VIBRANT = 3;
 const PRESET_NEUTRAL = 4;
 const PRESET_ANTI_BANDING = 5;
-const PRESET_CUSTOM = 6;
 
 const PRESETS = [
-    { name: 'Automatic', automatic: true },
     {
-        name: 'Natural', interpolationMode: 'oklch', points: 12,
-        midpoint: 75, perceptualEqualization: 72, endpointSoftness: 70,
-        centralBalance: 24, chromaReduction: 0,
-        antiBanding: 0.06, edgeBandingBoost: 50
+        name: 'Automatic',
+        automatic: true,
+        interpolationMode: 'oklch',
+        smoothness: 94,
+        naturalSoftness: 68,
+        detail: 88,
+        antiBanding: 0.08
     },
     {
-        name: 'Soft', interpolationMode: 'oklch', points: 18,
-        midpoint: 90, perceptualEqualization: 88, endpointSoftness: 88,
-        centralBalance: 34, chromaReduction: 4,
-        antiBanding: 0.08, edgeBandingBoost: 65
+        name: 'Natural',
+        interpolationMode: 'oklch',
+        smoothness: 90,
+        naturalSoftness: 60,
+        detail: 78,
+        antiBanding: 0.06
     },
     {
-        name: 'Vibrant', interpolationMode: 'oklch', points: 12,
-        midpoint: 65, perceptualEqualization: 58, endpointSoftness: 48,
-        centralBalance: 12, chromaReduction: 0,
-        antiBanding: 0.04, edgeBandingBoost: 40
+        name: 'Ultra smooth',
+        interpolationMode: 'oklch',
+        smoothness: 99,
+        naturalSoftness: 76,
+        detail: 100,
+        antiBanding: 0.10
     },
     {
-        name: 'Neutral', interpolationMode: 'oklab', points: 12,
-        midpoint: 75, perceptualEqualization: 76, endpointSoftness: 72,
-        centralBalance: 0, chromaReduction: 0,
-        antiBanding: 0.06, edgeBandingBoost: 50
+        name: 'Vibrant',
+        interpolationMode: 'oklch',
+        smoothness: 84,
+        naturalSoftness: 28,
+        detail: 72,
+        antiBanding: 0.04
     },
     {
-        name: 'Anti-banding', interpolationMode: 'oklch', points: 28,
-        midpoint: 88, perceptualEqualization: 94, endpointSoftness: 96,
-        centralBalance: 30, chromaReduction: 2,
-        antiBanding: 0.28, edgeBandingBoost: 90
+        name: 'Neutral',
+        interpolationMode: 'oklab',
+        smoothness: 94,
+        naturalSoftness: 100,
+        detail: 84,
+        antiBanding: 0.06
     },
-    { name: 'Custom', custom: true }
+    {
+        name: 'Anti-banding',
+        interpolationMode: 'oklch',
+        smoothness: 96,
+        naturalSoftness: 68,
+        detail: 100,
+        antiBanding: 0.22
+    }
 ];
+
+function clonePresetSettings(preset) {
+    const source = preset || PRESETS[PRESET_AUTOMATIC];
+
+    return {
+        interpolationMode: source.interpolationMode,
+        smoothness: source.smoothness,
+        naturalSoftness: source.naturalSoftness,
+        detail: source.detail,
+        antiBanding: source.antiBanding
+    };
+}
 
 // -----------------------------------------------------------------------------
 // Utilities
@@ -114,39 +142,114 @@ function getMarkedTextRange(doc) {
     };
 }
 
-function getFillDescriptor(node, useStroke, rangeInfo) {
-    if (isTextNode(node)) {
-        const story = node.storyInterface?.story;
-        if (!story || story.length === 0) return null;
-
-        const glyphIndex = rangeInfo ? rangeInfo.startIndex : 0;
-        const attributes = story.getGlyphAtts(glyphIndex);
-        return useStroke ? attributes.penFill : attributes.brushFill;
-    }
-
-    return useStroke ? node.penFillDescriptor : node.brushFillDescriptor;
+function isGradientDescriptor(descriptor) {
+    return !!(
+        descriptor &&
+        descriptor.fill &&
+        descriptor.fill.fillType.value === 3
+    );
 }
 
-function applyFillDescriptor(doc, descriptor, useStroke, rangeInfo) {
-    if (rangeInfo) {
-        const delta = useStroke
-            ? StoryDelta.createPenFill(descriptor)
-            : StoryDelta.createBrushFill(descriptor);
+function getNodeFillDescriptor(
+    node,
+    useStroke
+) {
+    return useStroke
+        ? node.penFillDescriptor
+        : node.brushFillDescriptor;
+}
 
-        doc.formatText(delta, doc.selection, false);
+function getGlyphFillDescriptor(
+    node,
+    useStroke,
+    rangeInfo
+) {
+    const story =
+        node.storyInterface?.story;
+
+    if (
+        !story ||
+        story.length === 0
+    ) {
+        return null;
+    }
+
+    const glyphIndex = rangeInfo
+        ? rangeInfo.startIndex
+        : 0;
+
+    const attributes =
+        story.getGlyphAtts(
+            glyphIndex
+        );
+
+    return useStroke
+        ? attributes.penFill
+        : attributes.brushFill;
+}
+
+function getFillDescriptor(
+    node,
+    useStroke,
+    rangeInfo
+) {
+    if (isTextNode(node)) {
+        // Read and apply text gradients through character formatting so the
+        // transform stays in one coordinate system.
+        return getGlyphFillDescriptor(
+            node,
+            useStroke,
+            rangeInfo
+        );
+    }
+
+    return getNodeFillDescriptor(
+        node,
+        useStroke
+    );
+}
+
+function applyFillDescriptor(
+    doc,
+    descriptor,
+    useStroke,
+    rangeInfo,
+    isTextTarget
+) {
+    if (isTextTarget) {
+        const delta = useStroke
+            ? StoryDelta.createPenFill(
+                descriptor
+            )
+            : StoryDelta.createBrushFill(
+                descriptor
+            );
+
+        doc.formatText(
+            delta,
+            doc.selection,
+            false
+        );
+
         return;
     }
 
     const command = useStroke
-        ? DocumentCommand.createSetPenFill(doc.selection, descriptor)
-        : DocumentCommand.createSetBrushFill(doc.selection, descriptor);
+        ? DocumentCommand.createSetPenFill(
+            doc.selection,
+            descriptor
+        )
+        : DocumentCommand.createSetBrushFill(
+            doc.selection,
+            descriptor
+        );
 
     doc.executeCommand(command);
 }
 
 // -----------------------------------------------------------------------------
 // Colour conversion: HSL <-> sRGB <-> OKLab
-// Interpolating in OKLab reduces abrupt lightness and saturation changes.
+// Oklab interpolation reduces abrupt lightness and saturation changes.
 // -----------------------------------------------------------------------------
 
 function hueToRgb(p, q, t) {
@@ -308,7 +411,7 @@ function gamutMapOklchToOklab(lch) {
         return requestedLab;
     }
 
-    // Preserves lightness and hue while reducing only the chroma required.
+    // Preserves lightness and hue while reducing only the required chroma.
     let low = 0;
     let high = Math.max(0, lch.C);
 
@@ -363,6 +466,7 @@ function readGradientStops(gradient) {
             midpoint: sourceStop.midpoint != null ? sourceStop.midpoint : 0.5,
             noise: colour.noise || 0,
             hslaf,
+            rgb: hslToSrgb(hslaf),
             colourHandle: sourceStop.colour,
             lab,
             lch: oklabToOklch(lab)
@@ -399,57 +503,75 @@ function createGeneratedColour(lab, alpha, noise) {
     return colour;
 }
 
-function cloneColourWithAdditionalNoise(stop, additionalNoise) {
-    const colour = new Colour(stop.colourHandle);
-    colour.noise = clamp(stop.noise + additionalNoise, 0, 1);
+
+function createGeneratedColourFromRgb(rgb, alpha, noise) {
+    const hsl = srgbToHsl(rgb);
+
+    const colour = Colour.createHSLAf({
+        h: hsl.h,
+        s: hsl.s,
+        l: hsl.l,
+        alpha: clamp(alpha, 0, 1)
+    });
+
+    colour.noise = clamp(noise, 0, 1);
     return colour;
 }
 
-function getPlanEdgeNoise(plan) {
-    if (!plan) return 0;
-    // The boost is deliberately moderate. Too much endpoint noise creates
-    // visible texture without fixing the abrupt change in the gradient slope.
-    return plan.antiBanding * (1 + plan.edgeBandingBoost * 0.45);
+function smoothstep01(value) {
+    const t = clamp(value, 0, 1);
+    return t * t * (3 - 2 * t);
 }
 
-function getOriginalStopColour(rawStops, plans, stopIndex) {
-    let additionalNoise = 0;
+function smootherstep01(value) {
+    const t = clamp(value, 0, 1);
+    return t * t * t * (t * (t * 6 - 15) + 10);
+}
 
-    if (stopIndex > 0) {
-        additionalNoise = Math.max(
-            additionalNoise,
-            getPlanEdgeNoise(plans[stopIndex - 1])
-        );
+function smoothRange(value, start, end) {
+    if (Math.abs(end - start) < EPSILON) {
+        return value >= end ? 1 : 0;
     }
 
-    if (stopIndex < plans.length) {
-        additionalNoise = Math.max(
-            additionalNoise,
-            getPlanEdgeNoise(plans[stopIndex])
-        );
-    }
-
-    return cloneColourWithAdditionalNoise(
-        rawStops[stopIndex],
-        additionalNoise
+    return smoothstep01(
+        (value - start) / (end - start)
     );
 }
 
-function distributeStopPosition(pointIndex, pointsPerSegment, edgeStopBias) {
-    const uniformT = pointIndex / (pointsPerSegment + 1);
-    const cosineT = 0.5 - 0.5 * Math.cos(Math.PI * uniformT);
+function cloneStopColourWithoutNoise(stop) {
+    const colour = new Colour(stop.colourHandle);
+    colour.noise = 0;
+    return colour;
+}
 
-    return lerp(
-        uniformT,
-        cosineT,
-        clamp(edgeStopBias, 0, 0.75)
-    );
+function buildTwoStopReset(rawStops) {
+    if (rawStops.length < 2) return rawStops;
+
+    const first = rawStops[0];
+    const last = rawStops[rawStops.length - 1];
+
+    return [
+        {
+            colour: cloneStopColourWithoutNoise(first),
+            position: first.position,
+            midpoint: 0.5
+        },
+        {
+            colour: cloneStopColourWithoutNoise(last),
+            position: last.position,
+            midpoint: 0.5
+        }
+    ];
 }
 
 function shortestHueDistanceRadians(startHue, endHue) {
     const fullTurn = Math.PI * 2;
     let delta = Math.abs(endHue - startHue) % fullTurn;
-    if (delta > Math.PI) delta = fullTurn - delta;
+
+    if (delta > Math.PI) {
+        delta = fullTurn - delta;
+    }
+
     return delta;
 }
 
@@ -457,16 +579,32 @@ function analyseSegment(start, end) {
     const deltaL = end.lab.L - start.lab.L;
     const deltaA = end.lab.a - start.lab.a;
     const deltaB = end.lab.b - start.lab.b;
+
     const labDistance = Math.sqrt(
-        deltaL * deltaL + deltaA * deltaA + deltaB * deltaB
+        deltaL * deltaL +
+        deltaA * deltaA +
+        deltaB * deltaB
     );
 
-    const minimumChroma = Math.min(start.lch.C, end.lch.C);
-    const maximumChroma = Math.max(start.lch.C, end.lch.C);
-    const hasNeutralEndpoint = minimumChroma < 0.018;
+    const minimumChroma = Math.min(
+        start.lch.C,
+        end.lch.C
+    );
+
+    const maximumChroma = Math.max(
+        start.lch.C,
+        end.lch.C
+    );
+
+    const hasNeutralEndpoint =
+        minimumChroma < 0.018;
+
     const hueDistance = hasNeutralEndpoint
         ? 0
-        : shortestHueDistanceRadians(start.lch.h, end.lch.h);
+        : shortestHueDistanceRadians(
+            start.lch.h,
+            end.lch.h
+        );
 
     return {
         labDistance,
@@ -478,181 +616,482 @@ function analyseSegment(start, end) {
     };
 }
 
-function createAutomaticSegmentOptions(start, end) {
-    const analysis = analyseSegment(start, end);
-    let interpolationMode = 'oklch';
-    let centralBalance = 0.16;
-    let chromaReduction = 0;
-
-    if (analysis.hasNeutralEndpoint) {
-        // Preserves the coloured endpoint hue when entering or leaving white/grey.
-        interpolationMode = 'oklch';
-        centralBalance = 0.08;
-    } else if (analysis.hueDegrees < 32) {
-        // Similar hues remain cleaner and more predictable in OKLab.
-        interpolationMode = 'oklab';
-        centralBalance = 0;
-    } else {
-        // The more opposite the colours are, the stronger the centre damping.
-        interpolationMode = 'oklch';
-        centralBalance = clamp(
-            0.10 + ((analysis.hueDegrees - 32) / 148) * 0.27,
-            0.10,
-            0.37
-        );
-
-        if (analysis.hueDegrees > 145 && analysis.minimumChroma > 0.08) {
-            chromaReduction = 0.02;
-        }
+function interpolatePremultipliedScalar(
+    startValue,
+    startAlpha,
+    endValue,
+    endAlpha,
+    t,
+    alpha
+) {
+    if (alpha <= EPSILON) {
+        return lerp(startValue, endValue, t);
     }
 
-    let points = Math.round(
-        8 +
-        analysis.labDistance * 24 +
-        analysis.lightnessDistance * 8 +
-        analysis.hueDegrees / 35
+    return lerp(
+        startValue * startAlpha,
+        endValue * endAlpha,
+        t
+    ) / alpha;
+}
+
+function interpolateNeutralLab(
+    start,
+    end,
+    t,
+    alpha
+) {
+    const startAlpha = start.hslaf.alpha;
+    const endAlpha = end.hslaf.alpha;
+
+    return {
+        L: interpolatePremultipliedScalar(
+            start.lab.L,
+            startAlpha,
+            end.lab.L,
+            endAlpha,
+            t,
+            alpha
+        ),
+        a: interpolatePremultipliedScalar(
+            start.lab.a,
+            startAlpha,
+            end.lab.a,
+            endAlpha,
+            t,
+            alpha
+        ),
+        b: interpolatePremultipliedScalar(
+            start.lab.b,
+            startAlpha,
+            end.lab.b,
+            endAlpha,
+            t,
+            alpha
+        )
+    };
+}
+
+function interpolateColourfulLab(
+    start,
+    end,
+    t,
+    alpha
+) {
+    const startAlpha = start.hslaf.alpha;
+    const endAlpha = end.hslaf.alpha;
+
+    let startHue = start.lch.h;
+    let endHue = end.lch.h;
+
+    if (
+        start.lch.C < 0.0005 &&
+        end.lch.C >= 0.0005
+    ) {
+        startHue = endHue;
+    } else if (
+        end.lch.C < 0.0005 &&
+        start.lch.C >= 0.0005
+    ) {
+        endHue = startHue;
+    }
+
+    const lch = {
+        L: interpolatePremultipliedScalar(
+            start.lch.L,
+            startAlpha,
+            end.lch.L,
+            endAlpha,
+            t,
+            alpha
+        ),
+        C: interpolatePremultipliedScalar(
+            start.lch.C,
+            startAlpha,
+            end.lch.C,
+            endAlpha,
+            t,
+            alpha
+        ),
+        h: interpolateHueShortest(
+            startHue,
+            endHue,
+            t
+        )
+    };
+
+    return {
+        lch,
+        lab: gamutMapOklchToOklab(lch)
+    };
+}
+
+function applyEndpointColourProtection(
+    rgb,
+    start,
+    end,
+    colourT,
+    segmentIndex,
+    segmentCount,
+    amount
+) {
+    const strength = clamp(amount, 0, 1);
+
+    if (strength <= EPSILON) {
+        return rgb;
+    }
+
+    let result = {
+        r: rgb.r,
+        g: rgb.g,
+        b: rgb.b
+    };
+
+    // Keep this correction extremely local. Earlier versions pulled too many
+    // generated colours toward the endpoint, creating a visible blue/orange
+    // plateau. Stop spacing now performs most of the endpoint protection.
+    const zone = 0.045;
+    const maximumInfluence = 0.26;
+
+    if (
+        segmentIndex === 0 &&
+        colourT < zone
+    ) {
+        const local =
+            1 - colourT / zone;
+
+        const weight =
+            Math.pow(local, 3.1) *
+            strength *
+            maximumInfluence;
+
+        result = {
+            r: lerp(result.r, start.rgb.r, weight),
+            g: lerp(result.g, start.rgb.g, weight),
+            b: lerp(result.b, start.rgb.b, weight)
+        };
+    }
+
+    if (
+        segmentIndex === segmentCount - 1 &&
+        colourT > 1 - zone
+    ) {
+        const local =
+            (colourT - (1 - zone)) / zone;
+
+        const weight =
+            Math.pow(local, 3.1) *
+            strength *
+            maximumInfluence;
+
+        result = {
+            r: lerp(result.r, end.rgb.r, weight),
+            g: lerp(result.g, end.rgb.g, weight),
+            b: lerp(result.b, end.rgb.b, weight)
+        };
+    }
+
+    return result;
+}
+
+function createAutomaticSegmentOptions(
+    start,
+    end,
+    options
+) {
+    const analysis = analyseSegment(start, end);
+
+    const smoothness = clamp(
+        options.smoothnessStrength,
+        0,
+        1
     );
 
-    if (analysis.hueDegrees > 115) points += 3;
-    if (analysis.maximumChroma > 0.22) points += 2;
-
-    points = clamp(points, 8, 28);
-
-    const midpointNormalization = clamp(
-        0.70 + analysis.lightnessDistance * 0.35,
-        0.70,
-        0.92
+    const naturalSoftness = clamp(
+        options.naturalSoftnessStrength,
+        0,
+        1
     );
 
-    const complexity =
-        analysis.labDistance + analysis.hueDegrees / 180;
-
-    // A very small amount of noise already helps in Automatic mode. The
-    // endpoint boost also covers the solid-colour area that appears after
-    // the gradient handle when the gradient is shortened inside the object.
-    const antiBanding = clamp(
-        0.00035 +
-        analysis.labDistance * 0.00045 +
-        analysis.lightnessDistance * 0.00035,
-        0.00035,
-        0.0015
+    const detail = clamp(
+        options.detailStrength,
+        0,
+        1
     );
 
-    const edgeBandingBoost = clamp(
-        0.85 +
-        analysis.lightnessDistance * 0.75 +
-        analysis.hueDegrees / 180 * 0.55,
-        0.85,
-        1.80
+    let interpolationMode = 'oklch';
+
+    if (
+        analysis.hueDegrees < 24 &&
+        !analysis.hasNeutralEndpoint
+    ) {
+        interpolationMode = 'oklab';
+    }
+
+    const quality =
+        smoothness * 0.58 +
+        detail * 0.42;
+
+    const opposition = smoothRange(
+        analysis.hueDegrees,
+        24,
+        170
     );
 
-    const edgeStopBias = clamp(
-        0.12 + complexity * 0.10,
-        0.12,
-        0.38
+    const requestedPoints = clamp(
+        Math.round(
+            lerp(9, 21, detail) +
+            analysis.labDistance * 5 +
+            opposition * 1.5
+        ),
+        9,
+        24
     );
 
-    // Equalizes the perceptual speed of the colour change. This prevents regions
-    // where the channels almost stop changing and form broad bands.
-    const perceptualEqualization = clamp(
-        0.76 + analysis.labDistance * 0.18 + analysis.hueDegrees / 180 * 0.08,
-        0.76,
-        0.96
-    );
-
-    // Makes the curve approach the start and end colours with a slope close to
-    // zero. This is especially important when the gradient handle ends inside
-    // the object and Affinity extends the final colour as a solid area.
-    const endpointSoftness = clamp(
-        0.80 + analysis.lightnessDistance * 0.16 + analysis.hueDegrees / 180 * 0.07,
-        0.80,
-        0.97
-    );
-
-    const endpointZone = clamp(
-        0.22 + analysis.labDistance * 0.10,
-        0.22,
-        0.34
+    const minimumPoints = clamp(
+        Math.round(
+            lerp(6, 10, detail) +
+            analysis.labDistance
+        ),
+        6,
+        11
     );
 
     return {
         interpolationMode,
-        points,
-        midpointNormalization,
-        perceptualEqualization,
-        endpointSoftness,
-        endpointZone,
-        centralBalance,
-        chromaReduction,
-        antiBanding,
-        edgeBandingBoost,
-        edgeStopBias,
-        complexity,
+        requestedPoints,
+        minimumPoints,
+        midpointNormalization: clamp(
+            0.72 +
+            smoothness * 0.18 +
+            analysis.lightnessDistance * 0.08,
+            0.72,
+            0.96
+        ),
+        naturalSoftness,
+        hueOpposition: opposition,
+        hasNeutralEndpoint:
+            analysis.hasNeutralEndpoint,
+        curveTolerance: lerp(
+            0.0095,
+            0.0015,
+            Math.pow(quality, 1.55)
+        ),
+        maximumPerceptualStep: lerp(
+            0.074,
+            0.020,
+            Math.pow(quality, 1.28)
+        ),
+        perceptualDistribution: clamp(
+            0.20 +
+            detail * 0.14 +
+            opposition * 0.04,
+            0.20,
+            0.38
+        ),
+        antiBanding: options.antiBanding,
+        endpointProtection:
+            options.protectShortenedEndpoints
+                ? clamp(
+                    0.70 + smoothness * 0.28,
+                    0.76,
+                    0.98
+                )
+                : 0,
+        protectShortenedEndpoints:
+            options.protectShortenedEndpoints,
+        complexity:
+            analysis.labDistance +
+            opposition +
+            analysis.lightnessDistance,
         analysis
     };
 }
 
-function createManualSegmentOptions(options) {
+function createManualSegmentOptions(
+    start,
+    end,
+    options
+) {
+    const analysis = analyseSegment(start, end);
+
+    const smoothness = clamp(
+        options.smoothnessStrength,
+        0,
+        1
+    );
+
+    const detail = clamp(
+        options.detailStrength,
+        0,
+        1
+    );
+
+    const quality =
+        smoothness * 0.58 +
+        detail * 0.42;
+
+    const opposition = smoothRange(
+        analysis.hueDegrees,
+        24,
+        170
+    );
+
     return {
-        interpolationMode: options.interpolationMode,
-        points: options.pointsPerSegment,
-        midpointNormalization: options.midpointNormalization,
-        perceptualEqualization: options.perceptualEqualization,
-        endpointSoftness: options.endpointSoftness,
-        endpointZone: lerp(0.18, 0.34, options.endpointSoftness),
-        centralBalance: options.centralBalance,
-        chromaReduction: options.chromaReduction,
-        antiBanding: options.antiBanding,
-        edgeBandingBoost: options.edgeBandingBoost,
-        edgeStopBias: clamp(
-            0.10 +
-            options.antiBanding * 4 +
-            options.edgeBandingBoost * 0.04,
-            0.10,
-            0.42
+        interpolationMode:
+            options.interpolationMode,
+        requestedPoints: clamp(
+            Math.round(
+                lerp(9, 21, detail) +
+                analysis.labDistance * 4
+            ),
+            9,
+            24
         ),
-        complexity: 1,
-        analysis: null
+        minimumPoints: clamp(
+            Math.round(
+                lerp(6, 10, detail)
+            ),
+            6,
+            11
+        ),
+        midpointNormalization: clamp(
+            0.72 +
+            smoothness * 0.19 +
+            analysis.lightnessDistance * 0.07,
+            0.72,
+            0.96
+        ),
+        naturalSoftness: clamp(
+            options.naturalSoftnessStrength,
+            0,
+            1
+        ),
+        hueOpposition: opposition,
+        hasNeutralEndpoint:
+            analysis.hasNeutralEndpoint,
+        curveTolerance: lerp(
+            0.0095,
+            0.00145,
+            Math.pow(quality, 1.58)
+        ),
+        maximumPerceptualStep: lerp(
+            0.074,
+            0.019,
+            Math.pow(quality, 1.30)
+        ),
+        perceptualDistribution: clamp(
+            0.20 +
+            detail * 0.16 +
+            opposition * 0.03,
+            0.20,
+            0.39
+        ),
+        antiBanding: options.antiBanding,
+        endpointProtection:
+            options.protectShortenedEndpoints
+                ? clamp(
+                    0.70 + smoothness * 0.28,
+                    0.76,
+                    0.98
+                )
+                : 0,
+        protectShortenedEndpoints:
+            options.protectShortenedEndpoints,
+        complexity:
+            analysis.labDistance +
+            opposition +
+            analysis.lightnessDistance,
+        analysis
     };
 }
 
-function allocateSegmentPoints(plans, originalStopCount) {
-    const availableSlots = Math.max(0, MAX_TOTAL_STOPS - originalStopCount);
+function allocateSegmentPoints(
+    plans,
+    originalStopCount,
+    protectShortenedEndpoints
+) {
+    // Balanced spacing protects the endpoints without inserting clusters.
+    const endpointReserve = 0;
+
+    const availableSlots = Math.max(
+        0,
+        MAX_TOTAL_STOPS -
+        originalStopCount -
+        endpointReserve
+    );
+
     const requestedTotal = plans.reduce(
-        (total, plan) => total + plan.points,
+        (total, plan) =>
+            total + plan.requestedPoints,
         0
     );
 
-    if (requestedTotal <= availableSlots) return plans;
-    if (availableSlots === 0) {
-        for (const plan of plans) plan.points = 0;
+    if (requestedTotal <= availableSlots) {
+        for (const plan of plans) {
+            plan.points = plan.requestedPoints;
+        }
+
         return plans;
     }
 
-    const scale = availableSlots / requestedTotal;
+    if (availableSlots === 0) {
+        for (const plan of plans) {
+            plan.points = 0;
+            plan.minimumPoints = 0;
+        }
+
+        return plans;
+    }
+
+    const scale =
+        availableSlots / requestedTotal;
+
     let allocatedTotal = 0;
 
     for (const plan of plans) {
-        plan.requestedPoints = plan.points;
-        plan.scaledPoints = plan.points * scale;
-        plan.points = Math.floor(plan.scaledPoints);
+        plan.scaledPoints =
+            plan.requestedPoints * scale;
+
+        plan.points = Math.floor(
+            plan.scaledPoints
+        );
+
+        plan.minimumPoints = Math.min(
+            plan.minimumPoints,
+            plan.points
+        );
+
         allocatedTotal += plan.points;
     }
 
-    let remaining = availableSlots - allocatedTotal;
+    let remaining =
+        availableSlots - allocatedTotal;
+
     const ranked = plans
         .map((plan, index) => ({
             index,
-            fraction: plan.scaledPoints - plan.points,
+            fraction:
+                plan.scaledPoints - plan.points,
             complexity: plan.complexity
         }))
         .sort((a, b) =>
-            b.fraction - a.fraction || b.complexity - a.complexity
+            b.fraction - a.fraction ||
+            b.complexity - a.complexity
         );
 
-    for (let i = 0; i < ranked.length && remaining > 0; i++) {
-        const plan = plans[ranked[i].index];
-        if (plan.points < plan.requestedPoints) {
+    for (
+        let i = 0;
+        i < ranked.length && remaining > 0;
+        i++
+    ) {
+        const plan =
+            plans[ranked[i].index];
+
+        if (
+            plan.points <
+            plan.requestedPoints
+        ) {
             plan.points += 1;
             remaining -= 1;
         }
@@ -661,272 +1100,697 @@ function allocateSegmentPoints(plans, originalStopCount) {
     return plans;
 }
 
-function createSegmentPlans(rawStops, options) {
+function createSegmentPlans(
+    rawStops,
+    options
+) {
     const plans = [];
 
-    for (let i = 0; i < rawStops.length - 1; i++) {
+    for (
+        let i = 0;
+        i < rawStops.length - 1;
+        i++
+    ) {
         plans.push(
             options.automatic
-                ? createAutomaticSegmentOptions(rawStops[i], rawStops[i + 1])
-                : createManualSegmentOptions(options)
+                ? createAutomaticSegmentOptions(
+                    rawStops[i],
+                    rawStops[i + 1],
+                    options
+                )
+                : createManualSegmentOptions(
+                    rawStops[i],
+                    rawStops[i + 1],
+                    options
+                )
         );
     }
 
-    return allocateSegmentPoints(plans, rawStops.length);
+    return allocateSegmentPoints(
+        plans,
+        rawStops.length,
+        options.protectShortenedEndpoints
+    );
 }
 
-function computeSegmentLab(start, end, colourT, segmentOptions) {
-    const centreWeight = 4 * colourT * (1 - colourT);
-    const chromaFactor = 1 -
-        segmentOptions.chromaReduction * centreWeight;
+function deltaEOk(first, second) {
+    const deltaL = first.L - second.L;
+    const deltaA = first.a - second.a;
+    const deltaB = first.b - second.b;
 
-    if (segmentOptions.interpolationMode === 'oklch') {
-        let startHue = start.lch.h;
-        let endHue = end.lch.h;
-
-        if (start.lch.C < 0.0005 && end.lch.C >= 0.0005) {
-            startHue = endHue;
-        } else if (end.lch.C < 0.0005 && start.lch.C >= 0.0005) {
-            endHue = startHue;
-        }
-
-        const lch = {
-            L: lerp(start.lch.L, end.lch.L, colourT),
-            C: lerp(start.lch.C, end.lch.C, colourT) * chromaFactor,
-            h: interpolateHueShortest(startHue, endHue, colourT)
-        };
-
-        const colourfulLab = gamutMapOklchToOklab(lch);
-        const neutralLab = {
-            L: lerp(start.lab.L, end.lab.L, colourT),
-            a: lerp(start.lab.a, end.lab.a, colourT),
-            b: lerp(start.lab.b, end.lab.b, colourT)
-        };
-
-        const centralInfluence = Math.pow(centreWeight, 1.25);
-        const naturalBlend =
-            segmentOptions.centralBalance * centralInfluence;
-
-        return {
-            L: colourfulLab.L,
-            a: lerp(colourfulLab.a, neutralLab.a, naturalBlend),
-            b: lerp(colourfulLab.b, neutralLab.b, naturalBlend)
-        };
-    }
-
-    return {
-        L: lerp(start.lab.L, end.lab.L, colourT),
-        a: lerp(start.lab.a, end.lab.a, colourT) * chromaFactor,
-        b: lerp(start.lab.b, end.lab.b, colourT) * chromaFactor
-    };
+    return Math.sqrt(
+        deltaL * deltaL +
+        deltaA * deltaA +
+        deltaB * deltaB
+    );
 }
 
-function getLabDistance(first, second) {
-    const dL = second.L - first.L;
-    const da = second.a - first.a;
-    const db = second.b - first.b;
-    return Math.sqrt(dL * dL + da * da + db * db);
-}
-
-function buildPerceptualLookup(start, end, segmentOptions) {
-    const sampleCount = 72;
-    const cumulative = [0];
-    let total = 0;
-    let previous = computeSegmentLab(start, end, 0, segmentOptions);
-
-    for (let i = 1; i <= sampleCount; i++) {
-        const t = i / sampleCount;
-        const current = computeSegmentLab(start, end, t, segmentOptions);
-        total += getLabDistance(previous, current);
-        cumulative.push(total);
-        previous = current;
-    }
-
-    if (total <= EPSILON) {
-        return { cumulative, total: 0, sampleCount };
-    }
-
-    for (let i = 1; i < cumulative.length; i++) {
-        cumulative[i] /= total;
-    }
-
-    return { cumulative, total, sampleCount };
-}
-
-function invertPerceptualProgress(lookup, progress) {
-    const target = clamp(progress, 0, 1);
-    if (!lookup || lookup.total <= EPSILON) return target;
-
-    const values = lookup.cumulative;
-    let low = 0;
-    let high = values.length - 1;
-
-    while (low + 1 < high) {
-        const middle = Math.floor((low + high) / 2);
-        if (values[middle] < target) low = middle;
-        else high = middle;
-    }
-
-    const startValue = values[low];
-    const endValue = values[high];
-    const local = endValue - startValue > EPSILON
-        ? (target - startValue) / (endValue - startValue)
-        : 0;
-
-    return (low + local) / lookup.sampleCount;
-}
-
-function softenStartProgress(progress, amount, zone) {
-    if (progress >= zone || zone <= EPSILON) return progress;
-
-    const x = clamp(progress / zone, 0, 1);
-    // Hermite: zero derivative at the start endpoint and derivative one when leaving the zone.
-    const local = -x * x * x + 2 * x * x;
-    const eased = zone * local;
-    return lerp(progress, eased, amount);
-}
-
-function softenEndProgress(progress, amount, zone) {
-    const start = 1 - zone;
-    if (progress <= start || zone <= EPSILON) return progress;
-
-    const x = clamp((progress - start) / zone, 0, 1);
-    // Hermite: preserves the derivative when entering the zone and reaches zero derivative at the endpoint.
-    const local = -x * x * x + x * x + x;
-    const eased = start + zone * local;
-    return lerp(progress, eased, amount);
-}
-
-function softenGlobalEndpointProgress(
-    progress,
+function computeTargetSample(
+    start,
+    end,
+    colourT,
     segmentIndex,
     segmentCount,
     segmentOptions
 ) {
-    let result = progress;
-    const amount = clamp(segmentOptions.endpointSoftness, 0, 1);
-    const zone = clamp(segmentOptions.endpointZone, 0.08, 0.42);
-
-    if (segmentIndex === 0) {
-        result = softenStartProgress(result, amount, zone);
+    if (colourT <= EPSILON) {
+        return {
+            rgb: {
+                r: start.rgb.r,
+                g: start.rgb.g,
+                b: start.rgb.b
+            },
+            lab: {
+                L: start.lab.L,
+                a: start.lab.a,
+                b: start.lab.b
+            },
+            alpha: start.hslaf.alpha
+        };
     }
 
-    if (segmentIndex === segmentCount - 1) {
-        result = softenEndProgress(result, amount, zone);
+    if (colourT >= 1 - EPSILON) {
+        return {
+            rgb: {
+                r: end.rgb.r,
+                g: end.rgb.g,
+                b: end.rgb.b
+            },
+            lab: {
+                L: end.lab.L,
+                a: end.lab.a,
+                b: end.lab.b
+            },
+            alpha: end.hslaf.alpha
+        };
     }
 
-    return clamp(result, 0, 1);
-}
+    const alpha = lerp(
+        start.hslaf.alpha,
+        end.hslaf.alpha,
+        colourT
+    );
 
-function buildNaturalStops(rawStops, options) {
-    if (rawStops.length < 2) {
-        return { stops: rawStops, plans: [] };
-    }
-
-    const plans = createSegmentPlans(rawStops, options);
-    const result = [];
-    const segmentCount = rawStops.length - 1;
-
-    for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
-        const start = rawStops[segmentIndex];
-        const end = rawStops[segmentIndex + 1];
-        const segmentOptions = plans[segmentIndex];
-        const pointsPerSegment = segmentOptions.points;
-        const perceptualLookup = buildPerceptualLookup(
+    const neutralLab =
+        interpolateNeutralLab(
             start,
             end,
-            segmentOptions
+            colourT,
+            alpha
         );
+
+    let lab = neutralLab;
+
+    if (
+        segmentOptions.interpolationMode ===
+        'oklch'
+    ) {
+        const colourful =
+            interpolateColourfulLab(
+                start,
+                end,
+                colourT,
+                alpha
+            );
+
+        const centreWeight = Math.pow(
+            Math.max(
+                0,
+                4 * colourT * (1 - colourT)
+            ),
+            1.16
+        );
+
+        // Continuous Oklab fallback. Lower path chroma receives more Cartesian
+        // influence; strongly opposed hues also receive a softer centre.
+        const sigma = lerp(
+            0.06,
+            0.24,
+            segmentOptions.naturalSoftness
+        );
+
+        const chromaFallback =
+            sigma /
+            (colourful.lch.C + sigma);
+
+        const userBlend = lerp(
+            0.05,
+            0.46,
+            segmentOptions.naturalSoftness
+        );
+
+        let naturalBlend =
+            centreWeight *
+            clamp(
+                userBlend *
+                (
+                    0.30 +
+                    0.70 *
+                    segmentOptions.hueOpposition
+                ) +
+                chromaFallback * 0.20,
+                0,
+                0.58
+            );
+
+        if (
+            segmentOptions.hasNeutralEndpoint
+        ) {
+            naturalBlend = Math.max(
+                naturalBlend,
+                centreWeight *
+                chromaFallback *
+                0.46
+            );
+        }
+
+        lab = {
+            L: colourful.lab.L,
+            a: lerp(
+                colourful.lab.a,
+                neutralLab.a,
+                naturalBlend
+            ),
+            b: lerp(
+                colourful.lab.b,
+                neutralLab.b,
+                naturalBlend
+            )
+        };
+
+        const chromaCompression =
+            1 -
+            centreWeight *
+            segmentOptions.hueOpposition *
+            segmentOptions.naturalSoftness *
+            0.024;
+
+        lab.a *= chromaCompression;
+        lab.b *= chromaCompression;
+    }
+
+    let rgb = oklabToSrgb(lab);
+
+    rgb = applyEndpointColourProtection(
+        rgb,
+        start,
+        end,
+        colourT,
+        segmentIndex,
+        segmentCount,
+        segmentOptions.endpointProtection
+    );
+
+    return {
+        rgb,
+        lab: srgbToOklab(rgb),
+        alpha
+    };
+}
+
+function findPositionAtCumulative(
+    cumulative,
+    target
+) {
+    if (target <= 0) return 0;
+    if (target >= 1) return 1;
+
+    let low = 0;
+    let high = cumulative.length - 1;
+
+    while (low + 1 < high) {
+        const middle = Math.floor(
+            (low + high) / 2
+        );
+
+        if (
+            cumulative[middle] <
+            target
+        ) {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+
+    const startValue =
+        cumulative[low];
+
+    const endValue =
+        cumulative[high];
+
+    const amount =
+        endValue - startValue >
+        EPSILON
+            ? (
+                target -
+                startValue
+            ) /
+            (
+                endValue -
+                startValue
+            )
+            : 0;
+
+    return (
+        low + amount
+    ) /
+    (
+        cumulative.length - 1
+    );
+}
+
+function enforceBalancedSpacing(
+    positions,
+    protectShortenedEndpoints
+) {
+    const count = positions.length;
+
+    if (count === 0) {
+        return positions;
+    }
+
+    const uniformGap =
+        1 / (count + 1);
+
+    // Keep the first and last generated stops far enough from the exact
+    // endpoint colours. This avoids a dense block of visually identical stops.
+    const edgeGap =
+        uniformGap *
+        (
+            protectShortenedEndpoints
+                ? 0.82
+                : 0.68
+        );
+
+    const minimumGap =
+        uniformGap * 0.56;
+
+    const result =
+        positions.slice();
+
+    for (
+        let index = 0;
+        index < count;
+        index++
+    ) {
+        const lowerBound =
+            edgeGap +
+            index *
+            minimumGap;
+
+        const upperBound =
+            1 -
+            edgeGap -
+            (
+                count -
+                index -
+                1
+            ) *
+            minimumGap;
+
+        result[index] = clamp(
+            result[index],
+            lowerBound,
+            upperBound
+        );
+
+        if (index > 0) {
+            result[index] = Math.max(
+                result[index],
+                result[index - 1] +
+                minimumGap
+            );
+        }
+    }
+
+    for (
+        let index = count - 2;
+        index >= 0;
+        index--
+    ) {
+        result[index] = Math.min(
+            result[index],
+            result[index + 1] -
+                minimumGap
+        );
+    }
+
+    return result;
+}
+
+function trimOuterGeneratedStops(
+    positions,
+    segmentIndex,
+    segmentCount,
+    protectShortenedEndpoints
+) {
+    const result =
+        positions.slice();
+
+    if (
+        !protectShortenedEndpoints ||
+        result.length < 6
+    ) {
+        return result;
+    }
+
+    // The native endpoint stop already supplies the exact colour. Removing the
+    // nearest generated stop avoids the visible colour plateau confirmed in
+    // manual testing.
+    if (
+        segmentIndex === 0 &&
+        result.length > 0
+    ) {
+        result.shift();
+    }
+
+    if (
+        segmentIndex ===
+            segmentCount - 1 &&
+        result.length > 0
+    ) {
+        result.pop();
+    }
+
+    return result;
+}
+
+function buildBalancedSpatialPositions(
+    sampleAtSpatial,
+    segmentOptions,
+    segmentIndex,
+    segmentCount
+) {
+    const pointCount =
+        Math.max(
+            0,
+            segmentOptions.points
+        );
+
+    if (pointCount === 0) {
+        return [];
+    }
+
+    const resolution = Math.max(
+        192,
+        pointCount * 16
+    );
+
+    const samples = [];
+
+    for (
+        let index = 0;
+        index <= resolution;
+        index++
+    ) {
+        samples.push(
+            sampleAtSpatial(
+                index / resolution
+            )
+        );
+    }
+
+    const cumulative = [0];
+    let totalDistance = 0;
+
+    for (
+        let index = 1;
+        index < samples.length;
+        index++
+    ) {
+        totalDistance += deltaEOk(
+            samples[index - 1].lab,
+            samples[index].lab
+        );
+
+        cumulative.push(
+            totalDistance
+        );
+    }
+
+    if (totalDistance <= EPSILON) {
+        return Array.from(
+            {
+                length: pointCount
+            },
+            (_, index) =>
+                (
+                    index + 1
+                ) /
+                (
+                    pointCount + 1
+                )
+        );
+    }
+
+    for (
+        let index = 0;
+        index < cumulative.length;
+        index++
+    ) {
+        cumulative[index] /=
+            totalDistance;
+    }
+
+    const perceptualAmount = clamp(
+        segmentOptions
+            .perceptualDistribution,
+        0,
+        0.42
+    );
+
+    const positions = [];
+
+    for (
+        let index = 1;
+        index <= pointCount;
+        index++
+    ) {
+        const progress =
+            index /
+            (
+                pointCount + 1
+            );
+
+        const uniformPosition =
+            progress;
+
+        const perceptualPosition =
+            findPositionAtCumulative(
+                cumulative,
+                progress
+            );
+
+        // Mostly uniform spacing, with only a controlled amount of perceptual
+        // redistribution. This retains natural colour speed without clustering.
+        positions.push(
+            lerp(
+                uniformPosition,
+                perceptualPosition,
+                perceptualAmount
+            )
+        );
+    }
+
+    const balanced =
+        enforceBalancedSpacing(
+            positions,
+            segmentOptions
+                .protectShortenedEndpoints
+        );
+
+    return trimOuterGeneratedStops(
+        balanced,
+        segmentIndex,
+        segmentCount,
+        segmentOptions
+            .protectShortenedEndpoints
+    );
+}
+
+function buildNaturalStops(
+    rawStops,
+    options
+) {
+    if (rawStops.length < 2) {
+        return {
+            stops: rawStops,
+            plans: []
+        };
+    }
+
+    const plans =
+        createSegmentPlans(
+            rawStops,
+            options
+        );
+
+    const result = [];
+    const segmentCount =
+        rawStops.length - 1;
+
+    for (
+        let segmentIndex = 0;
+        segmentIndex < segmentCount;
+        segmentIndex++
+    ) {
+        const start =
+            rawStops[segmentIndex];
+
+        const end =
+            rawStops[segmentIndex + 1];
+
+        const segmentOptions =
+            plans[segmentIndex];
 
         if (segmentIndex === 0) {
             result.push({
-                colour: getOriginalStopColour(rawStops, plans, 0),
+                colour:
+                    new Colour(
+                        start.colourHandle
+                    ),
                 position: start.position,
                 midpoint: 0.5
             });
         }
 
-        const span = end.position - start.position;
+        const span =
+            end.position - start.position;
+
         if (span > EPSILON) {
             const softenedMidpoint = lerp(
-                clamp(start.midpoint, 0.02, 0.98),
+                clamp(
+                    start.midpoint,
+                    0.02,
+                    0.98
+                ),
                 0.5,
-                segmentOptions.midpointNormalization
+                segmentOptions
+                    .midpointNormalization
             );
 
-            for (let pointIndex = 1; pointIndex <= pointsPerSegment; pointIndex++) {
-                const spatialT = distributeStopPosition(
-                    pointIndex,
-                    pointsPerSegment,
-                    segmentOptions.edgeStopBias
-                );
+            const sampleAtSpatial =
+                spatialT => {
+                    const colourT =
+                        mapThroughMidpoint(
+                            spatialT,
+                            softenedMidpoint
+                        );
 
-                let progressT = mapThroughMidpoint(
-                    spatialT,
-                    softenedMidpoint
-                );
+                    return computeTargetSample(
+                        start,
+                        end,
+                        colourT,
+                        segmentIndex,
+                        segmentCount,
+                        segmentOptions
+                    );
+                };
 
-                progressT = softenGlobalEndpointProgress(
-                    progressT,
+            const spatialPositions =
+                buildBalancedSpatialPositions(
+                    sampleAtSpatial,
+                    segmentOptions,
                     segmentIndex,
-                    segmentCount,
-                    segmentOptions
+                    segmentCount
                 );
 
-                const equalizedT = invertPerceptualProgress(
-                    perceptualLookup,
-                    progressT
+            for (
+                let sampleIndex = 0;
+                sampleIndex <
+                    spatialPositions.length;
+                sampleIndex++
+            ) {
+                const spatialT =
+                    spatialPositions[
+                        sampleIndex
+                    ];
+
+                const colourT =
+                    mapThroughMidpoint(
+                        spatialT,
+                        softenedMidpoint
+                    );
+
+                const sample =
+                    computeTargetSample(
+                        start,
+                        end,
+                        colourT,
+                        segmentIndex,
+                        segmentCount,
+                        segmentOptions
+                    );
+
+                const inheritedNoise = lerp(
+                    start.noise,
+                    end.noise,
+                    colourT
                 );
 
-                const colourT = lerp(
-                    progressT,
-                    equalizedT,
-                    clamp(segmentOptions.perceptualEqualization, 0, 1)
+                // Anti-banding remains subtle and fades to zero at both exact
+                // endpoint colours. A tiny deterministic variation prevents
+                // the generated stops from carrying an identical noise level.
+                const ditherWindow = Math.pow(
+                    Math.max(
+                        0,
+                        Math.sin(
+                            Math.PI * colourT
+                        )
+                    ),
+                    0.56
                 );
 
-                const lab = computeSegmentLab(
-                    start,
-                    end,
-                    colourT,
-                    segmentOptions
-                );
+                const noiseVariation =
+                    0.92 +
+                    0.08 *
+                    Math.sin(
+                        (
+                            segmentIndex +
+                            spatialT
+                        ) *
+                        Math.PI *
+                        7.0
+                    );
 
-                const alpha = lerp(start.hslaf.alpha, end.hslaf.alpha, colourT);
-                const inheritedNoise = lerp(start.noise, end.noise, colourT);
-
-                // Uniform noise addresses quantization; the soft endpoint easing above
-                // addresses the broad band created when the slope stops abruptly.
-                const edgeWeight = Math.pow(
-                    Math.abs(2 * spatialT - 1),
-                    1.65
-                );
-                const antiBandingNoise = segmentOptions.antiBanding *
-                    (1 + segmentOptions.edgeBandingBoost * 0.45 * edgeWeight);
+                const antiBandingNoise =
+                    segmentOptions.antiBanding *
+                    ditherWindow *
+                    noiseVariation;
 
                 result.push({
-                    colour: createGeneratedColour(
-                        lab,
-                        alpha,
-                        inheritedNoise + antiBandingNoise
+                    colour:
+                        createGeneratedColourFromRgb(
+                            sample.rgb,
+                            sample.alpha,
+                            inheritedNoise +
+                                antiBandingNoise
+                        ),
+                    position: lerp(
+                        start.position,
+                        end.position,
+                        spatialT
                     ),
-                    position: lerp(start.position, end.position, spatialT),
                     midpoint: 0.5
                 });
             }
         }
 
         result.push({
-            colour: getOriginalStopColour(
-                rawStops,
-                plans,
-                segmentIndex + 1
-            ),
+            colour:
+                new Colour(
+                    end.colourHandle
+                ),
             position: end.position,
             midpoint: 0.5
         });
     }
 
-    return { stops: result, plans };
+    return {
+        stops: result,
+        plans
+    };
 }
 
 function buildFillDescriptor(newStops, originalDescriptor, originalFill) {
@@ -946,6 +1810,85 @@ function buildFillDescriptor(newStops, originalDescriptor, originalFill) {
 // Interface and execution
 // -----------------------------------------------------------------------------
 
+function captureGradientState(
+    node,
+    useStroke,
+    rangeInfo
+) {
+    const descriptor =
+        getFillDescriptor(
+            node,
+            useStroke,
+            rangeInfo
+        );
+
+    if (
+        !isGradientDescriptor(
+            descriptor
+        )
+    ) {
+        return null;
+    }
+
+    return {
+        descriptor,
+        fill: descriptor.fill,
+        rawStops:
+            readGradientStops(
+                descriptor
+                    .fill
+                    .gradient
+            ),
+        useStroke,
+        descriptorSource:
+            isTextNode(node)
+                ? rangeInfo
+                    ? 'text-range-format'
+                    : 'whole-text-format'
+                : 'object'
+    };
+}
+
+function setPreviewDescriptor(
+    doc,
+    descriptor,
+    useStroke,
+    rangeInfo,
+    isTextTarget
+) {
+    if (isTextTarget) {
+        const delta = useStroke
+            ? StoryDelta.createPenFill(
+                descriptor
+            )
+            : StoryDelta.createBrushFill(
+                descriptor
+            );
+
+        doc.formatText(
+            delta,
+            doc.selection,
+            true
+        );
+
+        return false;
+    }
+
+    const command = useStroke
+        ? DocumentCommand.createSetPenFill(
+            doc.selection,
+            descriptor
+        )
+        : DocumentCommand.createSetBrushFill(
+            doc.selection,
+            descriptor
+        );
+
+    doc.executeCommand(command);
+
+    return true;
+}
+
 function main() {
     const doc = Document.current;
 
@@ -960,7 +1903,7 @@ function main() {
     if (doc.selection.length === 0) {
         showMessage(
             'Affinity Gradient Smoother',
-            'Select an object or a text range that has a gradient.'
+            'Select one object or a text range with a gradient.'
         );
         return;
     }
@@ -968,342 +1911,525 @@ function main() {
     if (doc.selection.length > 1) {
         showMessage(
             'Affinity Gradient Smoother',
-            'Select only one object at a time. This prevents different gradients from being replaced with the same settings.'
+            'Select only one object at a time.'
         );
         return;
     }
 
-    const rangeInfo = getMarkedTextRange(doc);
-    const node = rangeInfo ? rangeInfo.node : doc.selection.at(0).node;
-    const textNode = isTextNode(node);
+    const rangeInfo =
+        getMarkedTextRange(doc);
 
-    const dialog = Dialog.create('Affinity Gradient Smoother');
-    dialog.initialWidth = 900;
+    const node = rangeInfo
+        ? rangeInfo.node
+        : doc.selection.at(0).node;
+
+    const textNode =
+        isTextNode(node);
+
+    const fillState =
+        captureGradientState(
+            node,
+            false,
+            rangeInfo
+        );
+
+    const strokeState =
+        captureGradientState(
+            node,
+            true,
+            rangeInfo
+        );
+
+    if (!fillState && !strokeState) {
+        showMessage(
+            'Affinity Gradient Smoother',
+            'The selected object has no compatible gradient fill or stroke.'
+        );
+        return;
+    }
+
+    const dialog = Dialog.create(
+        'Affinity Gradient Smoother 2.4'
+    );
+
+    dialog.initialWidth = 760;
     dialog.setIsResizable(true);
 
-    // Three columns keep presets and controls visible without increasing the window height.
-    const leftColumn = dialog.addColumn();
-    const middleColumn = dialog.addColumn();
-    const rightColumn = dialog.addColumn();
+    const leftColumn =
+        dialog.addColumn();
 
-    const sourceGroup = leftColumn.addGroup(
-        rangeInfo
-            ? 'Gradient — text selection'
-            : textNode
-                ? 'Gradient — text'
-                : 'Gradient'
-    );
+    const rightColumn =
+        dialog.addColumn();
 
-    const sourceRadio = sourceGroup.addRadioGroup(
+    const targetGroup =
+        leftColumn.addGroup(
+            rangeInfo
+                ? 'Gradient — text selection'
+                : textNode
+                    ? 'Gradient — text'
+                    : 'Gradient'
+        );
+
+    const sourceRadio =
+        targetGroup.addRadioGroup(
+            '',
+            ['Fill', 'Stroke'],
+            fillState ? 0 : 1
+        );
+
+    sourceRadio.isEnabled =
+        !!fillState && !!strokeState;
+
+    const actionGroup =
+        leftColumn.addGroup('Action');
+
+    const actionRadio =
+        actionGroup.addRadioGroup(
+            '',
+            [
+                'Smooth gradient',
+                'Reset to two endpoint colours'
+            ],
+            0
+        );
+
+    const presetGroup =
+        leftColumn.addGroup('Style');
+
+    const presetRadio =
+        presetGroup.addRadioGroup(
+            '',
+            PRESETS.map(
+                preset => preset.name
+            ),
+            PRESET_AUTOMATIC
+        );
+
+    const tuningGroup =
+        rightColumn.addGroup(
+            'Fine tuning'
+        );
+
+    const smoothnessEditor =
+        tuningGroup.addUnitValueEditor(
+            'Smoothness (%)',
+            'none',
+            'none',
+            PRESETS[
+                PRESET_AUTOMATIC
+            ].smoothness,
+            50,
+            100
+        );
+
+    const naturalSoftnessEditor =
+        tuningGroup.addUnitValueEditor(
+            'Colour softness (%)',
+            'none',
+            'none',
+            PRESETS[
+                PRESET_AUTOMATIC
+            ].naturalSoftness,
+            0,
+            100
+        );
+
+    const detailEditor =
+        tuningGroup.addUnitValueEditor(
+            'Transition detail (%)',
+            'none',
+            'none',
+            PRESETS[
+                PRESET_AUTOMATIC
+            ].detail,
+            40,
+            100
+        );
+
+    const antiBandingEditor =
+        tuningGroup.addUnitValueEditor(
+            'Anti-banding (%)',
+            'none',
+            'none',
+            PRESETS[
+                PRESET_AUTOMATIC
+            ].antiBanding,
+            0,
+            3
+        );
+
+    const shortenedCheck =
+        rightColumn
+            .addGroup('Options')
+            .addCheckBox(
+                'Protect shortened gradient endpoints',
+                true
+            );
+
+    const livePreviewCheck =
+        rightColumn
+            .addGroup('')
+            .addCheckBox(
+                'Live preview',
+                true
+            );
+
+    const noteGroup =
+        rightColumn.addGroup('');
+
+    noteGroup.addStaticText(
         '',
-        ['Fill', 'Stroke'],
-        0
+        'Outer generated stops are removed to keep endpoint transitions clean.'
     );
 
-    const presetGroup = leftColumn.addGroup('Quick preset');
-    const presetRadio = presetGroup.addRadioGroup(
+    noteGroup.addStaticText(
         '',
-        PRESETS.map(preset => preset.name),
-        PRESET_AUTOMATIC
+        'Use 0.05–0.30% normally; values up to 3% are available for difficult cases.'
     );
 
-    const modeGroup = middleColumn.addGroup('Colour mixing');
-    const interpolationModeRadio = modeGroup.addRadioGroup(
-        '',
-        [
-            'OKLCH — preserve colours',
-            'OKLab — neutral blend'
-        ],
-        0
-    );
+    let selectedSettings =
+        clonePresetSettings(
+            PRESETS[
+                PRESET_AUTOMATIC
+            ]
+        );
 
-    const qualityGroup = middleColumn.addGroup('Transition');
-    const pointsEditor = qualityGroup.addUnitValueEditor(
-        'Extra stops',
-        'none',
-        'none',
-        12,
-        1,
-        32
-    );
-    pointsEditor.value = 12;
+    let previousPresetIndex =
+        PRESET_AUTOMATIC;
 
-    const midpointEditor = qualityGroup.addUnitValueEditor(
-        'Midpoint correction (%)',
-        'none',
-        'none',
-        75,
-        0,
-        100
-    );
-    midpointEditor.value = 75;
+    let suppressHandler = false;
+    let refreshingPreview = false;
+    let previewUndoCount = 0;
 
-    const perceptualEditor = qualityGroup.addUnitValueEditor(
-        'Perceptual equalization (%)',
-        'none',
-        'none',
-        72,
-        0,
-        100
-    );
-    perceptualEditor.value = 72;
-
-    const endpointEditor = qualityGroup.addUnitValueEditor(
-        'Endpoint softness (%)',
-        'none',
-        'none',
-        70,
-        0,
-        100
-    );
-    endpointEditor.value = 70;
-
-    const colourGroup = rightColumn.addGroup('Natural look');
-    const centralBalanceEditor = colourGroup.addUnitValueEditor(
-        'Centre balance (%)',
-        'none',
-        'none',
-        24,
-        0,
-        60
-    );
-    centralBalanceEditor.value = 24;
-
-    const chromaEditor = colourGroup.addUnitValueEditor(
-        'Saturation reduction (%)',
-        'none',
-        'none',
-        0,
-        0,
-        35
-    );
-    chromaEditor.value = 0;
-
-    const antiBandingEditor = colourGroup.addUnitValueEditor(
-        'Anti-banding (%)',
-        'none',
-        'none',
-        0,
-        0,
-        8
-    );
-    antiBandingEditor.value = 0;
-
-    const edgeBandingEditor = colourGroup.addUnitValueEditor(
-        'Edge boost (%)',
-        'none',
-        'none',
-        100,
-        0,
-        300
-    );
-    edgeBandingEditor.value = 100;
-
-    const actionGroup = rightColumn.addGroup('');
-    const actionButtons = actionGroup.addButtonSet(
-        '',
-        ['Preview', 'Apply'],
-        0
-    );
-
-    let applyingPreset = false;
-    let lastPresetIndex = PRESET_AUTOMATIC;
-    let lastControlSnapshot = '';
-
-    function getControlSnapshot() {
-        return [
-            interpolationModeRadio.selectedIndex,
-            pointsEditor.value,
-            midpointEditor.value,
-            perceptualEditor.value,
-            endpointEditor.value,
-            centralBalanceEditor.value,
-            chromaEditor.value,
-            antiBandingEditor.value,
-            edgeBandingEditor.value
-        ].join('|');
+    function getSelectedState() {
+        return (
+            sourceRadio.selectedIndex === 1
+                ? strokeState
+                : fillState
+        );
     }
 
-    function updateControlState() {
-        const isAutomatic =
-            presetRadio.selectedIndex === PRESET_AUTOMATIC;
-        const usesOklch = interpolationModeRadio.selectedIndex === 0;
+    function restoreOriginalDescriptors() {
+        if (textNode) {
+            // Text previews are temporary StoryDelta formatting. Reading and
+            // applying the descriptor in the same coordinate space preserves
+            // the handle length.
+            if (fillState) {
+                setPreviewDescriptor(
+                    doc,
+                    fillState.descriptor,
+                    false,
+                    rangeInfo,
+                    true
+                );
+            }
 
-        interpolationModeRadio.isEnabled = !isAutomatic;
-        pointsEditor.isEnabled = !isAutomatic;
-        midpointEditor.isEnabled = !isAutomatic;
-        perceptualEditor.isEnabled = !isAutomatic;
-        endpointEditor.isEnabled = !isAutomatic;
-        centralBalanceEditor.isEnabled = !isAutomatic && usesOklch;
-        chromaEditor.isEnabled = !isAutomatic;
-        antiBandingEditor.isEnabled = !isAutomatic;
-        edgeBandingEditor.isEnabled = !isAutomatic;
-    }
+            if (strokeState) {
+                setPreviewDescriptor(
+                    doc,
+                    strokeState.descriptor,
+                    true,
+                    rangeInfo,
+                    true
+                );
+            }
 
-    function applyPreset(presetIndex) {
-        applyingPreset = true;
-        const preset = PRESETS[presetIndex];
-
-        if (preset && !preset.automatic && !preset.custom) {
-            interpolationModeRadio.selectedIndex =
-                preset.interpolationMode === 'oklch' ? 0 : 1;
-            pointsEditor.value = preset.points;
-            midpointEditor.value = preset.midpoint;
-            perceptualEditor.value = preset.perceptualEqualization;
-            endpointEditor.value = preset.endpointSoftness;
-            centralBalanceEditor.value = preset.centralBalance;
-            chromaEditor.value = preset.chromaReduction;
-            antiBandingEditor.value = preset.antiBanding;
-            edgeBandingEditor.value = preset.edgeBandingBoost;
-        }
-
-        lastPresetIndex = presetIndex;
-        updateControlState();
-        lastControlSnapshot = getControlSnapshot();
-        applyingPreset = false;
-    }
-
-    function handleControlChanged() {
-        if (applyingPreset) return;
-
-        const currentPresetIndex = presetRadio.selectedIndex;
-        if (currentPresetIndex !== lastPresetIndex) {
-            applyPreset(currentPresetIndex);
             return;
         }
 
-        const currentSnapshot = getControlSnapshot();
+        // Whole-object previews are real document commands so that gradient
+        // geometry is interpreted correctly. Undo the previous preview before
+        // calculating or applying the next one.
+        while (previewUndoCount > 0) {
+            doc.undo();
+            previewUndoCount -= 1;
+        }
+    }
+
+    function updateControlState() {
+        const state =
+            getSelectedState();
+
+        const resetMode =
+            actionRadio.selectedIndex === 1;
+
+        const resetAvailable =
+            !!state &&
+            state.rawStops.length > 2;
+
         if (
-            currentSnapshot !== lastControlSnapshot &&
-            currentPresetIndex !== PRESET_AUTOMATIC &&
-            currentPresetIndex !== PRESET_CUSTOM
+            resetMode &&
+            !resetAvailable
         ) {
-            applyingPreset = true;
-            presetRadio.selectedIndex = PRESET_CUSTOM;
-            lastPresetIndex = PRESET_CUSTOM;
-            applyingPreset = false;
+            suppressHandler = true;
+            actionRadio.selectedIndex = 0;
+            suppressHandler = false;
+        }
+
+        presetRadio.isEnabled =
+            !resetMode;
+
+        smoothnessEditor.isEnabled =
+            !resetMode;
+
+        naturalSoftnessEditor.isEnabled =
+            !resetMode;
+
+        detailEditor.isEnabled =
+            !resetMode;
+
+        antiBandingEditor.isEnabled =
+            !resetMode;
+
+        shortenedCheck.isEnabled =
+            !resetMode;
+    }
+
+    function applyPresetDefaults(index) {
+        const preset = PRESETS[index];
+
+        selectedSettings =
+            clonePresetSettings(preset);
+
+        suppressHandler = true;
+
+        smoothnessEditor.value =
+            preset.smoothness;
+
+        naturalSoftnessEditor.value =
+            preset.naturalSoftness;
+
+        detailEditor.value =
+            preset.detail;
+
+        antiBandingEditor.value =
+            preset.antiBanding;
+
+        previousPresetIndex = index;
+
+        suppressHandler = false;
+    }
+
+    function buildCurrentDescriptor() {
+        const state =
+            getSelectedState();
+
+        if (!state) return null;
+
+        if (
+            actionRadio.selectedIndex === 1
+        ) {
+            const resetStops =
+                buildTwoStopReset(
+                    state.rawStops
+                );
+
+            return {
+                state,
+                descriptor:
+                    buildFillDescriptor(
+                        resetStops,
+                        state.descriptor,
+                        state.fill
+                    )
+            };
+        }
+
+        const presetIndex =
+            presetRadio.selectedIndex;
+
+        const options = {
+            automatic:
+                presetIndex ===
+                PRESET_AUTOMATIC,
+            interpolationMode:
+                selectedSettings
+                    .interpolationMode,
+            smoothnessStrength:
+                smoothnessEditor.value /
+                100,
+            naturalSoftnessStrength:
+                naturalSoftnessEditor
+                    .value /
+                100,
+            detailStrength:
+                detailEditor.value /
+                100,
+            antiBanding:
+                antiBandingEditor.value /
+                100,
+            protectShortenedEndpoints:
+                !!shortenedCheck.value
+        };
+
+        const buildResult =
+            buildNaturalStops(
+                state.rawStops,
+                options
+            );
+
+        return {
+            state,
+            buildResult,
+            descriptor:
+                buildFillDescriptor(
+                    buildResult.stops,
+                    state.descriptor,
+                    state.fill
+                )
+        };
+    }
+
+    function refreshLivePreview(force) {
+        if (refreshingPreview) {
+            return;
+        }
+
+        if (
+            !force &&
+            !livePreviewCheck.value
+        ) {
+            restoreOriginalDescriptors();
+            return;
+        }
+
+        const built =
+            buildCurrentDescriptor();
+
+        if (!built) {
+            restoreOriginalDescriptors();
+            return;
+        }
+
+        refreshingPreview = true;
+
+        try {
+            restoreOriginalDescriptors();
+
+            const usedUndoCommand =
+                setPreviewDescriptor(
+                    doc,
+                    built.descriptor,
+                    built.state.useStroke,
+                    rangeInfo,
+                    textNode
+                );
+
+            previewUndoCount =
+                usedUndoCommand ? 1 : 0;
+        } finally {
+            refreshingPreview = false;
+        }
+    }
+
+    function handleControlChanged() {
+        if (suppressHandler) {
+            return;
+        }
+
+        const currentPresetIndex =
+            presetRadio.selectedIndex;
+
+        if (
+            currentPresetIndex !==
+            previousPresetIndex
+        ) {
+            applyPresetDefaults(
+                currentPresetIndex
+            );
         }
 
         updateControlState();
-        lastControlSnapshot = getControlSnapshot();
+
+        if (livePreviewCheck.value) {
+            refreshLivePreview(false);
+        } else {
+            restoreOriginalDescriptors();
+        }
     }
 
-    dialog.setOnControlValueChangedHandler(handleControlChanged);
-    applyPreset(PRESET_AUTOMATIC);
+    dialog.setOnControlValueChangedHandler(
+        handleControlChanged
+    );
 
-    let previewUndoCount = 0;
+    applyPresetDefaults(
+        PRESET_AUTOMATIC
+    );
 
-    while (true) {
-        const result = dialog.runModal();
+    updateControlState();
+    refreshLivePreview(true);
 
-        if (!result || result.value !== DialogResult.Ok.value) {
-            for (let i = 0; i < previewUndoCount; i++) {
-                doc.undo();
-            }
-            break;
-        }
+    const result =
+        dialog.runModal();
 
-        const useStroke = sourceRadio.selectedIndex === 1;
-        const action = actionButtons.selectedIndex;
+    if (
+        !result ||
+        result.value !==
+            DialogResult.Ok.value
+    ) {
+        restoreOriginalDescriptors();
+        return;
+    }
 
-        let descriptor = getFillDescriptor(node, useStroke, rangeInfo);
+    const built =
+        buildCurrentDescriptor();
 
-        if (!descriptor || !descriptor.fill || descriptor.fill.fillType.value !== 3) {
-            showMessage(
-                'Affinity Gradient Smoother',
-                useStroke
-                    ? 'The selected stroke does not have a compatible gradient.'
-                    : 'The selected fill does not have a compatible gradient.'
-            );
-            continue;
-        }
+    if (!built) {
+        restoreOriginalDescriptors();
 
-        // Removes the previous preview before calculating a new version.
-        for (let i = 0; i < previewUndoCount; i++) {
-            doc.undo();
-        }
-        previewUndoCount = 0;
-
-        descriptor = getFillDescriptor(node, useStroke, rangeInfo);
-        const originalFill = descriptor.fill;
-        const rawStops = readGradientStops(originalFill.gradient);
-
-        if (rawStops.length < 2) {
-            showMessage(
-                'Affinity Gradient Smoother',
-                'The gradient must have at least two colour stops.'
-            );
-            continue;
-        }
-
-        const selectedPresetIndex = presetRadio.selectedIndex;
-        const options = {
-            automatic: selectedPresetIndex === PRESET_AUTOMATIC,
-            presetName: PRESETS[selectedPresetIndex]?.name || 'Custom',
-            interpolationMode: interpolationModeRadio.selectedIndex === 0
-                ? 'oklch'
-                : 'oklab',
-            pointsPerSegment: Math.round(clamp(pointsEditor.value, 1, 32)),
-            midpointNormalization: clamp(midpointEditor.value / 100, 0, 1),
-            perceptualEqualization: clamp(perceptualEditor.value / 100, 0, 1),
-            endpointSoftness: clamp(endpointEditor.value / 100, 0, 1),
-            centralBalance: clamp(centralBalanceEditor.value / 100, 0, 0.60),
-            chromaReduction: clamp(chromaEditor.value / 100, 0, 0.35),
-            antiBanding: clamp(antiBandingEditor.value / 100, 0, 0.08),
-            edgeBandingBoost: clamp(
-                edgeBandingEditor.value / 100,
-                0,
-                3
-            )
-        };
-
-        const buildResult = buildNaturalStops(rawStops, options);
-        const newStops = buildResult.stops;
-        const newDescriptor = buildFillDescriptor(
-            newStops,
-            descriptor,
-            originalFill
+        showMessage(
+            'Affinity Gradient Smoother',
+            'The selected target does not have a compatible gradient.'
         );
 
-        applyFillDescriptor(doc, newDescriptor, useStroke, rangeInfo);
+        return;
+    }
 
-        if (action === 0) {
-            previewUndoCount = 1;
-        } else {
-            const oklchSegments = buildResult.plans.filter(
-                plan => plan.interpolationMode === 'oklch'
-            ).length;
-            const oklabSegments = buildResult.plans.length - oklchSegments;
-            const addedPoints = buildResult.plans.reduce(
-                (total, plan) => total + plan.points,
-                0
-            );
+    restoreOriginalDescriptors();
 
-            console.log(
-                'Gradient smoothed | preset:',
-                options.presetName,
-                '| stops:',
-                rawStops.length,
-                '->',
-                newStops.length,
-                '| stops added:',
-                addedPoints,
-                '| OKLCH segments:',
-                oklchSegments,
-                '| OKLab segments:',
-                oklabSegments
-            );
-            break;
-        }
+    applyFillDescriptor(
+        doc,
+        built.descriptor,
+        built.state.useStroke,
+        rangeInfo,
+        textNode
+    );
+
+    if (
+        actionRadio.selectedIndex === 1
+    ) {
+        console.log(
+            'Gradient reset to the current endpoint colours.'
+        );
+    } else {
+        const generatedStops =
+            built.buildResult.stops.length;
+
+        console.log(
+            'Gradient smoothed | style:',
+            PRESETS[
+                presetRadio.selectedIndex
+            ].name,
+            '| total stops:',
+            generatedStops,
+            '| descriptor source:',
+            built.state.descriptorSource
+        );
     }
 }
 
 try {
     main();
 } catch (error) {
-    console.log('Affinity Gradient Smoother error:', error);
+    console.log(
+        'Affinity Gradient Smoother error:',
+        error
+    );
+
     showMessage(
         'Affinity Gradient Smoother — error',
-        String(error?.message || error)
+        String(
+            error?.message || error
+        )
     );
 }
