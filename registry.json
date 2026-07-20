@@ -957,7 +957,7 @@
       "name": "Smooths gradients with OKLCH or OKLab",
       "description": "Smooths gradients with quick presets and an adaptive automatic mode, using OKLCH or OKLab to produce natural transitions and reduce banding.",
       "author": "Caio Sousa Desgn",
-      "version": "1.6.1",
+      "version": "2.4.0",
       "category": "Color",
       "url": "https://github.com/caioyo/affinity-gradient-smoother",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/affinity-gradient-smoother.png",
