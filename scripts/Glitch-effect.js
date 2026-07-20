@@ -1,6 +1,6 @@
 /**
-name: Glitch Effect
-version: 1.0.0
+name: Glitch
+version: 1.1.0
 description: Create a glitch effect on a vector object.
 author: Nic Kraneis
 */
@@ -221,7 +221,7 @@ function main() {
 
   const nodes = ensureCurveNodes(rawNodes);
 
-  const dlg = Dialog.create("True Vector Glitch");
+  const dlg = Dialog.create("Glitch");
   dlg.initialWidth = 380;
   const col = dlg.addColumn();
 
@@ -285,8 +285,6 @@ function main() {
   seedEd.precision = 0;
 
   const actGrp = col.addGroup("Action");
-  const statusTxt = actGrp.addStaticText("", "Preview ready");
-  statusTxt.isFullWidth = true;
 
   const btns = actGrp.addButtonSet("", ["↺ Preview", "✓ Apply"], 0);
   btns.isFullWidth = true;
@@ -307,7 +305,6 @@ function main() {
   try {
     applyGlitch(nodes, getConfig());
     previewActive = true;
-    statusTxt.text = "Preview active";
   } catch (e) {}
 
   let running = true;
@@ -328,9 +325,7 @@ function main() {
       try {
         applyGlitch(nodes, getConfig());
         previewActive = true;
-        statusTxt.text = "Preview active - Seed: " + Math.round(seedEd.value);
       } catch (e) {
-        statusTxt.text = "Error: " + e.message;
         previewActive = false;
       }
     }

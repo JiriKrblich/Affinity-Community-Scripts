@@ -297,6 +297,7 @@
       "author": "Nic Kraneis",
       "version": "1.0.0",
       "category": "Effect",
+      "url": "parzival-design.com",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Roughen-Edges.js"
     },
     {
@@ -304,8 +305,10 @@
       "name": "Glitch effect",
       "description": "Create a glitch effect on a vector object.",
       "author": "Nic Kraneis",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "Effect",
+      "url": "parzival-design.com",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/glitch.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Glitch-effect.js"
     },
     {
@@ -315,6 +318,7 @@
       "author": "Nic Kraneis",
       "version": "1.1.0",
       "category": "Object",
+      "url": "parzival-design.com",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/patternmaker.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Pattern-Maker.js"
     },
