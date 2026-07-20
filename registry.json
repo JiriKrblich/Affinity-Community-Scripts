@@ -946,7 +946,7 @@
       "name": "Physics Drop",
       "description": "Physics Drop simulates gravity inside an Affinity document — selected objects fall, bounce, and stack on each other, colliding using their actual shape outlines (including true glyph hulls for text, derived from bezier control points) rather than plain bounding boxes.",
       "author": "Cyoung",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "Object",
       "url": "https://instagram.com/temusoundbar",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/physicsdrop.gif",

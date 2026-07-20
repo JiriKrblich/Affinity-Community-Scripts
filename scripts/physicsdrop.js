@@ -1,4 +1,8 @@
 // Physics Drop — a physics simulator for Affinity.
+// v1.1: replay scrubber. When the sim finishes, drag the Frame slider to replay
+// the drop in realtime on canvas. OK keeps the frame you're viewing; Cancel
+// keeps the settled result. Optional 30fps PNG/JPEG image sequence export —
+// the export runs from the start of the drop up to the frame you are viewing.
 const { app } = require('/application');
 const { Transform, Polygon } = require('/geometry');
 const { Selection } = require('/selections');
@@ -7,6 +11,8 @@ const { setInterval, Timer } = require('/timers');
 const { Dialog, DialogResult, UnitType } = require('/dialog');
 const { NodeRenderingEngine, RasterFormat } = require('/rasterobject');
 const { PixelReaderRGBA8 } = require('/pixelaccessor');
+const { FileExportOptions, FileExportArea } = require('/document');
+const fsys = require('/fs');
 
 const WALL_RE = /^(wall|floor|ramp|static)/i;
 
@@ -31,14 +37,18 @@ else {
     bounceCtl.setShowPopupSlider(true); bounceCtl.precision = 0;
     const durCtl = grp.addUnitValueEditor('Max duration (s)', UnitType.Number, UnitType.Number, 5, 1, 30);
     durCtl.setShowPopupSlider(true); durCtl.precision = 0;
+    const exportCtl = grp.addCheckBox('Export image sequence when settled', false);
 
     const help = col.addGroup('How to use');
     help.addStaticText('', 'Select objects and run. Convert text to curves first.').setIsFullWidth(true);
     help.addStaticText('', 'Name a line or shape "wall", "floor" or "ramp" to make it solid — convert shapes to curves and objects will follow their true outline, including spirals and containers.').setIsFullWidth(true);
+    help.addStaticText('', 'When the sim settles a Finished dialog appears: drag the Frame slider to replay the drop on canvas. OK keeps the frame you are viewing, Cancel keeps the settled result.').setIsFullWidth(true);
+    help.addStaticText('', 'Exporting: tick the box above to also save the drop as a 30fps PNG or JPEG image sequence in a PhysicsDrop folder on your Desktop, from the start of the drop up to the frame you are viewing, ready to import into DaVinci Resolve or similar as an image sequence at 30fps.').setIsFullWidth(true);
     help.addStaticText('', ' ').setIsFullWidth(true);
 
     const result = dlg.runModal();
     if (result?.value === DialogResult.Ok.value) {
+      const WANT_EXPORT = !!exportCtl.value;
       const GRAV = Math.max(200, gravityCtl.value || 3000);
       const rad = ((angleCtl.value ?? 0) % 360) * Math.PI / 180;
       const GUX = Math.sin(rad), GUY = Math.cos(rad);
@@ -307,7 +317,8 @@ else {
           vx: isStatic ? 0 : (rand() - 0.5) * 400, vy: 0,
           a: 0, va: isStatic ? 0 : (rand() - 0.5) * 3,
           asleep: isStatic, touchedSleeper: false, flatSupport: false,
-          slowFrames: 0, stuckFrames: 0, maxPen: 0, segSide: [] };
+          slowFrames: 0, stuckFrames: 0, maxPen: 0, segSide: [],
+          ax: wx, ay: wy, aa: 0, stillFrames: 0 };
       }
 
       const bodies = [];
@@ -344,14 +355,21 @@ else {
       const DT = 1 / 30;
       const MAXF = Math.max(30, Math.round((durCtl.value ?? 5) * 1000 / 33));
       const FREEZE_V = 70, FREEZE_VA = 0.6;
+      const HARDSTOP_V = 22, HARDSTOP_VA = 0.18;
       const FLAT_DOT = 0.95;
-      const RAMP_FRAMES = 8;
+      const RAMP_FRAMES = 5;
       const SLEEP_MAX_PEN = 5;
-      const STUCK_FRAMES = 10;
+      const STUCK_FRAMES = 6;
+      // displacement-window settle: net movement under these bounds for
+      // STILL_FRAMES consecutive frames = settled, whatever velocity claims
+      const STILL_POS = 3.0, STILL_ANG = 0.03, STILL_FRAMES = 8;
       const CALM_V = 8, CALM_VA = 0.03, CALM_FRAMES = 15;
       const STEP_PX = 16, MAX_SUB = 8;
       const MAX_SPEED = STEP_PX * MAX_SUB / DT;
       let frame = 0, done = false, calmFrames = 0;
+
+      const dynBodies = bodies.filter(b => !b.static);
+      const recording = []; // per frame: flat [cx,cy,a, ...] for dynBodies
 
       const angle = b => b.theta0 + b.a;
 
@@ -436,6 +454,10 @@ else {
         return collidePolyPoly(A, B);
       }
 
+      function isSlow(b) {
+        return Math.abs(b.vx) < FREEZE_V && Math.abs(b.vy) < FREEZE_V && Math.abs(b.va) < FREEZE_VA;
+      }
+
       function resolve(A, B, c, useRestitution) {
         const { nx, ny, pen, px, py } = c;
         A.maxPen = Math.max(A.maxPen, pen); B.maxPen = Math.max(B.maxPen, pen);
@@ -453,7 +475,9 @@ else {
         const invSum = iA + iB;
         if (invSum === 0) return;
         if (pen > SLOP) {
-          const corr = (pen - SLOP) * 0.4;
+          const slowPair = isSlow(A) && isSlow(B);
+          const k = slowPair ? 0.15 : 0.4;
+          const corr = Math.min((pen - SLOP) * k, slowPair ? 1.0 : 8.0);
           A.cx -= nx*corr*(iA/invSum); A.cy -= ny*corr*(iA/invSum);
           B.cx += nx*corr*(iB/invSum); B.cy += ny*corr*(iB/invSum);
         }
@@ -482,8 +506,10 @@ else {
       }
 
       function applySurfaceContact(b, nx, ny, pen, cpx, cpy) {
-        b.cx += nx * pen; b.cy += ny * pen;
-        const rx = cpx + nx * pen - b.cx, ry = cpy + ny * pen - b.cy;
+        const slow = isSlow(b);
+        const push = slow ? Math.min(pen, 1.0) : pen;
+        b.cx += nx * push; b.cy += ny * push;
+        const rx = cpx + nx * push - b.cx, ry = cpy + ny * push - b.cy;
         const vpx = b.vx - b.va * ry, vpy = b.vy + b.va * rx;
         const vin = -(vpx * nx + vpy * ny);
         const rXn = rx * ny - ry * nx;
@@ -644,19 +670,42 @@ else {
         for (const b of bodies) {
           if (b.asleep) continue;
           b.vx *= 0.997; b.vy *= 0.997; b.va *= 0.995;
-          if (b.flatSupport && Math.abs(b.vx) + Math.abs(b.vy) < 120) {
+          if (b.touchedSleeper &&
+              Math.abs(b.vx) < HARDSTOP_V && Math.abs(b.vy) < HARDSTOP_V &&
+              Math.abs(b.va) < HARDSTOP_VA) {
+            b.vx = 0; b.vy = 0; b.va = 0;
+          } else if (b.flatSupport && Math.abs(b.vx) + Math.abs(b.vy) < 120) {
             b.vx *= 0.8; b.vy *= 0.8; b.va *= 0.8;
           }
         }
         for (const b of bodies) {
           if (b.asleep) continue;
-          const slow = Math.abs(b.vx) < FREEZE_V && Math.abs(b.vy) < FREEZE_V && Math.abs(b.va) < FREEZE_VA;
+
+          // DISPLACEMENT-WINDOW SETTLE: oscillating bodies read as fast on
+          // every instantaneous velocity check, so velocity-based sleep never
+          // fires. Net movement over a window can't be fooled.
+          const dpos = Math.hypot(b.cx - b.ax, b.cy - b.ay);
+          const dang = Math.abs(b.a - b.aa);
+          if (dpos < STILL_POS && dang < STILL_ANG) {
+            b.stillFrames++;
+            if (b.stillFrames >= STILL_FRAMES && b.touchedSleeper) {
+              b.cx = b.ax; b.cy = b.ay; b.a = b.aa;
+              b.asleep = true; b.vx = 0; b.vy = 0; b.va = 0;
+              b.slowFrames = 0; b.stuckFrames = 0; b.stillFrames = 0;
+              continue;
+            }
+          } else {
+            b.ax = b.cx; b.ay = b.cy; b.aa = b.a;
+            b.stillFrames = 0;
+          }
+
+          const slow = isSlow(b);
           if (b.touchedSleeper && slow && isLegal(b)) {
             b.slowFrames++;
             const ready = b.flatSupport || b.slowFrames >= RAMP_FRAMES;
             if (ready && (b.maxPen < SLEEP_MAX_PEN || ++b.stuckFrames >= STUCK_FRAMES)) {
               b.asleep = true; b.vx = 0; b.vy = 0; b.va = 0;
-              b.slowFrames = 0; b.stuckFrames = 0;
+              b.slowFrames = 0; b.stuckFrames = 0; b.stillFrames = 0;
             }
           } else {
             b.slowFrames = 0; b.stuckFrames = 0;
@@ -667,34 +716,154 @@ else {
         calmFrames = allSlow ? calmFrames + 1 : 0;
       }
 
-      function buildFrameCommand() {
+      function commandFromState(state) {
         const cc = CompoundCommandBuilder.create();
-        for (const b of bodies) {
-          if (b.static) continue;
-          const rot = Transform.createRotate(b.a).around(b.ox, b.oy);
-          const xf = Transform.createTranslate(b.cx - b.ox, b.cy - b.oy).multiply(rot);
+        for (let i = 0; i < dynBodies.length; i++) {
+          const b = dynBodies[i];
+          const cx = state[i*3], cy = state[i*3+1], a = state[i*3+2];
+          const rot = Transform.createRotate(a).around(b.ox, b.oy);
+          const xf = Transform.createTranslate(cx - b.ox, cy - b.oy).multiply(rot);
           cc.addCommand(DocumentCommand.createTransform(b.sel, xf, { mergeable: false }));
         }
         return cc.createCommand();
       }
 
+      function snapshotState() {
+        const s = new Array(dynBodies.length * 3);
+        for (let i = 0; i < dynBodies.length; i++) {
+          s[i*3] = dynBodies[i].cx; s[i*3+1] = dynBodies[i].cy; s[i*3+2] = dynBodies[i].a;
+        }
+        return s;
+      }
+
+      // ---------- EXPORT (replay recording up to the chosen frame) ----------
+      function runExport(useJpeg, chosenIdx) {
+        const EXT = useJpeg ? 'jpg' : 'png';
+        const PRESET = useJpeg ? 'JPEG' : 'PNG';
+        const desk = app.userDesktopPath;
+        const st = new Date();
+        const p2 = v => String(v).padStart(2, '0');
+        const outDir = desk + '/PhysicsDrop_' + st.getFullYear() + p2(st.getMonth()+1) + p2(st.getDate()) + '_' + p2(st.getHours()) + p2(st.getMinutes()) + p2(st.getSeconds());
+        const exportOpts = FileExportOptions.createWithPresetName(PRESET);
+        const exportArea = FileExportArea.createForCurrentSpread();
+        const fp = f => outDir + '/drop_' + String(f).padStart(4, '0') + '.' + EXT;
+        const totalFiles = chosenIdx + 2; // initial frame + recording[0..chosenIdx]
+
+        try {
+          fsys.createDirectories(outDir);
+          if (!fsys.isDirectory(outDir)) throw new Error('folder not created');
+        } catch (e) {
+          app.alert('Could not create export folder: ' + e + ' — chosen frame kept, no export.');
+          return;
+        }
+
+        let ef = 0, exportDone = false, started = false;
+        setInterval(5, (err) => {
+          if (exportDone) return;
+          if (err) { exportDone = true; Timer.cancelAll(); app.alert('Export timer error: ' + err + ' — no export.'); return; }
+          try {
+            if (!started) { started = true; doc.undo(); } // remove chosen-frame bake; replay from originals
+            if (ef === 0) {
+              doc.export(fp(0), exportOpts, exportArea);
+            } else if (ef <= chosenIdx) {
+              doc.executeCommand(commandFromState(recording[ef - 1]), false);
+              doc.export(fp(ef), exportOpts, exportArea);
+              doc.undo();
+            } else {
+              // final frame of the sequence IS the chosen frame: bake and KEEP
+              exportDone = true;
+              Timer.cancelAll();
+              doc.executeCommand(commandFromState(recording[chosenIdx]), false);
+              doc.export(fp(ef), exportOpts, exportArea);
+              app.alert('Export complete: ' + totalFiles + ' frames in ' + outDir + '\nResolve: File > Import Media (image sequence on), clip fps 30.');
+              return;
+            }
+            ef++;
+          } catch (e) {
+            exportDone = true;
+            Timer.cancelAll();
+            try {
+              if (started) doc.executeCommand(commandFromState(recording[chosenIdx]), false);
+            } catch (e2) {}
+            app.alert('Export failed at frame ' + ef + ': ' + e + '\nIf PNG hangs, re-run and choose JPEG.');
+          }
+        });
+      }
+
+      // ---------- FINISHED DIALOG (replay scrubber + export) ----------
+      function showFinished() {
+        const lastIdx = recording.length - 1;
+        const secs = (recording.length / 30).toFixed(1);
+        const dlg2 = Dialog.create('Physics Drop — Finished');
+        dlg2.initialWidth = 480;
+        const c2 = dlg2.addColumn();
+
+        const rg = c2.addGroup('Replay');
+        const frameCtl = rg.addUnitValueEditor('Frame', UnitType.Number, UnitType.Number, lastIdx, 0, lastIdx);
+        frameCtl.setShowPopupSlider(true); frameCtl.precision = 0;
+        rg.addStaticText('', recording.length + ' frames (' + secs + 's @ 30fps). Drag the Frame slider to replay the drop on canvas. OK keeps the frame you are viewing. Cancel keeps the settled result.').setIsFullWidth(true);
+
+        let fmtCtl = null;
+        if (WANT_EXPORT) {
+          const eg = c2.addGroup('Export image sequence');
+          fmtCtl = eg.addRadioGroup('Format', ['PNG', 'JPEG'], 0);
+          eg.addStaticText('', 'OK exports the drop from the start up to the frame you are viewing, to a folder on your Desktop. Do not touch the document while exporting.').setIsFullWidth(true);
+        }
+        c2.addGroup(' ').addStaticText('', ' ').setIsFullWidth(true);
+
+        // live scrub: preview transforms replace each other, so each change
+        // simply previews the recorded state for the slider's frame
+        let shownIdx = lastIdx;
+        frameCtl.setOnValueChangedHandler(() => {
+          try {
+            const v = Math.max(0, Math.min(lastIdx, Math.round(frameCtl.value ?? lastIdx)));
+            shownIdx = v;
+            doc.executeCommand(commandFromState(recording[v]), true);
+          } catch (e) {}
+        });
+
+        // show the settled state as the starting preview
+        doc.executeCommand(commandFromState(recording[lastIdx]), true);
+
+        const r2 = dlg2.runModal();
+        doc.clearPreviews();
+
+        if (r2?.value === DialogResult.Ok.value) {
+          const chosenIdx = Math.max(0, Math.min(lastIdx, shownIdx));
+          doc.executeCommand(commandFromState(recording[chosenIdx]), false);
+          if (WANT_EXPORT) runExport(fmtCtl ? fmtCtl.selectedIndex === 1 : false, chosenIdx);
+        } else {
+          // Cancel: keep the settled result, no export
+          doc.executeCommand(commandFromState(recording[lastIdx]), false);
+        }
+      }
+
+      // ---------- LIVE SIM LOOP ----------
       setInterval(33, (err) => {
         if (err || done) return;
-        frame++;
-        step();
-        const allAsleep = bodies.every(b => b.static || b.asleep);
-        const settled = frame > 20 && (allAsleep || calmFrames >= CALM_FRAMES);
-        if (frame >= MAXF || settled) {
+        try {
+          frame++;
+          step();
+          recording.push(snapshotState());
+          const allAsleep = bodies.every(b => b.static || b.asleep);
+          const settled = frame > 20 && (allAsleep || calmFrames >= CALM_FRAMES);
+          if (frame >= MAXF || settled) {
+            done = true;
+            Timer.cancelAll();
+            showFinished();
+          } else {
+            doc.executeCommand(commandFromState(recording[recording.length - 1]), true);
+          }
+        } catch (e) {
           done = true;
           Timer.cancelAll();
-          doc.clearPreviews();
-          doc.executeCommand(buildFrameCommand(), false);
-        } else {
-          doc.executeCommand(buildFrameCommand(), true);
+          try { doc.clearPreviews(); } catch (e2) {}
+          app.alert('Physics Drop error: ' + e);
         }
       });
-      console.log('Physics Drop:', bodies.length - staticCount, 'dynamic,',
-        staticCount, 'static hulls,', segments.length, 'path segments');
+      console.log('Physics Drop v1.1:', dynBodies.length, 'dynamic,',
+        staticCount, 'static hulls,', segments.length, 'path segments' +
+        (WANT_EXPORT ? ' — export enabled' : ''));
       }
     }
   }
