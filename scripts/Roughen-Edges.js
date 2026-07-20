@@ -1,6 +1,6 @@
 /**
-name: Roughen Paths
-version: 1.0.0
+name: Roughen Edges
+version: 1.1.0
 description: Rough up vector paths with controls over amplitute, frequency, noise etc.
 author: Nic Kraneis
 */
@@ -293,7 +293,7 @@ function applyRoughen(nodes, config) {
 
 const nodes = ensureCurveNodes(rawNodes);
 
-const dlg = Dialog.create('Roughen Edges Pro');
+const dlg = Dialog.create('Roughen Edges');
 dlg.initialWidth = 420;
 const col = dlg.addColumn();
 
@@ -322,9 +322,7 @@ const geoGrp = col.addGroup('Geometry Protection');
 const protectCk = geoGrp.addSwitch('Protect Original Corners (Anchors)', true);
 const smCk = geoGrp.addSwitch('Smooth Output Curves', false);
 
-const actGrp = col.addGroup('Status');
-const statusTxt = actGrp.addStaticText('', '• Preview active - ready');
-statusTxt.isFullWidth = true;
+const actGrp = col.addGroup('Action');
 
 const btns = actGrp.addButtonSet('', ['↺ Preview', '✓ Apply'], 0);
 btns.isFullWidth = true;
@@ -351,7 +349,7 @@ try {
     applyRoughen(nodes, getConfig());
     previewActive = true;
 } catch (e) {
-    statusTxt.text = '✖ Error during initial render: ' + e.message;
+    console.error('Error during initial render: ' + e.message);
 }
 
 let running = true;
@@ -369,16 +367,15 @@ while (running) {
             applyRoughen(nodes, getConfig());
             running = false;
         } catch (e) {
-            statusTxt.text = '✖ Error: ' + e.message;
+            console.error('Error: ' + e.message);
         }
     } else {
         if (previewActive) doc.executeCommand(DocumentCommand.createUndo());
         try {
             applyRoughen(nodes, getConfig());
             previewActive = true;
-            statusTxt.text = '• Preview updated - Confirm to apply';
         } catch (e) {
-            statusTxt.text = '✖ Error: ' + e.message;
+            console.error('Error: ' + e.message);
             previewActive = false;
         }
     }
