@@ -979,6 +979,17 @@
       "email": "sunmoyun0831@gmail.com",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/curvaturecomb.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/curvaturecomb.js"
+    },
+    {
+      "id": "ArtboardResizer",
+      "name": " Artboard Resizer",
+      "description": "Select and resize multiple artboards at once and save time on selecting each one you want to resize.",
+      "author": "Oluwafemi Gabriel",
+      "version": "1.0.0",
+      "category": "Artboards",
+      "url": "www.femigrey.com",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ Artboard Resizer.webp",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ Artboard Resizer.js"
     }
   ]
 }
