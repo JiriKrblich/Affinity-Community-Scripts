@@ -1,7 +1,7 @@
 /**
  * name: Affinity Gradient Smoother
- * description: Smooths gradients with quick presets and an adaptive automatic mode, using OKLCH or OKLab to produce natural transitions and reduce banding with Live Preview.
- * version: 2.4.0
+ * description: Creates ultra-smooth natural gradients with Smooth, Perceptual, and Linear interpolation, text-safe geometry handling, clean endpoint spacing, live preview, anti-banding, and two-stop reset.
+ * version: 2.5.1
  * author: Caio Sousa Design
  * contributors: Caio
  */
@@ -12,9 +12,20 @@ const { FillDescriptor } = require('/fills');
 const { Gradient, Colour } = require('/colours');
 const { DocumentCommand } = require('/commands');
 const { StoryDelta } = require('/storydelta');
+const { Selection } = require('/selections');
 
 const MAX_TOTAL_STOPS = 96;
 const EPSILON = 0.000001;
+
+const INTERPOLATION_SMOOTH = 0;
+const INTERPOLATION_PERCEPTUAL = 1;
+const INTERPOLATION_LINEAR = 2;
+
+const INTERPOLATION_METHODS = [
+    'smooth',
+    'perceptual',
+    'linear'
+];
 
 const PRESET_AUTOMATIC = 0;
 const PRESET_NATURAL = 1;
@@ -154,9 +165,46 @@ function getNodeFillDescriptor(
     node,
     useStroke
 ) {
-    return useStroke
-        ? node.penFillDescriptor
-        : node.brushFillDescriptor;
+    // The fill interface is especially useful for text because it reports the
+    // current object-level descriptor without depending on text sub-selections.
+    try {
+        const fillInterface = useStroke
+            ? node.penFillInterface
+            : node.brushFillInterface;
+
+        if (fillInterface) {
+            const descriptor =
+                fillInterface
+                    .getCurrentDescriptor(
+                        false
+                    );
+
+            if (descriptor) {
+                return {
+                    descriptor,
+                    source: 'node-fill-interface'
+                };
+            }
+        }
+    } catch (_) {}
+
+    try {
+        const descriptor = useStroke
+            ? node.penFillDescriptor
+            : node.brushFillDescriptor;
+
+        if (descriptor) {
+            return {
+                descriptor,
+                source: 'node-descriptor'
+            };
+        }
+    } catch (_) {}
+
+    return {
+        descriptor: null,
+        source: 'none'
+    };
 }
 
 function getGlyphFillDescriptor(
@@ -171,7 +219,10 @@ function getGlyphFillDescriptor(
         !story ||
         story.length === 0
     ) {
-        return null;
+        return {
+            descriptor: null,
+            source: 'none'
+        };
     }
 
     const glyphIndex = rangeInfo
@@ -183,40 +234,110 @@ function getGlyphFillDescriptor(
             glyphIndex
         );
 
-    return useStroke
-        ? attributes.penFill
-        : attributes.brushFill;
+    return {
+        descriptor: useStroke
+            ? attributes.penFill
+            : attributes.brushFill,
+        source: rangeInfo
+            ? 'selected-glyph'
+            : 'first-glyph'
+    };
 }
 
-function getFillDescriptor(
+function getFillDescriptorBundle(
     node,
     useStroke,
     rangeInfo
 ) {
-    if (isTextNode(node)) {
-        // Read and apply text gradients through character formatting so the
-        // transform stays in one coordinate system.
-        return getGlyphFillDescriptor(
+    const nodeResult =
+        getNodeFillDescriptor(
+            node,
+            useStroke
+        );
+
+    if (!isTextNode(node)) {
+        return {
+            colourDescriptor:
+                nodeResult.descriptor,
+            geometryDescriptor:
+                nodeResult.descriptor,
+            colourSource:
+                nodeResult.source,
+            geometrySource:
+                nodeResult.source
+        };
+    }
+
+    const glyphResult =
+        getGlyphFillDescriptor(
             node,
             useStroke,
             rangeInfo
         );
-    }
 
-    return getNodeFillDescriptor(
-        node,
-        useStroke
-    );
+    // Text colours and stops are character formatting, so read them from the
+    // glyph. Geometry is object-level; keeping it from the text object avoids
+    // reapplying artboard/frame coordinate offsets as part of the glyph fill.
+    const colourDescriptor =
+        isGradientDescriptor(
+            glyphResult.descriptor
+        )
+            ? glyphResult.descriptor
+            : nodeResult.descriptor;
+
+    const geometryDescriptor =
+        isGradientDescriptor(
+            nodeResult.descriptor
+        )
+            ? nodeResult.descriptor
+            : colourDescriptor;
+
+    return {
+        colourDescriptor,
+        geometryDescriptor,
+        colourSource:
+            isGradientDescriptor(
+                glyphResult.descriptor
+            )
+                ? glyphResult.source
+                : nodeResult.source,
+        geometrySource:
+            isGradientDescriptor(
+                nodeResult.descriptor
+            )
+                ? nodeResult.source
+                : (
+                    isGradientDescriptor(
+                        glyphResult.descriptor
+                    )
+                        ? glyphResult.source
+                        : 'none'
+                )
+    };
+}
+
+function createCleanNodeSelection(
+    doc,
+    node
+) {
+    try {
+        return Selection.create(
+            doc,
+            node
+        );
+    } catch (_) {
+        return doc.selection;
+    }
 }
 
 function applyFillDescriptor(
     doc,
+    node,
     descriptor,
     useStroke,
-    rangeInfo,
-    isTextTarget
+    rangeInfo
 ) {
-    if (isTextTarget) {
+    if (rangeInfo) {
         const delta = useStroke
             ? StoryDelta.createPenFill(
                 descriptor
@@ -234,17 +355,32 @@ function applyFillDescriptor(
         return;
     }
 
+    const targetSelection =
+        createCleanNodeSelection(
+            doc,
+            node
+        );
+
     const command = useStroke
         ? DocumentCommand.createSetPenFill(
-            doc.selection,
+            targetSelection,
             descriptor
         )
         : DocumentCommand.createSetBrushFill(
-            doc.selection,
+            targetSelection,
             descriptor
         );
 
     doc.executeCommand(command);
+}
+
+function clearDocumentPreviews(doc) {
+    try {
+        doc.executeCommand(
+            DocumentCommand
+                .createClearPreviews()
+        );
+    } catch (_) {}
 }
 
 // -----------------------------------------------------------------------------
@@ -635,6 +771,61 @@ function interpolatePremultipliedScalar(
     ) / alpha;
 }
 
+function interpolateLinearLightRgb(
+    start,
+    end,
+    t,
+    alpha
+) {
+    const startAlpha = start.hslaf.alpha;
+    const endAlpha = end.hslaf.alpha;
+
+    const startLinear = {
+        r: srgbChannelToLinear(start.rgb.r),
+        g: srgbChannelToLinear(start.rgb.g),
+        b: srgbChannelToLinear(start.rgb.b)
+    };
+
+    const endLinear = {
+        r: srgbChannelToLinear(end.rgb.r),
+        g: srgbChannelToLinear(end.rgb.g),
+        b: srgbChannelToLinear(end.rgb.b)
+    };
+
+    const linearRgb = {
+        r: interpolatePremultipliedScalar(
+            startLinear.r,
+            startAlpha,
+            endLinear.r,
+            endAlpha,
+            t,
+            alpha
+        ),
+        g: interpolatePremultipliedScalar(
+            startLinear.g,
+            startAlpha,
+            endLinear.g,
+            endAlpha,
+            t,
+            alpha
+        ),
+        b: interpolatePremultipliedScalar(
+            startLinear.b,
+            startAlpha,
+            endLinear.b,
+            endAlpha,
+            t,
+            alpha
+        )
+    };
+
+    return {
+        r: linearChannelToSrgb(linearRgb.r),
+        g: linearChannelToSrgb(linearRgb.g),
+        b: linearChannelToSrgb(linearRgb.b)
+    };
+}
+
 function interpolateNeutralLab(
     start,
     end,
@@ -858,6 +1049,8 @@ function createAutomaticSegmentOptions(
     );
 
     return {
+        interpolationMethod:
+            options.interpolationMethod,
         interpolationMode,
         requestedPoints,
         minimumPoints,
@@ -938,6 +1131,8 @@ function createManualSegmentOptions(
     );
 
     return {
+        interpolationMethod:
+            options.interpolationMethod,
         interpolationMode:
             options.interpolationMode,
         requestedPoints: clamp(
@@ -1199,6 +1394,61 @@ function computeTargetSample(
             alpha
         );
 
+    if (
+        segmentOptions.interpolationMethod ===
+        'linear'
+    ) {
+        let rgb = interpolateLinearLightRgb(
+            start,
+            end,
+            colourT,
+            alpha
+        );
+
+        rgb = applyEndpointColourProtection(
+            rgb,
+            start,
+            end,
+            colourT,
+            segmentIndex,
+            segmentCount,
+            segmentOptions.endpointProtection
+        );
+
+        return {
+            rgb,
+            lab: srgbToOklab(rgb),
+            alpha
+        };
+    }
+
+    if (
+        segmentOptions.interpolationMethod ===
+        'perceptual'
+    ) {
+        let rgb = oklabToSrgb(
+            neutralLab
+        );
+
+        rgb = applyEndpointColourProtection(
+            rgb,
+            start,
+            end,
+            colourT,
+            segmentIndex,
+            segmentCount,
+            segmentOptions.endpointProtection
+        );
+
+        return {
+            rgb,
+            lab: srgbToOklab(rgb),
+            alpha
+        };
+    }
+
+    // Smooth preserves the exact hybrid colour path used by version 2.4:
+    // adaptive OKLCH with controlled OKLab influence around the centre.
     let lab = neutralLab;
 
     if (
@@ -1793,16 +2043,30 @@ function buildNaturalStops(
     };
 }
 
-function buildFillDescriptor(newStops, originalDescriptor, originalFill) {
-    const gradient = Gradient.create(newStops);
-    const fillWithNewGradient = originalFill.cloneWithNewGradient(gradient);
+function buildFillDescriptor(
+    newStops,
+    originalFill,
+    geometryDescriptor
+) {
+    const gradient =
+        Gradient.create(
+            newStops
+        );
+
+    const fillWithNewGradient =
+        originalFill
+            .cloneWithNewGradient(
+                gradient
+            );
 
     return FillDescriptor.create(
         fillWithNewGradient,
-        originalDescriptor.isScaleWithObject,
-        originalDescriptor.transform,
-        originalDescriptor.blendMode,
-        originalDescriptor.isAnchoredToSpread
+        geometryDescriptor
+            .isScaleWithObject,
+        geometryDescriptor.transform,
+        geometryDescriptor.blendMode,
+        geometryDescriptor
+            .isAnchoredToSpread
     );
 }
 
@@ -1815,48 +2079,55 @@ function captureGradientState(
     useStroke,
     rangeInfo
 ) {
-    const descriptor =
-        getFillDescriptor(
+    const bundle =
+        getFillDescriptorBundle(
             node,
             useStroke,
             rangeInfo
         );
 
+    const colourDescriptor =
+        bundle.colourDescriptor;
+
+    const geometryDescriptor =
+        bundle.geometryDescriptor;
+
     if (
         !isGradientDescriptor(
-            descriptor
-        )
+            colourDescriptor
+        ) ||
+        !geometryDescriptor
     ) {
         return null;
     }
 
     return {
-        descriptor,
-        fill: descriptor.fill,
+        colourDescriptor,
+        geometryDescriptor,
+        fill:
+            colourDescriptor.fill,
         rawStops:
             readGradientStops(
-                descriptor
+                colourDescriptor
                     .fill
                     .gradient
             ),
         useStroke,
-        descriptorSource:
-            isTextNode(node)
-                ? rangeInfo
-                    ? 'text-range-format'
-                    : 'whole-text-format'
-                : 'object'
+        colourSource:
+            bundle.colourSource,
+        geometrySource:
+            bundle.geometrySource
     };
 }
 
 function setPreviewDescriptor(
     doc,
+    node,
     descriptor,
     useStroke,
-    rangeInfo,
-    isTextTarget
+    rangeInfo
 ) {
-    if (isTextTarget) {
+    if (rangeInfo) {
         const delta = useStroke
             ? StoryDelta.createPenFill(
                 descriptor
@@ -1871,22 +2142,29 @@ function setPreviewDescriptor(
             true
         );
 
-        return false;
+        return;
     }
+
+    const targetSelection =
+        createCleanNodeSelection(
+            doc,
+            node
+        );
 
     const command = useStroke
         ? DocumentCommand.createSetPenFill(
-            doc.selection,
+            targetSelection,
             descriptor
         )
         : DocumentCommand.createSetBrushFill(
-            doc.selection,
+            targetSelection,
             descriptor
         );
 
-    doc.executeCommand(command);
-
-    return true;
+    doc.executeCommand(
+        command,
+        true
+    );
 }
 
 function main() {
@@ -1949,7 +2227,7 @@ function main() {
     }
 
     const dialog = Dialog.create(
-        'Affinity Gradient Smoother 2.4'
+        'Affinity Gradient Smoother 2.5.1'
     );
 
     dialog.initialWidth = 760;
@@ -2003,6 +2281,22 @@ function main() {
                 preset => preset.name
             ),
             PRESET_AUTOMATIC
+        );
+
+    const interpolationGroup =
+        leftColumn.addGroup(
+            'Interpolation'
+        );
+
+    const interpolationRadio =
+        interpolationGroup.addRadioGroup(
+            '',
+            [
+                'Smooth — Recommended',
+                'Perceptual — OKLab',
+                'Linear — light'
+            ],
+            INTERPOLATION_SMOOTH
         );
 
     const tuningGroup =
@@ -2079,7 +2373,7 @@ function main() {
 
     noteGroup.addStaticText(
         '',
-        'Outer generated stops are removed to keep endpoint transitions clean.'
+        'Smooth keeps the current result; Perceptual and Linear are optional.'
     );
 
     noteGroup.addStaticText(
@@ -2099,7 +2393,6 @@ function main() {
 
     let suppressHandler = false;
     let refreshingPreview = false;
-    let previewUndoCount = 0;
 
     function getSelectedState() {
         return (
@@ -2110,40 +2403,9 @@ function main() {
     }
 
     function restoreOriginalDescriptors() {
-        if (textNode) {
-            // Text previews are temporary StoryDelta formatting. Reading and
-            // applying the descriptor in the same coordinate space preserves
-            // the handle length.
-            if (fillState) {
-                setPreviewDescriptor(
-                    doc,
-                    fillState.descriptor,
-                    false,
-                    rangeInfo,
-                    true
-                );
-            }
-
-            if (strokeState) {
-                setPreviewDescriptor(
-                    doc,
-                    strokeState.descriptor,
-                    true,
-                    rangeInfo,
-                    true
-                );
-            }
-
-            return;
-        }
-
-        // Whole-object previews are real document commands so that gradient
-        // geometry is interpreted correctly. Undo the previous preview before
-        // calculating or applying the next one.
-        while (previewUndoCount > 0) {
-            doc.undo();
-            previewUndoCount -= 1;
-        }
+        clearDocumentPreviews(
+            doc
+        );
     }
 
     function updateControlState() {
@@ -2172,8 +2434,13 @@ function main() {
         smoothnessEditor.isEnabled =
             !resetMode;
 
-        naturalSoftnessEditor.isEnabled =
+        interpolationRadio.isEnabled =
             !resetMode;
+
+        naturalSoftnessEditor.isEnabled =
+            !resetMode &&
+            interpolationRadio.selectedIndex ===
+                INTERPOLATION_SMOOTH;
 
         detailEditor.isEnabled =
             !resetMode;
@@ -2229,8 +2496,8 @@ function main() {
                 descriptor:
                     buildFillDescriptor(
                         resetStops,
-                        state.descriptor,
-                        state.fill
+                        state.fill,
+                        state.geometryDescriptor
                     )
             };
         }
@@ -2242,6 +2509,11 @@ function main() {
             automatic:
                 presetIndex ===
                 PRESET_AUTOMATIC,
+            interpolationMethod:
+                INTERPOLATION_METHODS[
+                    interpolationRadio
+                        .selectedIndex
+                ],
             interpolationMode:
                 selectedSettings
                     .interpolationMode,
@@ -2274,8 +2546,8 @@ function main() {
             descriptor:
                 buildFillDescriptor(
                     buildResult.stops,
-                    state.descriptor,
-                    state.fill
+                    state.fill,
+                    state.geometryDescriptor
                 )
         };
     }
@@ -2306,17 +2578,13 @@ function main() {
         try {
             restoreOriginalDescriptors();
 
-            const usedUndoCommand =
-                setPreviewDescriptor(
-                    doc,
-                    built.descriptor,
-                    built.state.useStroke,
-                    rangeInfo,
-                    textNode
-                );
-
-            previewUndoCount =
-                usedUndoCommand ? 1 : 0;
+            setPreviewDescriptor(
+                doc,
+                node,
+                built.descriptor,
+                built.state.useStroke,
+                rangeInfo
+            );
         } finally {
             refreshingPreview = false;
         }
@@ -2389,10 +2657,10 @@ function main() {
 
     applyFillDescriptor(
         doc,
+        node,
         built.descriptor,
         built.state.useStroke,
-        rangeInfo,
-        textNode
+        rangeInfo
     );
 
     if (
@@ -2410,10 +2678,23 @@ function main() {
             PRESETS[
                 presetRadio.selectedIndex
             ].name,
+            '| interpolation:',
+            INTERPOLATION_METHODS[
+                interpolationRadio
+                    .selectedIndex
+            ],
             '| total stops:',
             generatedStops,
-            '| descriptor source:',
-            built.state.descriptorSource
+            '| colour source:',
+            built.state.colourSource,
+            '| geometry source:',
+            built.state.geometrySource,
+            '| target:',
+            rangeInfo
+                ? 'marked-text-range'
+                : textNode
+                    ? 'whole-text-node'
+                    : 'object'
         );
     }
 }
