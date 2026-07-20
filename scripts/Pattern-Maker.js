@@ -1,6 +1,6 @@
 /**
 name: Pattern Maker
-version: 1.0.0
+version: 1.1.0
 description: Create patterns from an object. Supports brick and drop patterns.
 author: Nic Kraneis
 */
@@ -192,9 +192,7 @@ function main() {
   );
   hintTxt.isFullWidth = true;
 
-  const actGrp = col.addGroup("Status");
-  const errorTxt = actGrp.addStaticText("", "• Preview active - Ready");
-  errorTxt.isFullWidth = true;
+  const actGrp = col.addGroup("");
 
   const btns = actGrp.addButtonSet("", ["↺ Preview", "✓ Apply"], 0);
   btns.isFullWidth = true;
@@ -214,29 +212,22 @@ function main() {
     const unitH = (bounds.height || 0) + gapY;
 
     if (isFinal) {
-      // ==========================================
-      // FINAL MODE: Pure flat generation (Golden Ticket Logic)
-      // ==========================================
 
-      // 1. Erstelle den einen Hauptcontainer
       const patternGroup = createGroupContainer(
         doc,
         `Pattern (${cols}x${rows})`,
       );
       cmds++;
 
-      // 2. Verschiebe die Originale ZUERST in den Hauptcontainer
       moveNodesIntoContainer(doc, origNodes, patternGroup);
       cmds++;
 
-      // 3. Matrix flach generieren. Weil die Originale im Container liegen,
-      //    landen alle Duplikate automatisch auf derselben Ebene im selben Container.
       for (let r = 0; r < rows; r++) {
         let rowDx = staggerRow && r % 2 !== 0 ? unitW * staggerAmt : 0;
         let rowDy = r * unitH;
 
         for (let c = 0; c < cols; c++) {
-          if (r === 0 && c === 0) continue; // Original überspringen
+          if (r === 0 && c === 0) continue;
 
           let colDx = c * unitW;
           let colDy = staggerCol && c % 2 !== 0 ? unitH * staggerAmt : 0;
@@ -255,9 +246,7 @@ function main() {
 
       return { cmds: cmds, group: patternGroup };
     } else {
-      // ==========================================
-      // PREVIEW MODE: Fast Matrix (Row-by-Row)
-      // ==========================================
+
       const firstRowNodes = [...origNodes];
 
       for (let c = 1; c < cols; c++) {
@@ -313,7 +302,7 @@ function main() {
     cmdCount = res.cmds;
     previewActive = true;
   } catch (e) {
-    errorTxt.text = "Error: " + e.message;
+    console.error("Error: " + e.message);
   }
 
   let running = true;
@@ -359,7 +348,7 @@ function main() {
         );
         running = false;
       } catch (e) {
-        errorTxt.text = "✖ " + e.message;
+        console.error("Apply Error: " + e.message);
       }
     } else {
       if (previewActive) {
@@ -371,9 +360,8 @@ function main() {
         const res = doApply(cols, rows, gapX, gapY, stRow, stCol, stAmt, false);
         cmdCount = res.cmds;
         previewActive = true;
-        errorTxt.text = `• Preview: ${cols}x${rows} Grid - Click Apply to confirm`;
       } catch (e) {
-        errorTxt.text = "✖ " + e.message;
+        console.error("Preview Error: " + e.message);
       }
     }
   }

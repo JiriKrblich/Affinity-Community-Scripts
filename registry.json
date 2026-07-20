@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-07-19",
+  "last_updated": "2026-07-20",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -313,8 +313,9 @@
       "name": "Pattern Maker",
       "description": "Create patterns from an object. Supports brick and drop patterns.",
       "author": "Nic Kraneis",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/patternmaker.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Pattern-Maker.js"
     },
     {
