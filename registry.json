@@ -988,8 +988,19 @@
       "version": "1.0.0",
       "category": "Artboards",
       "url": "www.femigrey.com",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ Artboard Resizer.webp",
-      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ Artboard Resizer.js"
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ArtboardResizer.webp",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ArtboardResizer.js"
+    },
+    {
+      "id": "ReGrid",
+      "name": " Artboard Resizer",
+      "description": "Re-arrange multiple artboards or objects into a grid and edit the number of rows and columns. Also adjust both the vertical and horizontal spacing between the objects in the grid.",
+      "author": "Oluwafemi Gabriel",
+      "version": "1.0.0",
+      "category": "Artboards",
+      "url": "www.femigrey.com",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ReGrid.webp",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ReGrid.js"
     }
   ]
 }
