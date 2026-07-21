@@ -1,14 +1,14 @@
 /**
  * name: Smart JPEG Export
  * description: Exports all/selected artboards, spreads or docs with max. size limit
- * version: 1.0.0
+ * version: 1.1
  * author: JiriKrblich
  */
 
-const { Dialog, DialogResult } = require('/dialog.js');
-const { Document, FileExportOptions, FileExportArea } = require('/document.js');
-const { app } = require('/application.js');
-const { File, FileSystemApi } = require('/fs.js');
+const { Dialog, DialogResult } = require('/dialog');
+const { Document, FileExportOptions, FileExportArea } = require('/document');
+const { app } = require('/application');
+const { File, FileSystemApi } = require('/fs');
 
 function bytesFromUnit(value, unit) {
   if (unit === 0) return value * 1024;
@@ -56,7 +56,7 @@ const doc = Document.current;
 if (!doc) {
   app.alert('No document is open.', 'Export with File Size Limit');
 } else {
-  const desktopPath = app.getUserDesktopPath;
+  const desktopPath = app.userDesktopPath || app.getUserDesktopPath;
   const hasArtboards = doc.hasArtboards;
 
   const dlg = Dialog.create('Export JPEG with File Size Limit');
@@ -80,8 +80,11 @@ if (!doc) {
   const grpInfo = col.addGroup('Note');
   grpInfo.addStaticText('info', 'Tries JPEG presets from best to lowest quality\nand picks the highest quality that fits the limit.');
 
-  const dlgResult = dlg.show();
-  if (dlgResult && dlgResult.value === DialogResult.Ok.value) {
+  // runModal() throws ABORTED on Cancel; treat that as "not OK".
+  let ok = false;
+  try { ok = dlg.runModal().value === DialogResult.Ok.value; } catch (e) { ok = false; }
+
+  if (ok) {
     const rawVal   = parseFloat(txtSize.text) || 2;
     const unitIdx  = cmbUnit.selectedIndex;
     const maxBytes = bytesFromUnit(rawVal, unitIdx);

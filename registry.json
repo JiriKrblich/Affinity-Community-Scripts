@@ -46,8 +46,9 @@
       "description": "Exports all/selected artboards, spreads or docs with max. size limit",
       "author": "JiriKrblich",
       "url": "https://jirikrblich.netlify.app",
-      "version": "1.0",
+      "version": "1.1.0",
       "category": "Export",
+      "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/smart_jpeg_export.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/smart_jpeg_export.js"
     },
     {
