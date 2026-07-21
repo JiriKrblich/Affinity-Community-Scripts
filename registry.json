@@ -56,8 +56,9 @@
       "description": "Replaces spaces after lone single characters with non-breaking spaces (Slavic languages)",
       "author": "JiriKrblich",
       "url": "https://jirikrblich.netlify.app",
-      "version": "1.0",
+      "version": "1.1",
       "category": "Text",
+      "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/single-char_linebreak_fix.gif",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/single-char_linebreak_fix.js"
     },
     {
