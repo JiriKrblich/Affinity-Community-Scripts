@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-07-20",
+  "last_updated": "2026-07-21",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -993,7 +993,7 @@
     },
     {
       "id": "ReGrid",
-      "name": " Artboard Resizer",
+      "name": "Re-Grid",
       "description": "Re-arrange multiple artboards or objects into a grid and edit the number of rows and columns. Also adjust both the vertical and horizontal spacing between the objects in the grid.",
       "author": "Oluwafemi Gabriel",
       "version": "1.0.0",
