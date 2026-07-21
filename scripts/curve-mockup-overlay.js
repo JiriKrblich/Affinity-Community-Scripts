@@ -1,7 +1,7 @@
 /**
  * name: Curve Mockup Overlay
  * description: Draw presentation-style fake anchor points and Bezier handles over the selected curve.
- * version: 1.0.0
+ * version: 1.2.0
  * author: JiriKrblich / Codex
  */
 
@@ -32,7 +32,7 @@ let previewNodes = [];
 function showMessage(title, message) {
     const dlg = Dialog.create(title);
     dlg.addColumn().addGroup('').addStaticText('', message).isFullWidth = true;
-    dlg.show();
+    try { dlg.runModal(); } catch (eMsg) {}
 }
 
 function clampByte(value) {
@@ -398,23 +398,36 @@ function run() {
         };
     }
 
+    // Reentrancy guard: executeCommand (delete + add nodes) can pump native
+    // events and re-enter this handler mid-rebuild; without the guard the shared
+    // previewNodes list is clobbered and delete/add interleave -> native crash.
+    let updating = false;
     function updatePreview() {
-        deletePreview();
+        if (updating) return false;
+        updating = true;
         try {
-            const geom = createOverlay(sourceNode, readSettings(), basePoly, insertionTarget);
-            statusTxt.text = `Preview: ${geom.anchors.length} points, ${geom.handles.length} handles`;
-            return true;
-        } catch (e) {
-            statusTxt.text = `Could not draw preview: ${e.message || e}`;
-            return false;
+            deletePreview();
+            try {
+                const geom = createOverlay(sourceNode, readSettings(), basePoly, insertionTarget);
+                statusTxt.text = `Preview: ${geom.anchors.length} points, ${geom.handles.length} handles`;
+                return true;
+            } catch (e) {
+                statusTxt.text = `Could not draw preview: ${e.message || e}`;
+                return false;
+            }
+        } finally {
+            updating = false;
         }
     }
 
     updatePreview();
     dlg.onControlValueChangedHandler = updatePreview;
 
-    const result = dlg.show();
-    if (result.value !== DialogResult.Ok.value) {
+    // runModal() throws ABORTED on Cancel; treat that as "not OK" so the
+    // overlay preview is removed on cancel instead of being left on the canvas.
+    let apply = false;
+    try { apply = dlg.runModal().value === DialogResult.Ok.value; } catch (e) { apply = false; }
+    if (!apply) {
         deletePreview();
         return;
     }

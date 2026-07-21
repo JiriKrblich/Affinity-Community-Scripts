@@ -587,7 +587,7 @@
       "description": "Draw presentation-style fake anchor points and Bezier handles over the selected curve.",
       "author": "JiriKrblich",
       "url": "https://jirikrblich.netlify.app",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/curvemockupoverlay.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/curve-mockup-overlay.js"
