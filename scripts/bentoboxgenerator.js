@@ -1,19 +1,22 @@
 /**
  * name: Bento Box Generator
- * description: Generates a Bento Grid on the current page/artboard with live preview.
- * version: 2.7
+ * description: Generates a Bento Grid on the chosen artboard (or the whole spread) with live preview.
+ * version: 2.9
  * author: JiriKrblich / Claude
  *
- * v2.7 crash fixes:
- *  - Reentrancy guard around rebuild(): a value-changed handler can be re-entered
- *    while executeCommand pumps native events; without a guard the shared
- *    currentNodes list gets clobbered and delete/add interleave -> native crash
- *    (typically on commit/Apply). The guard serialises all preview updates.
- *  - Geometry guard: skip building when padding/gap make a cell <= 0 px.
- *  - v2.6 tried to restore the current spread with createSetCurrentSpread() on
- *    Cancel; that itself crashed (setting the spread to the already-current spread
- *    right after an aborted modal). Removed — Cancel just deletes the preview nodes,
- *    exactly like v2.5 which was stable on Cancel.
+ * v2.8/2.9: artboard-aware.
+ *  - Generates in SPREAD coordinates: an artboard's position comes from
+ *    node.getSpreadVisibleBox(true), NOT artboardInterface.baseBox (which is the
+ *    artboard-LOCAL 0,0 box). Using baseBox placed the grid at the spread origin,
+ *    outside the artboard, for any artboard not at (0,0).
+ *  - v2.9: inserts the blocks INTO the artboard's layer by using the artboard
+ *    node as the insertion target (setInsertionTarget(artboardNode)) together
+ *    with spread coordinates — artboard children use spread coords, so this both
+ *    nests them under the artboard and positions them correctly.
+ *  - Target dropdown: pick which artboard to fill (or the whole spread). Defaults
+ *    to the artboard of the current selection. There is no API for the "active"
+ *    artboard without a selection, so we ask.
+ *  - Keeps the v2.6/2.7 reentrancy guard + geometry guard, no clearPreviews.
  */
 'use strict';
 const { Document } = require('/document');
@@ -103,26 +106,89 @@ function createPreviewPlan(blockCount, canvasAspect) {
     generated.swatches = generated.layout.map(() => ({ r: Math.random(), g: Math.random(), b: Math.random(), shade: Math.random() }));
     return generated;
 }
-function detectTarget() {
+
+// Object bounds in SPREAD coordinates (the space nodes actually live in).
+function spreadBox(node) {
+    let b = null;
+    try { b = node.getSpreadVisibleBox ? node.getSpreadVisibleBox(true) : node.spreadVisibleBox; }
+    catch (e) { try { b = node.spreadVisibleBox; } catch (e2) {} }
+    if (!b) return null;
+    return { x: b.x || 0, y: b.y || 0, width: b.width, height: b.height };
+}
+function normBox(b) {
+    if (!b) return null;
+    return { x: b.x || 0, y: b.y || 0, width: b.width, height: b.height };
+}
+function sameNode(a, b) {
+    if (!a || !b) return false;
+    try { if (typeof a.isSameNode === 'function') return a.isSameNode(b); } catch (e) {}
+    return a === b;
+}
+
+// Build the list of fill targets: one per artboard (spread coords) + whole spread.
+function buildTargets() {
     const doc = Document.current;
     const spread = doc.currentSpread;
-    const sel = doc.selection;
-    if (sel.length > 0) {
-        let node = sel.at(0).node;
-        while (node && node[Symbol.toStringTag] !== 'SpreadNode') {
-            try {
-                const abi = node.artboardInterface;
-                if (abi && abi.isArtboardEnabled) {
-                    const artboardNode = abi.node || node;
-                    return { node: artboardNode, box: abi.baseBox, label: abi.description };
-                }
-            } catch (e) {}
-            node = node.parent;
+    const targets = [];
+
+    let hasAb = false;
+    try { hasAb = doc.hasArtboards; } catch (e) {}
+    if (hasAb) {
+        let abs = null;
+        try { abs = doc.artboards; } catch (e) {}
+        if (abs && abs.length) {
+            const list = [];
+            for (let i = 0; i < abs.length; i++) {
+                const ab = abs.at ? abs.at(i) : abs[i];
+                let name = 'Artboard';
+                try { name = ab.description || 'Artboard'; } catch (e) {}
+                const box = spreadBox(ab.node);
+                if (!box) continue;
+                // Insert INTO the artboard's layer (artboard children use spread coords),
+                // so the blocks nest under the artboard yet keep the correct position.
+                list.push({ name, box, artboardNode: ab.node, insertNode: ab.node });
+            }
+            const counts = {};
+            for (const t of list) counts[t.name] = (counts[t.name] || 0) + 1;
+            const seen = {};
+            for (const t of list) {
+                if (counts[t.name] > 1) { seen[t.name] = (seen[t.name] || 0) + 1; t.label = `${t.name} (#${seen[t.name]})`; }
+                else t.label = t.name;
+                targets.push(t);
+            }
         }
     }
-    const box = spread.getSpreadExtents();
-    return { node: spread, box, label: 'Spread' };
+
+    let extents = null;
+    try { extents = normBox(spread.getSpreadExtents()); } catch (e) {}
+    if (extents) targets.push({ label: targets.length ? 'Whole spread' : 'Spread', box: extents, insertNode: spread, artboardNode: null });
+
+    return targets;
 }
+
+// Default the picker to the artboard of the current selection (if any).
+function defaultTargetIndex(targets) {
+    const doc = Document.current;
+    try {
+        const sel = doc.selection;
+        if (sel && sel.length > 0) {
+            let node = sel.at(0).node;
+            while (node && node[Symbol.toStringTag] !== 'SpreadNode') {
+                let abNode = null;
+                try { const abi = node.artboardInterface; if (abi && abi.isArtboardEnabled) abNode = abi.node || node; } catch (e) {}
+                if (abNode) {
+                    for (let i = 0; i < targets.length; i++) {
+                        if (targets[i].artboardNode && sameNode(targets[i].artboardNode, abNode)) return i;
+                    }
+                    break;
+                }
+                node = node.parent;
+            }
+        }
+    } catch (e) {}
+    return 0;
+}
+
 function cellSizes(box, gridSize) {
     return {
         cellW: (box.width  - 2 * config.padding - (gridSize - 1) * config.gap) / gridSize,
@@ -130,11 +196,11 @@ function cellSizes(box, gridSize) {
     };
 }
 function createBentoCommand(target, plan) {
-    const { node: insertNode, box } = target;
+    const { box, insertNode } = target;
     const { layout, gridSize, swatches } = plan;
     const { cellW, cellH } = cellSizes(box, gridSize);
     const builder = AddChildNodesCommandBuilder.create();
-    builder.setInsertionTarget(insertNode);
+    builder.setInsertionTarget(insertNode);      // artboard node (nest inside) or spread; coords are spread coords
     const isGrayscale = config.fillMode === 1;
     layout.forEach(([c, r, w, h], i) => {
         const x = box.x + config.padding + c * (cellW + config.gap);
@@ -165,13 +231,30 @@ function main() {
     const doc = Document.current;
     if (!doc) return;
 
-    const target = detectTarget();
+    const targets = buildTargets();
+    if (!targets.length) return;
+    const defaultIdx = defaultTargetIndex(targets);
+
     const dlg = Dialog.create('Bento Box Generator');
     dlg.initialWidth = 380;
     const col = dlg.addColumn();
 
-    const infoGrp = col.addGroup('Target');
-    infoGrp.addStaticText('', `${target.label}  (${Math.round(target.box.width)} x ${Math.round(target.box.height)} px)`).isFullWidth = true;
+    // Target picker
+    const tgtGrp = col.addGroup('Target');
+    let targetCombo = null;
+    if (targets.length > 1) {
+        targetCombo = tgtGrp.addComboBox('Fill', targets.map(t => t.label), defaultIdx);
+        targetCombo.isFullWidth = true;
+    } else {
+        tgtGrp.addStaticText('', targets[0].label).isFullWidth = true;
+    }
+    const targetInfo = tgtGrp.addStaticText('', '');
+    targetInfo.isFullWidth = true;
+
+    function currentTarget() {
+        const i = targetCombo ? targetCombo.selectedIndex : 0;
+        return targets[i] || targets[0];
+    }
 
     const grp = col.addGroup('Settings');
     const blockCtrl = grp.addUnitValueEditor('Block count', UnitType.None, UnitType.None, config.blockCount, 3, 16);
@@ -204,7 +287,8 @@ function main() {
 
     let previewPlan = null;
     function ensurePreviewPlan(forceNewLayout) {
-        const canvasAspect = target.box.width / target.box.height;
+        const box = currentTarget().box;
+        const canvasAspect = box.width / box.height;
         if (forceNewLayout || !previewPlan || previewPlan.layout.length !== config.blockCount) {
             previewPlan = createPreviewPlan(config.blockCount, canvasAspect);
         }
@@ -220,9 +304,7 @@ function main() {
         }
     }
 
-    // Reentrancy guard: executeCommand can pump native events and re-enter a
-    // value-changed handler mid-rebuild; without this, currentNodes is clobbered
-    // and delete/add interleave -> native crash (often on Apply).
+    // Reentrancy guard (see v2.6/2.7 notes).
     let updating = false;
     function rebuild(forceNewLayout) {
         if (updating) return false;
@@ -230,14 +312,16 @@ function main() {
         try {
             readConfig();
             ensurePreviewPlan(forceNewLayout);
+            const target = currentTarget();
             const { cellW, cellH } = cellSizes(target.box, previewPlan.gridSize);
+            targetInfo.text = `${Math.round(target.box.width)} x ${Math.round(target.box.height)} px`;
             if (!(cellW > 0.5) || !(cellH > 0.5)) {
-                statusTxt.text = 'Padding / gap too large for this canvas — reduce them.';
-                return false; // keep the last valid grid on canvas
+                statusTxt.text = 'Padding / gap too large for this target — reduce them.';
+                return false;
             }
             deleteCurrent();
             const cmd = createBentoCommand(target, previewPlan);
-            doc.executeCommand(cmd);            // commit (no preview flag)
+            doc.executeCommand(cmd);
             currentNodes = cmd.newNodes || [];
             statusTxt.text = `${config.blockCount} blocks - ${modeLabels[config.fillMode]}`;
             return true;
@@ -249,15 +333,14 @@ function main() {
         }
     }
 
-    // Event-driven wiring (new Dialog API).
     [blockCtrl, radiusCtrl, paddingCtrl, gapCtrl].forEach(c =>
         c.setOnValueChangedHandler(() => rebuild(false)));
     modeCombo.setOnValueChangedHandler(() => rebuild(false));
+    if (targetCombo) targetCombo.setOnValueChangedHandler(() => rebuild(true)); // new artboard -> fresh layout in it
     regenBtn.setOnClickHandler(() => rebuild(true));
 
-    rebuild(true);                              // initial layout
+    rebuild(true);
 
-    // runModal() THROWS 'ABORTED' when the user cancels. Treat non-OK as Cancel.
     let apply = false;
     try {
         const result = dlg.runModal();
@@ -267,9 +350,8 @@ function main() {
     }
 
     if (apply) {
-        // Apply: keep the committed nodes as-is.
+        // keep committed nodes
     } else {
-        // Cancel: just remove the preview nodes (no clearPreviews, no spread reset).
         deleteCurrent();
     }
 }
