@@ -358,8 +358,9 @@
       "name": "Gridify",
       "description": "Spread selected objects into a grid with various options of spacing, scaling and jitter.",
       "author": "Nic Kraneis",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/gridify.gif",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/gridify.js"
     },
     {
