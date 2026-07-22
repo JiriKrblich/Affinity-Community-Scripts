@@ -1017,6 +1017,17 @@
       "url": "parzival-design.com",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/GlypherArtboards.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/GlypherArtboards.js"
+    },
+    {
+      "id": "Glypherinterpolate",
+      "name": "Glypher: Interpolate Glyphs",
+      "description": "Choose two paths to interpolate at set percentages. Both paths must consist of the same number of nodes. Works best with Glypher: Artboards for Glyphs",
+      "author": "Nic Kraneis",
+      "version": "1.0.0",
+      "category": "Object",
+      "url": "parzival-design.com",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Glypherinterpolate.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Glypherinterpolate.js"
     }
   ]
 }
