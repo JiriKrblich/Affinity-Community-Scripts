@@ -1006,6 +1006,17 @@
       "url": "www.femigrey.com",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ReGrid.webp",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ReGrid.js"
+    },
+    {
+      "id": "GlypherArtboards",
+      "name": "Glypher: Artboards for Glyphs",
+      "description": "Creates a new artboard with all measurements important for glyph design. For easy export to FontForge, disable the Font Metrics layer.",
+      "author": "Nic Kraneis",
+      "version": "1.0.0",
+      "category": "Artboards",
+      "url": "parzival-design.com",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/GlypherArtboards.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/GlypherArtboards.js"
     }
   ]
 }
