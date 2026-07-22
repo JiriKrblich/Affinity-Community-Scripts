@@ -297,7 +297,7 @@
       "name": "Roughen Edges",
       "description": "Rough up vector paths with controls over amplitute, frequency, noise etc.",
       "author": "Nic Kraneis",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "category": "Effect",
       "url": "parzival-design.com",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Roughen-Edges.jpg",

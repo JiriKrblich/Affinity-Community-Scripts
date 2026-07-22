@@ -1,7 +1,7 @@
 /**
 name: Roughen Edges
-version: 1.1.0
-description: Rough up vector paths with controls over amplitute, frequency, noise etc.
+version: 1.2.0
+description: Rough up vector paths with controls over amplitute, frequency, noise etc. Now with live preview!
 author: Nic Kraneis
 */
 
@@ -16,7 +16,6 @@ const { Selection } = require('/selections');
 const doc = Document.current;
 
 if (!doc) {
-    alert('Open a document first.');
     return;
 }
 
@@ -25,7 +24,9 @@ const rawNodes = doc.selection.nodes.toArray().filter(
 );
 
 if (!rawNodes.length) {
-    alert('Select one or more vector curves or shapes first.');
+    const errDlg = Dialog.create('Error');
+    errDlg.addColumn().addStaticText('', 'Select one or more vector curves or shapes first.');
+    errDlg.show();
     return;
 }
 
@@ -159,7 +160,7 @@ function getCornerAttenuation(currentDist, anchorLengths, safeZoneRadius) {
     return f * f * (3 - 2 * f);
 }
 
-function applyRoughen(nodes, config) {
+function applyRoughen(nodes, origPolys, config) {
     const cmds = [];
     const randFact = config.randomness / 100;
     const noiseGen = create1DNoise(config.seed);
@@ -168,14 +169,15 @@ function applyRoughen(nodes, config) {
     const dirNx = Math.cos(dirRad);
     const dirNy = Math.sin(dirRad);
 
-    for (const n of nodes) {
+    for (let idx = 0; idx < nodes.length; idx++) {
+        const n = nodes[idx];
+        const origPoly = origPolys[idx];
         const out = PolyCurve.create();
 
-        // Pass 1: Find the maximum length among all sub-curves to establish baseline density
         let maxSubLen = 0;
         const subcurvesData = [];
 
-        for (const curve of n.polyCurve) {
+        for (const curve of origPoly) {
             const beziers = [...curve.beziers];
             if (!beziers.length) continue;
 
@@ -188,24 +190,19 @@ function applyRoughen(nodes, config) {
 
         if (maxSubLen === 0) continue;
 
-        // Establish uniform density based on the LONGEST path
         const baseTargetPeaks = config.ridges * 2;
         const globalStep = maxSubLen / baseTargetPeaks;
 
-        // Establish uniform amplitude globally based on the longest path
         const actualAmp = config.isRelativeAmp
             ? maxSubLen * (config.amp / 100)
             : config.amp;
 
-        // Pass 2: Apply displacement proportionally
         for (const data of subcurvesData) {
             const { curve, beziers, tbl, anchorLengths, subLen } = data;
             const closed = curve.isClosed;
 
-            // Distribute peaks proportionally using the global step
             let peaks = Math.max(2, Math.round(subLen / globalStep));
 
-            // Force an even number of peaks for closed curves to prevent seams
             if (closed && peaks % 2 !== 0) {
                 peaks += 1;
             }
@@ -291,7 +288,9 @@ function applyRoughen(nodes, config) {
     doc.executeCommand(cb.createCommand());
 }
 
+
 const nodes = ensureCurveNodes(rawNodes);
+const originalPolyCurves = nodes.map(n => n.curvesInterface.polyCurve.clone());
 
 const dlg = Dialog.create('Roughen Edges');
 dlg.initialWidth = 420;
@@ -300,20 +299,28 @@ const col = dlg.addColumn();
 const ampGrp = col.addGroup('Displacement');
 const ampEd = ampGrp.addUnitValueEditor('Amplitude', '', '', 10, 0, 1000);
 ampEd.precision = 1;
+ampEd.showPopupSlider = true;
+
 const relAmpCk = ampGrp.addSwitch('Amplitude as % of Path Length', false);
 const frqEd = ampGrp.addUnitValueEditor('Frequency (Details)', '', '', 15, 1, 500);
 frqEd.precision = 0;
+frqEd.showPopupSlider = true;
 
 const dirGrp = col.addGroup('Directional Lock');
 const dirCk = dirGrp.addSwitch('Use Custom Direction', false);
 const dirEd = dirGrp.addUnitValueEditor('Angle (°)', '°', '°', 0, -360, 360);
 dirEd.precision = 1;
+dirEd.showPopupSlider = true;
 
 const noiseGrp = col.addGroup('Organic Variation');
 const rndEd = noiseGrp.addUnitValueEditor('Randomness Blend (%)', '%', '%', 80, 0, 100);
 rndEd.precision = 0;
+rndEd.showPopupSlider = true;
+
 const octEd = noiseGrp.addUnitValueEditor('Complexity (Octaves)', '', '', 1, 1, 5);
 octEd.precision = 0;
+octEd.showPopupSlider = true;
+
 const noiseTypeCk = noiseGrp.addSwitch('Smooth Noise (Perlin)', true);
 const seedEd = noiseGrp.addUnitValueEditor('Seed (Variation ID)', '', '', 42, 1, 99999);
 seedEd.precision = 0;
@@ -321,13 +328,6 @@ seedEd.precision = 0;
 const geoGrp = col.addGroup('Geometry Protection');
 const protectCk = geoGrp.addSwitch('Protect Original Corners (Anchors)', true);
 const smCk = geoGrp.addSwitch('Smooth Output Curves', false);
-
-const actGrp = col.addGroup('Action');
-
-const btns = actGrp.addButtonSet('', ['↺ Preview', '✓ Apply'], 0);
-btns.isFullWidth = true;
-
-let previewActive = false;
 
 function getConfig() {
     return {
@@ -345,38 +345,23 @@ function getConfig() {
     };
 }
 
-try {
-    applyRoughen(nodes, getConfig());
-    previewActive = true;
-} catch (e) {
-    console.error('Error during initial render: ' + e.message);
+
+function updatePreview() {
+    try {
+        applyRoughen(nodes, originalPolyCurves, getConfig());
+    } catch (e) {
+    }
 }
 
-let running = true;
-while (running) {
-    btns.selectedIndex = 0;
-    const result = dlg.runModal();
-    const mode = btns.selectedIndex;
+updatePreview();
+dlg.onControlValueChangedHandler = updatePreview;
 
-    if (result.value !== DialogResult.Ok.value) {
-        if (previewActive) doc.executeCommand(DocumentCommand.createUndo());
-        running = false;
-    } else if (mode === 1) {
-        if (previewActive) doc.executeCommand(DocumentCommand.createUndo());
-        try {
-            applyRoughen(nodes, getConfig());
-            running = false;
-        } catch (e) {
-            console.error('Error: ' + e.message);
-        }
-    } else {
-        if (previewActive) doc.executeCommand(DocumentCommand.createUndo());
-        try {
-            applyRoughen(nodes, getConfig());
-            previewActive = true;
-        } catch (e) {
-            console.error('Error: ' + e.message);
-            previewActive = false;
-        }
+const result = dlg.show();
+
+if (result.value !== DialogResult.Ok.value) {
+    const cb = CompoundCommandBuilder.create();
+    for (let i = 0; i < nodes.length; i++) {
+        cb.addCommand(DocumentCommand.createSetCurves(nodes[i].curvesInterface, originalPolyCurves[i]));
     }
+    doc.executeCommand(cb.createCommand());
 }
