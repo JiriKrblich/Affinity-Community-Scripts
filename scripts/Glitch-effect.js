@@ -1,11 +1,9 @@
 /**
-name: Glitch
-version: 1.1.0
-description: Create a glitch effect on a vector object.
+name: Glitch effect
+version: 1.2.0
+description: Create a glitch effect on a vector object. Now with live preview.
 author: Nic Kraneis
 */
-
-// Google Gemini was used in creation of this script.
 
 "use strict";
 
@@ -22,7 +20,7 @@ function showError(msg) {
     const col = d.addColumn();
     const txt = col.addGroup("Diagnostics").addStaticText("", msg);
     txt.isFullWidth = true;
-    d.runModal();
+    d.show();
   } catch (e) {}
 }
 
@@ -120,7 +118,7 @@ function main() {
     };
   }
 
-  function applyGlitch(nodes, config) {
+  function applyGlitch(nodes, origPolys, config) {
     const cmdsList = [];
     const prng = createPRNG(config.seed);
 
@@ -130,10 +128,12 @@ function main() {
     const sliceXDir = -Math.sin(angleRad);
     const sliceYDir = Math.cos(angleRad);
 
-    for (const n of nodes) {
+    for (let idx = 0; idx < nodes.length; idx++) {
+      const n = nodes[idx];
+      const origPoly = origPolys[idx];
       const outBase = PolyCurve.create();
 
-      for (const curve of n.polyCurve) {
+      for (const curve of origPoly) {
         const beziers = [...curve.beziers];
         if (!beziers.length) continue;
 
@@ -220,6 +220,7 @@ function main() {
   }
 
   const nodes = ensureCurveNodes(rawNodes);
+  const originalPolyCurves = nodes.map(n => n.curvesInterface.polyCurve.clone());
 
   const dlg = Dialog.create("Glitch");
   dlg.initialWidth = 380;
@@ -235,6 +236,8 @@ function main() {
     200,
   );
   sliceEd.precision = 0;
+  sliceEd.showPopupSlider = true;
+
   const chaosEd = paramGrp.addUnitValueEditor(
     "Chaos (Glitch Probability %)",
     "%",
@@ -244,6 +247,8 @@ function main() {
     100,
   );
   chaosEd.precision = 0;
+  chaosEd.showPopupSlider = true;
+
   const dirEd = paramGrp.addUnitValueEditor(
     "Direction Angle (°)",
     "°",
@@ -253,6 +258,7 @@ function main() {
     360,
   );
   dirEd.precision = 1;
+  dirEd.showPopupSlider = true;
 
   const dmgGrp = col.addGroup("Damage Settings");
   const intEd = dmgGrp.addUnitValueEditor(
@@ -264,6 +270,8 @@ function main() {
     1000,
   );
   intEd.precision = 0;
+  intEd.showPopupSlider = true;
+
   const jitEd = dmgGrp.addUnitValueEditor(
     "Signal Jitter (px)",
     "px",
@@ -273,6 +281,7 @@ function main() {
     100,
   );
   jitEd.precision = 1;
+  jitEd.showPopupSlider = true;
 
   const seedEd = paramGrp.addUnitValueEditor(
     "Seed (Random ID)",
@@ -283,13 +292,6 @@ function main() {
     99999,
   );
   seedEd.precision = 0;
-
-  const actGrp = col.addGroup("Action");
-
-  const btns = actGrp.addButtonSet("", ["↺ Preview", "✓ Apply"], 0);
-  btns.isFullWidth = true;
-
-  let previewActive = false;
 
   function getConfig() {
     return {
@@ -302,33 +304,25 @@ function main() {
     };
   }
 
-  try {
-    applyGlitch(nodes, getConfig());
-    previewActive = true;
-  } catch (e) {}
-
-  let running = true;
-  while (running) {
-    btns.selectedIndex = 0;
-    const result = dlg.runModal();
-    const action = btns.selectedIndex;
-
-    if (result.value !== DialogResult.Ok.value) {
-      if (previewActive) doc.executeCommand(DocumentCommand.createUndo());
-      running = false;
-    } else if (action === 1) {
-      if (previewActive) doc.executeCommand(DocumentCommand.createUndo());
-      applyGlitch(nodes, getConfig());
-      running = false;
-    } else {
-      if (previewActive) doc.executeCommand(DocumentCommand.createUndo());
-      try {
-        applyGlitch(nodes, getConfig());
-        previewActive = true;
-      } catch (e) {
-        previewActive = false;
-      }
+  function updatePreview() {
+    try {
+      applyGlitch(nodes, originalPolyCurves, getConfig());
+    } catch (e) {
     }
+  }
+
+  updatePreview();
+  dlg.onControlValueChangedHandler = updatePreview;
+
+
+  const result = dlg.show();
+
+  if (result.value !== DialogResult.Ok.value) {
+    const cb = CompoundCommandBuilder.create();
+    for (let i = 0; i < nodes.length; i++) {
+        cb.addCommand(DocumentCommand.createSetCurves(nodes[i].curvesInterface, originalPolyCurves[i]));
+    }
+    doc.executeCommand(cb.createCommand());
   }
 }
 
