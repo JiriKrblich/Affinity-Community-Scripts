@@ -1061,6 +1061,17 @@
       "email": "ollio@ollio.de",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/addanchorpoints.webp",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/addanchorpoints.js"
+    },
+    {
+      "id": "betterfilltext",
+      "name": "Better Filltext",
+      "description": "Fills the selected text frame(s) with placeholder text — but with exact-count control and a choice of styles, which Affinity's built-in filler text doesn't offer. Pick a Style (Lorem, Hipster, Cupcake, Bacon, Cheese, Pirate, Cat, Corporate, Coffee, Zombie, Cosmic, Legalese), set the amount by paragraphs / sentences / words / characters with an exact count, and optionally begin with that style's signature opening. Every run generates fresh text.",
+      "author": "olliollio",
+      "version": "1.1.0",
+      "category": "Object",
+      "email": "ollio@ollio.de",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/betterfilltext.webp",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/betterfilltext.js"
     }
   ]
 }
