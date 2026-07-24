@@ -1039,6 +1039,28 @@
       "email": "ollio@ollio.de",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/selectsame.webp",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/selectsame.js"
+    },
+    {
+      "id": "selectsame",
+      "name": "Select Same",
+      "description": "Adds Affinity's missing Select → Same (Illustrator-style). Select one object as a reference, run the script, tick the attribute(s) you want to match, and every object sharing them gets selected.",
+      "author": "olliollio",
+      "version": "1.5.0",
+      "category": "Object",
+      "email": "ollio@ollio.de",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/selectsame.webp",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/selectsame.js"
+    },
+    {
+      "id": "selectsame",
+      "name": "add_anchor_points",
+      "description": "Add Anchor Points — insert 1-5 evenly-spaced anchor points into every segment of the selected curve(s), like Illustrator's Object > Path > Add Anchor Points. Uses an exact De Casteljau split so curves keep their shape (no flattening). Fills Affinity's gap: adding nodes one click at a time.",
+      "author": "olliollio",
+      "version": "1.0.0",
+      "category": "Object",
+      "email": "ollio@ollio.de",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/addanchorpoints.webp",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/addanchorpoints.js"
     }
   ]
 }
