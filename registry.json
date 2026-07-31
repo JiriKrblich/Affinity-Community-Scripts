@@ -1061,6 +1061,17 @@
       "email": "ollio@ollio.de",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/betterfilltext.webp",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/betterfilltext.js"
+    },
+    {
+      "id": "DimensionAnnotator",
+      "name": "Dimension Annotator",
+      "description": "Adds real world measurements to your selected objects, like the dimension lines on an architect's drawing. Choose Box mode for quick width and height, or Per edge mode to measure every straight edge of a shape. Enter a drawing scale like 1:50 and get labelled dimension lines, neatly grouped per object in the Layers panel.",
+      "author": "Cyoung",
+      "version": "1.0.0",
+      "category": "Object",
+      "url": "https://instagram.com/temusoundbar",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/DimensionAnnotator.gif",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DimensionAnnotator.js"
     }
   ]
 }
