@@ -1072,6 +1072,17 @@
       "url": "https://instagram.com/temusoundbar",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/DimensionAnnotator.gif",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/DimensionAnnotator.js"
+    },
+    {
+      "id": "plotter_declutter_native",
+      "name": "Plotter Declutter (Native)",
+      "description": "Removes hidden geometry from layered plotter/generative-art SVGs (Cavalry, Processing, and similar rigs) directly inside Affinity. Select all the shapes making up the artwork and run the script -- each shape is clipped to only the portion not covered by shapes drawn after it, using Affinity's boolean subtract/union operations. Shapes fully hidden behind later shapes are removed entirely. Works on closed shapes (real filled/fillable areas); open strokes with no closed area aren't clipped correctly yet. A browser-based version of the same tool (no Affinity required) is also available.",
+      "author": "Victor Crespo (3dvic)",
+      "version": "4.0.0",
+      "category": "Object",
+      "url": "https://github.com/vicc3d",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/PlotterDeclutter.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/plotter_declutter_native.js"
     }
   ]
 }
