@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-07-31",
+  "last_updated": "2026-08-05",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -1084,6 +1084,17 @@
       "url": "https://github.com/vicc3d",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/PlotterDeclutter.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/plotter_declutter_native.js"
+    },
+    {
+      "id": "ScaleWithText",
+      "name": "Scale With Text",
+      "description": "Scales a selection to a target width/height — and actually scales Frame Text with it. Affinity's Transform panel can't do this: typing a width into a group resizes each frame-text box but leaves the type at its original point size, because Frame Text is a layout container rather than geometry. Dragging the corner handle only helps for Artistic Text. This script closes that gap. Select anything, type a target size, pick an anchor, and everything scales proportionally — shapes, images, curves, nested groups, artistic text, and frame type.",
+      "author": "olliollio",
+      "version": "1.1.0",
+      "category": "Text",
+      "email": "ollio@ollio.de",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ScaleWithText.webp",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ScaleWithText.js"
     }
   ]
 }
