@@ -670,7 +670,7 @@
       "name": "Make Button",
       "description": "Instantly creates perfectly padded rounded button backgrounds behind selected text layers with live preview, customizable fill/stroke styling, linked padding controls, and automatic grouping.",
       "author": "hellsfaun",
-      "version": "1.0.0",
+      "version": "2.2.2",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/makebutton.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/makebutton.js"
@@ -1095,6 +1095,16 @@
       "email": "ollio@ollio.de",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ScaleWithText.webp",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ScaleWithText.js"
+    },
+    {
+      "id": "blobgenerator",
+      "name": "Blob Generator",
+      "description": "Generates an organic blob shape, centered on your selection.",
+      "author": "hellsfaun",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/blobgenerator.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/blobgenerator.js"
     }
   ]
 }
