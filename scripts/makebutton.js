@@ -1,7 +1,7 @@
 /**
- * name: Make Button
- * description: Instantly creates perfectly padded rounded button backgrounds behind selected text layers with live preview, customizable fill/stroke styling, linked padding controls, and automatic grouping.
- * version: 1.0.0
+ * name: Make Button 2.2.2
+ * description: Instantly creates perfectly padded rounded button backgrounds behind selected text layers with live preview, customizable fill/stroke styling, linked padding controls, automatic grouping, and optional height normalisation across mixed-size selections.
+ * version: 2.2.2
  * author: hellsfaun
  */
 
@@ -18,11 +18,12 @@ const {
   NodeMoveType,
 } = require("/commands");
 const { UnitType } = require("/units");
-const { CurveBuilder, PolyCurve } = require("/geometry");
+const { Rectangle } = require("/geometry");
 const { RGBA8 } = require("/colours");
 const { FillDescriptor, SolidFill } = require("/fills");
-const { LineStyleDescriptor } = require("/linestyle");
-const { ContainerNodeDefinition, PolyCurveNodeDefinition } = require("/nodes");
+const { LineStyleDescriptor, LineStyle, StrokeAlignment } = require("/linestyle");
+const { ContainerNodeDefinition, ShapeNodeDefinition } = require("/nodes");
+const { ShapeRectangle, ShapeCornerType } = require("/shapes");
 const { Selection } = require("/selections");
 const { app } = require("/application");
 const { setTimeout } = require("/timers");
@@ -33,30 +34,137 @@ const BUTTON_PREFIX = "\u2022 ";
 const BACKGROUND_NAME = "BG";
 const PREVIEW_DELAY = 16;
 const MIN_SIZE = 0.01;
-const BEZIER_CIRCLE = 0.552284749831;
 
 const LIMITS = {
-  padding: { min: 0, max: 500 },
-  cornerRadius: { min: 0, max: 500 },
-  strokeWidth: { min: 0, max: 100 },
+  padding: { min: 0, max: 100 },
+  cornerRadius: { min: 0, max: 200 },
+  strokeWidth: { min: 0, max: 50 },
 };
 
 let config = {
-  paddingX: 40,
-  paddingY: 40,
-  cornerRadius: 40,
+  paddingX: 20,
+  paddingY: 20,
+  cornerRadius: 20,
   colour: RGBA8(50, 50, 50),
-  strokeWidth: 2,
+  strokeWidth: 0,
   strokeColour: RGBA8(100, 100, 100),
+  strokeAlignment: StrokeAlignment.Outside,
+  normalizeHeight: false,
+  normalizeWidth: false,
+  textAlign: 1,
+  livePreview: true,
+  _maxReferenceHeight: 0,
+  _maxReferenceWidth: 0,
 };
+
+const STROKE_ALIGNMENT_LABELS = ["Outside", "Center", "Inside"];
+const STROKE_ALIGNMENT_VALUES = [
+  StrokeAlignment.Outside,
+  StrokeAlignment.Centre,
+  StrokeAlignment.Inside,
+];
+
+const TEXT_ALIGNMENT_LABELS = ["Left", "Center", "Right"];
+
+const FONT_RATIOS = {
+  cap: 0.70,
+  xHeight: 0.48,
+  descender: 0.20,
+};
+
+const RE_CAP_ASCENDER = /[A-ZÀ-ÖØ-ŸbdfhijkltÀ-ÖQJ]/;
+const RE_DESCENDER = /[gjpqy]/;
+
+function getTextString(node) {
+  const props = ["text", "plainText", "content", "characters", "userText"];
+  for (const prop of props) {
+    try {
+      const v = node[prop];
+      if (typeof v === "string") return v;
+    } catch (_) {}
+  }
+  return "";
+}
+
+function detectFontSize(node) {
+  const attempts = [
+    () => node.textStyle && node.textStyle.fontSize,
+    () => node.paragraphStyle && node.paragraphStyle.fontSize,
+    () => node.characterStyle && node.characterStyle.fontSize,
+    () => node.style && node.style.fontSize,
+    () => node.fontSize,
+    () => node.textFormat && node.textFormat.fontSize,
+    () => node.textAttributes && node.textAttributes.fontSize,
+  ];
+  for (const fn of attempts) {
+    try {
+      const v = fn();
+      if (typeof v === "number" && v > 0) return v;
+    } catch (_) {}
+  }
+  return null;
+}
+
+function classifyText(text) {
+  let hasCap = false, hasDesc = false, hasAnyLetter = false;
+  for (const ch of text) {
+    if (/[A-Za-z\u00C0-\u024F]/.test(ch)) {
+      hasAnyLetter = true;
+      if (RE_CAP_ASCENDER.test(ch)) hasCap = true;
+      if (RE_DESCENDER.test(ch)) hasDesc = true;
+    }
+  }
+  return { hasCap, hasDesc, hasAnyLetter };
+}
+
+function computeTargetNormMetrics(node, box) {
+  const text = getTextString(node);
+  const { hasCap, hasDesc, hasAnyLetter } = classifyText(text);
+  const refRatio = hasCap || !hasAnyLetter ? FONT_RATIOS.cap : FONT_RATIOS.xHeight;
+  const descRatio = hasDesc ? FONT_RATIOS.descender : 0;
+  let referenceHeight, baselineY;
+  const fs = detectFontSize(node);
+  if (fs && fs > 0) {
+    referenceHeight = fs * refRatio;
+    baselineY = box.y + box.height - fs * descRatio;
+  } else {
+    if (descRatio > 0) {
+      const totalRatio = refRatio + descRatio;
+      referenceHeight = box.height * (refRatio / totalRatio);
+    } else {
+      referenceHeight = box.height;
+    }
+    baselineY = box.y + referenceHeight;
+  }
+  return { referenceHeight, baselineY };
+}
+
+function enrichTargetsForNormalize(targets) {
+  let maxRef = 0;
+  for (const target of targets) {
+    try {
+      target._normMetrics = computeTargetNormMetrics(target.node, target.box);
+      if (target._normMetrics.referenceHeight > maxRef)
+        maxRef = target._normMetrics.referenceHeight;
+    } catch (e) {
+      console.log("Make Button: failed to compute normalization metrics for a target - " + String(e));
+      target._normMetrics = null;
+    }
+  }
+  return maxRef;
+}
+
+function computeMaxBoxWidth(targets) {
+  let maxWidth = 0;
+  for (const t of targets) {
+    if (t.box.width > maxWidth) maxWidth = t.box.width;
+  }
+  return maxWidth;
+}
 
 function clampValue(value, min, max, fallback) {
   const number = Number(value);
-
-  if (!isFinite(number)) {
-    return fallback;
-  }
-
+  if (!isFinite(number)) return fallback;
   return Math.max(min, Math.min(number, max));
 }
 
@@ -69,117 +177,89 @@ function getPickerValue(picker, fallback) {
 }
 
 function cleanLayerName(value) {
-  if (value === null || value === undefined) {
-    return "";
-  }
-
-  const text = String(value);
-
-  return text.replace(/^\s+|\s+$/g, "");
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
 }
 
 function readString(object, property) {
-  try {
-    return cleanLayerName(object[property]);
-  } catch (_) {
-    return "";
-  }
+  try { return cleanLayerName(object[property]); } catch (_) { return ""; }
 }
 
 function getLayerName(node) {
   const properties = [
-    "description",
-    "userDescription",
-    "defaultDescriptionForDisplay",
-    "defaultDescription",
+    "description", "userDescription",
+    "defaultDescriptionForDisplay", "defaultDescription",
   ];
-
   for (const property of properties) {
     const value = readString(node, property);
-
-    if (value && value !== BACKGROUND_NAME) {
-      return value;
-    }
+    if (value && value !== BACKGROUND_NAME) return value;
   }
-
   return readString(node, "text");
 }
 
 function getButtonContainerName(node) {
   let name = getLayerName(node) || DEFAULT_CONTAINER_NAME;
-
-  if (name.indexOf(BUTTON_PREFIX) === 0) {
-    return name;
-  }
-
+  if (name.indexOf(BUTTON_PREFIX) === 0) return name;
   return BUTTON_PREFIX + name;
 }
 
 function addPixelEditor(group, label, value, limit) {
   const editor = group.addUnitValueEditor(
-    label,
-    UnitType.Pixel,
-    UnitType.Pixel,
-    value,
-    limit.min,
-    limit.max,
+    label, UnitType.Pixel, UnitType.Pixel, value, limit.min, limit.max,
   );
-
   editor.showPopupSlider = true;
-
   return editor;
 }
 
 function detectTargets(doc) {
   const sel = doc.selection;
-
-  if (!sel || sel.length === 0) {
-    return [];
-  }
-
-  const cachedNodes = [];
-
-  for (const node of sel.nodes) {
-    cachedNodes.push(node);
-  }
-
+  if (!sel || sel.length === 0) return [];
   const targets = [];
-
-  for (const node of cachedNodes) {
+  for (const node of sel.nodes) {
     try {
       const box = node.getSpreadBaseBox();
-
       if (!box) continue;
-
-      targets.push({
-        node,
-        box,
-      });
-    } catch (_) {
-      // Skip invalid nodes safely
-    }
+      targets.push({ node, box, _normMetrics: null });
+    } catch (_) {}
   }
-
   return targets;
 }
 
 function clampRadius(radius, width, height) {
-  const maxRadius = Math.min(width, height) / 2;
-  return Math.max(0, Math.min(radius, maxRadius));
+  return Math.max(0, Math.min(radius, Math.min(width, height) / 2));
 }
 
-function getBackgroundGeometry(box, conf) {
-  const width = Math.max(MIN_SIZE, box.width + conf.paddingX * 2);
+function getBackgroundGeometry(box, conf, target) {
+  let baseWidth = box.width;
+  if (conf.normalizeWidth && conf._maxReferenceWidth > 0) {
+    baseWidth = conf._maxReferenceWidth;
+  }
+  const width = Math.max(MIN_SIZE, baseWidth + conf.paddingX * 2);
 
-  const height = Math.max(MIN_SIZE, box.height + conf.paddingY * 2);
+  let x = box.x - conf.paddingX;
 
-  return {
-    x: box.x - conf.paddingX,
-    y: box.y - conf.paddingY,
-    width,
-    height,
-    radius: clampRadius(conf.cornerRadius, width, height),
-  };
+  if (conf.normalizeWidth && conf._maxReferenceWidth > 0) {
+    if (conf.textAlign === 0) {
+      x = box.x - conf.paddingX;
+    } else if (conf.textAlign === 2) {
+      x = (box.x + box.width) + conf.paddingX - width;
+    } else {
+      x = (box.x + box.width / 2) - (width / 2);
+    }
+  }
+
+  let y, height;
+  const normMetrics = target && target._normMetrics;
+  const maxRef = conf._maxReferenceHeight;
+  if (conf.normalizeHeight && normMetrics && maxRef > 0) {
+    height = Math.max(MIN_SIZE, maxRef + conf.paddingY * 2);
+    y = normMetrics.baselineY - maxRef - conf.paddingY;
+  } else {
+    height = Math.max(MIN_SIZE, box.height + conf.paddingY * 2);
+    y = box.y - conf.paddingY;
+  }
+
+  return { x, y, width, height, radius: clampRadius(conf.cornerRadius, width, height) };
 }
 
 function createSolidFillDescriptor(colour) {
@@ -187,489 +267,245 @@ function createSolidFillDescriptor(colour) {
 }
 
 function applyStrokeToNodeDef(nodeDef, conf) {
-  if (conf.strokeWidth <= 0) {
-    return;
-  }
-
+  if (conf.strokeWidth <= 0) return;
   try {
-    if (!nodeDef.setLineDescriptors) {
-      return;
-    }
-
+    const lineStyle = LineStyle.createDefaultWithWeight(conf.strokeWidth);
+    const lineDescriptor = LineStyleDescriptor.create(lineStyle, {
+      strokeAlignment: conf.strokeAlignment ?? StrokeAlignment.Outside,
+    });
     nodeDef.setLineDescriptors(
-      0,
       createSolidFillDescriptor(conf.strokeColour),
-      LineStyleDescriptor.createDefault(conf.strokeWidth),
+      lineDescriptor,
+      0,
     );
-  } catch (_) {
-    // Strokes are optional; leave the fill-only button intact if Affinity rejects them.
+  } catch (e) {
+    console.log("Make Button: failed to apply stroke - " + String(e));
   }
 }
 
-function createRoundedRectanglePolyCurve(x, y, width, height, radius) {
-  const right = x + width;
-  const bottom = y + height;
-  const polyCurve = new PolyCurve();
-  const builder = CurveBuilder.create();
-
-  if (radius <= 0) {
-    polyCurve.addCurve(
-      builder
-        .beginXY(x, y)
-        .lineToXY(right, y)
-        .lineToXY(right, bottom)
-        .lineToXY(x, bottom)
-        .close()
-        .createCurve(),
-    );
-
-    return polyCurve;
+function applyRoundedShapeCorners(shape, radius, width, height) {
+  for (const corner of [shape.topLeft, shape.topRight, shape.bottomLeft, shape.bottomRight]) {
+    corner.cornerType = ShapeCornerType.Round;
+    corner.setRadius(radius, width, height);
   }
-
-  const k = radius * BEZIER_CIRCLE;
-
-  polyCurve.addCurve(
-    builder
-      .beginXY(x + radius, y)
-      .lineToXY(right - radius, y)
-      .addBezierXY(
-        right - radius + k,
-        y,
-        right,
-        y + radius - k,
-        right,
-        y + radius,
-      )
-      .lineToXY(right, bottom - radius)
-      .addBezierXY(
-        right,
-        bottom - radius + k,
-        right - radius + k,
-        bottom,
-        right - radius,
-        bottom,
-      )
-      .lineToXY(x + radius, bottom)
-      .addBezierXY(
-        x + radius - k,
-        bottom,
-        x,
-        bottom - radius + k,
-        x,
-        bottom - radius,
-      )
-      .lineToXY(x, y + radius)
-      .addBezierXY(x, y + radius - k, x + radius - k, y, x + radius, y)
-      .close()
-      .createCurve(),
-  );
-
-  return polyCurve;
 }
 
-function createBackgroundNodeDef(box, conf) {
-  const geometry = getBackgroundGeometry(box, conf);
-
+function createBackgroundNodeDef(box, conf, target) {
+  const geometry = getBackgroundGeometry(box, conf, target);
+  const shape = ShapeRectangle.create();
   const fillDesc = createSolidFillDescriptor(conf.colour);
-
-  const nodeDef = PolyCurveNodeDefinition.createDefault();
-
-  nodeDef.setCurves(
-    createRoundedRectanglePolyCurve(
-      geometry.x,
-      geometry.y,
-      geometry.width,
-      geometry.height,
-      geometry.radius,
-    ),
+  shape.setAbsoluteSizes(true, geometry.width, geometry.height);
+  applyRoundedShapeCorners(shape, geometry.radius, geometry.width, geometry.height);
+  const nodeDef = ShapeNodeDefinition.create(
+    shape,
+    new Rectangle(geometry.x, geometry.y, geometry.width, geometry.height),
+    fillDesc,
   );
-
-  nodeDef.setBrushFillDescriptor(0, fillDesc);
   applyStrokeToNodeDef(nodeDef, conf);
-
   nodeDef.userDescription = BACKGROUND_NAME;
-
   return nodeDef;
 }
 
-function buildCompoundCommand(targets, conf) {
+function buildPreviewCommand(targets, conf) {
   const compound = CompoundCommandBuilder.create();
-
   let added = 0;
-
   for (const target of targets) {
     try {
       const builder = AddChildNodesCommandBuilder.create();
-
       builder.setInsertionTarget(target.node);
       builder.setInsertionMode(InsertionMode.Behind);
-
-      builder.addNode(createBackgroundNodeDef(target.box, conf));
-
+      builder.addNode(createBackgroundNodeDef(target.box, conf, target));
       compound.addCommand(builder.createCommand(true, NodeChildType.Main));
-
       added++;
-    } catch (_) {
-      // Ignore problematic nodes safely
-    }
+    } catch (_) {}
   }
-
-  if (added === 0) {
-    return null;
-  }
-
-  try {
-    return compound.createCommand();
-  } catch (_) {
-    return null;
-  }
+  if (added === 0) return null;
+  try { return compound.createCommand(); } catch (_) { return null; }
 }
 
 function getNodeSelection(doc, node) {
   try {
-    if (node.selfSelection) {
-      return node.selfSelection;
-    }
+    if (node.selfSelection) return node.selfSelection;
   } catch (_) {}
-
   return Selection.create(doc, node);
 }
 
-function getNodeBox(node) {
-  try {
-    return node.getSpreadBaseBox();
-  } catch (_) {}
-
-  try {
-    return node.baseBox;
-  } catch (_) {}
-
-  return null;
+function clearPreviews(doc) {
+  try { doc.executeCommand(DocumentCommand.createClearPreviews()); } catch (_) {}
 }
 
-function snapshotParentChildren(targets) {
-  const snapshots = [];
-
-  for (const target of targets) {
-    const cached = [];
-
-    try {
-      const parent = target.node.parent;
-
-      if (parent) {
-        for (const child of parent.children) {
-          cached.push(child);
-        }
-      }
-    } catch (_) {}
-
-    snapshots.push(cached);
-  }
-
-  return snapshots;
-}
-
-function addUniqueNode(nodes, node) {
-  if (nodes.indexOf(node) === -1) {
-    nodes.push(node);
-  }
-}
-
-function isButtonBackground(node) {
-  try {
-    return node.userDescription === BACKGROUND_NAME;
-  } catch (_) {
-    return false;
-  }
-}
-
-function filterBackgroundNodes(nodes) {
-  const backgrounds = [];
-
-  if (!nodes) {
-    return backgrounds;
-  }
-
-  for (const node of nodes) {
-    if (isButtonBackground(node)) {
-      backgrounds.push(node);
-    }
-  }
-
-  return backgrounds;
-}
-
-function findInsertedBackgrounds(targets, snapshots) {
-  const inserted = [];
-
-  for (let i = 0; i < targets.length; i++) {
-    try {
-      const parent = targets[i].node.parent;
-
-      if (!parent) continue;
-
-      const before = snapshots[i];
-      const current = [];
-
-      for (const child of parent.children) {
-        current.push(child);
-      }
-
-      for (const child of current) {
-        if (before.indexOf(child) === -1 && isButtonBackground(child)) {
-          addUniqueNode(inserted, child);
-        }
-      }
-    } catch (_) {}
-  }
-
-  return inserted;
-}
-
-function scoreBackgroundMatch(node, geometry) {
-  const box = getNodeBox(node);
-
-  if (!box) {
-    return Number.MAX_VALUE;
-  }
-
-  return (
-    Math.abs(box.x - geometry.x) +
-    Math.abs(box.y - geometry.y) +
-    Math.abs(box.width - geometry.width) +
-    Math.abs(box.height - geometry.height)
-  );
-}
-
-function pairBackgroundsWithTargets(backgrounds, targets, conf) {
-  const pairs = [];
-  const used = [];
-
-  for (let i = 0; i < targets.length; i++) {
-    const geometry = getBackgroundGeometry(targets[i].box, conf);
-    let bestNode = null;
-    let bestIndex = -1;
-    let bestScore = Number.MAX_VALUE;
-
-    for (let j = 0; j < backgrounds.length; j++) {
-      if (used.indexOf(j) !== -1) continue;
-
-      const score = scoreBackgroundMatch(backgrounds[j], geometry);
-
-      if (score < bestScore) {
-        bestNode = backgrounds[j];
-        bestIndex = j;
-        bestScore = score;
-      }
-    }
-
-    if (!bestNode && backgrounds[i] && used.indexOf(i) === -1) {
-      bestNode = backgrounds[i];
-      bestIndex = i;
-    }
-
-    if (bestNode) {
-      used.push(bestIndex);
-      pairs.push({
-        background: bestNode,
-        content: targets[i].node,
-      });
-    }
-  }
-
-  return pairs;
-}
-
-function createContainerNearNode(doc, node, name) {
-  const definition = ContainerNodeDefinition.create(name);
-  const builder = AddChildNodesCommandBuilder.create();
-
-  builder.setInsertionTargetSelection(getNodeSelection(doc, node));
-  builder.addContainerNode(definition);
-
-  const cmd = builder.createCommand();
-  doc.executeCommand(cmd);
-
-  if (cmd.newNodes && cmd.newNodes.length > 0) {
-    return cmd.newNodes[0];
-  }
-
-  return null;
-}
-
-function moveNodesIntoContainer(doc, nodes, container) {
-  const compound = CompoundCommandBuilder.create();
-  let added = 0;
-
-  for (let i = 0; i < nodes.length; i++) {
-    try {
-      compound.addCommand(
-        DocumentCommand.createMoveNodes(
-          getNodeSelection(doc, nodes[i]),
-          container,
-          NodeMoveType.Inside,
-          NodeChildType.Main,
-        ),
-      );
-
-      added++;
-    } catch (_) {}
-  }
-
-  if (added === 0) {
-    return false;
-  }
-
-  doc.executeCommand(compound.createCommand());
+function executePreview(doc, targets, conf) {
+  const cmd = buildPreviewCommand(targets, conf);
+  if (!cmd) return false;
+  doc.executeCommand(cmd, true);
   return true;
 }
 
-function groupButtonPairs(doc, pairs) {
-  let grouped = 0;
+function createButtonsAndGroups(doc, targets, conf) {
+  const historyStart = doc.history.position;
 
-  for (const pair of pairs) {
+  function rollback(reason) {
+    console.log("Make Button: rolling back - " + reason);
     try {
-      const container = createContainerNearNode(
-        doc,
-        pair.content,
-        getButtonContainerName(pair.content),
+      if (doc.history.position !== historyStart) {
+        doc.history.position = historyStart;
+      }
+    } catch (e) {
+      console.log("Make Button: rollback failed - " + String(e));
+    }
+  }
+
+  const containerCompound = CompoundCommandBuilder.create();
+  let containerCount = 0;
+
+  for (const target of targets) {
+    try {
+      const definition = ContainerNodeDefinition.create(
+        getButtonContainerName(target.node)
+      );
+      const builder = AddChildNodesCommandBuilder.create();
+      builder.setInsertionTargetSelection(getNodeSelection(doc, target.node));
+      builder.addContainerNode(definition);
+      containerCompound.addCommand(
+        builder.createCommand(false, NodeChildType.Main),
+        false
+      );
+      containerCount++;
+    } catch (e) {
+      console.log("Make Button: failed to build container command for a target - " + String(e));
+    }
+  }
+
+  if (containerCount === 0) return false;
+
+  let containerCmd;
+  try {
+    containerCmd = containerCompound.createCommand();
+    doc.executeCommand(containerCmd);
+  } catch (e) {
+    rollback("container creation threw: " + String(e));
+    return false;
+  }
+
+  const containers = (containerCmd.newNodes || []).filter(n => {
+    try { return n.isContainerNode; } catch (_) { return false; }
+  });
+
+  if (containers.length !== targets.length) {
+    rollback("container count mismatch (" + containers.length + " of " + targets.length + ")");
+    return false;
+  }
+
+  const finalCompound = CompoundCommandBuilder.create();
+  let finalCount = 0;
+
+  for (let i = 0; i < targets.length; i++) {
+    const target = targets[i];
+    const container = containers[i];
+
+    try {
+      const bgBuilder = AddChildNodesCommandBuilder.create();
+      bgBuilder.setInsertionTarget(container);
+      bgBuilder.addNode(createBackgroundNodeDef(target.box, conf, target));
+      finalCompound.addCommand(
+        bgBuilder.createCommand(false, NodeChildType.Main),
+        false
       );
 
-      if (
-        container &&
-        moveNodesIntoContainer(doc, [pair.background, pair.content], container)
-      ) {
-        grouped++;
-      }
-    } catch (_) {}
+      finalCompound.addCommand(
+        DocumentCommand.createMoveNodes(
+          Selection.create(doc, [target.node]),
+          container,
+          NodeMoveType.Inside,
+          NodeChildType.Main
+        ),
+        false
+      );
+
+      finalCount++;
+    } catch (e) {
+      console.log("Make Button: failed to build finalize command for a target - " + String(e));
+    }
   }
 
-  return grouped;
-}
+  if (finalCount !== targets.length) {
+    rollback("only " + finalCount + " of " + targets.length + " targets finalized");
+    return false;
+  }
 
-function clearPreviews(doc) {
   try {
-    doc.executeCommand(DocumentCommand.createClearPreviews());
-  } catch (_) {}
-}
-
-function executeButtonCommand(doc, targets, conf, isPreview) {
-  const cmd = buildCompoundCommand(targets, conf);
-
-  if (!cmd) {
+    doc.executeCommand(finalCompound.createCommand());
+  } catch (e) {
+    rollback("finalize compound threw: " + String(e));
     return false;
-  }
-
-  doc.executeCommand(cmd, !!isPreview);
-  return cmd;
-}
-
-function createButtonsAndGroups(doc, targets, conf) {
-  const snapshots = snapshotParentChildren(targets);
-  const cmd = executeButtonCommand(doc, targets, conf, false);
-
-  if (!cmd) {
-    return false;
-  }
-
-  const commandBackgrounds = filterBackgroundNodes(cmd.newNodes);
-  const backgrounds =
-    commandBackgrounds.length >= targets.length
-      ? commandBackgrounds
-      : findInsertedBackgrounds(targets, snapshots);
-
-  const pairs = pairBackgroundsWithTargets(backgrounds, targets, conf);
-
-  if (pairs.length > 0) {
-    groupButtonPairs(doc, pairs);
   }
 
   return true;
 }
 
 function restoreSelection(doc, nodes) {
-  try {
-    doc.selection = Selection.create(doc, nodes);
-  } catch (_) {}
+  try { doc.selection = Selection.create(doc, nodes); } catch (_) {}
 }
 
 function main() {
   const doc = Document.current;
-
-  if (!doc) {
-    app.alert("No document open.", APP_NAME);
-    return;
-  }
+  if (!doc) { app.alert("No document open.", APP_NAME); return; }
 
   const targets = detectTargets(doc);
+  if (targets.length === 0) { app.alert("Please select at least one layer.", APP_NAME); return; }
 
-  if (targets.length === 0) {
-    app.alert("Please select at least one layer.", APP_NAME);
-    return;
-  }
+  const originalNodes = targets.map(t => t.node);
 
-  const originalNodes = targets.map((t) => t.node);
+  const globalMaxReferenceHeight = enrichTargetsForNormalize(targets);
+  const globalMaxWidth = computeMaxBoxWidth(targets);
 
   const dlg = Dialog.create(APP_NAME);
   dlg.initialWidth = 360;
-
   const col = dlg.addColumn();
 
-  const grp = col.addGroup("Button Appearance");
-
-  const picker = grp.addColourPicker("Background Fill", config.colour);
-
+  const bgGroup = col.addGroup("Background Fill");
+  bgGroup.enableSeparator = false;
+  const picker = bgGroup.addColourPicker("", config.colour);
   picker.isFullWidth = true;
 
-  const strokePicker = grp.addColourPicker("Stroke Fill", config.strokeColour);
-
+  const strokeGroup = col.addGroup("Stroke Fill");
+  strokeGroup.enableSeparator = false;
+  const strokePicker = strokeGroup.addColourPicker("", config.strokeColour);
   strokePicker.isFullWidth = true;
 
+  const grp = col.addGroup("Button Appearance");
+  grp.enableSeparator = true;
+
+  const normalizeHeightSwitch = grp.addSwitch("Normalize Height", config.normalizeHeight);
+  const normalizeWidthSwitch = grp.addSwitch("Normalize Width", config.normalizeWidth);
+  const textAlignCtrl = grp.addComboBox("Content Alignment", TEXT_ALIGNMENT_LABELS, config.textAlign);
   const linkSwitch = grp.addSwitch("Link Padding", true);
 
-  const padXCtrl = addPixelEditor(
-    grp,
-    "Horizontal Padding",
-    config.paddingX,
-    LIMITS.padding,
+  const padXCtrl = addPixelEditor(grp, "Horizontal Padding", config.paddingX, LIMITS.padding);
+  const padYCtrl = addPixelEditor(grp, "Vertical Padding", config.paddingY, LIMITS.padding);
+  const radiusCtrl = addPixelEditor(grp, "Corner Radius", config.cornerRadius, LIMITS.cornerRadius);
+  const strokeWidthCtrl = addPixelEditor(grp, "Stroke Width", config.strokeWidth, LIMITS.strokeWidth);
+  const strokeAlignmentCtrl = grp.addComboBox(
+    "Stroke Alignment",
+    STROKE_ALIGNMENT_LABELS,
+    STROKE_ALIGNMENT_VALUES.indexOf(config.strokeAlignment),
   );
 
-  const padYCtrl = addPixelEditor(
-    grp,
-    "Vertical Padding",
-    config.paddingY,
-    LIMITS.padding,
-  );
-
-  const radiusCtrl = addPixelEditor(
-    grp,
-    "Corner Radius",
-    config.cornerRadius,
-    LIMITS.cornerRadius,
-  );
-
-  const strokeWidthCtrl = addPixelEditor(
-    grp,
-    "Stroke Width",
-    config.strokeWidth,
-    LIMITS.strokeWidth,
-  );
+  const previewGrp = col.addGroup("");
+  previewGrp.enableSeparator = true;
+  const livePreviewSwitch = previewGrp.addSwitch("Enable Live Preview", config.livePreview);
 
   let isSyncing = false;
-
   let lastLink = linkSwitch.value;
   let lastPadX = padXCtrl.value;
   let lastPadY = padYCtrl.value;
-
   let previewTimer = null;
   let previewRunning = false;
   let previewQueued = false;
 
   function syncPaddingControls() {
     if (isSyncing) return;
-
     isSyncing = true;
-
     try {
       if (linkSwitch.value) {
         if (!lastLink) {
@@ -680,7 +516,6 @@ function main() {
           padXCtrl.value = padYCtrl.value;
         }
       }
-
       lastLink = linkSwitch.value;
       lastPadX = padXCtrl.value;
       lastPadY = padYCtrl.value;
@@ -691,54 +526,41 @@ function main() {
 
   function updateConfigFromUI() {
     config.paddingX = getEditorValue(padXCtrl, LIMITS.padding, config.paddingX);
-
     config.paddingY = getEditorValue(padYCtrl, LIMITS.padding, config.paddingY);
-
-    config.cornerRadius = getEditorValue(
-      radiusCtrl,
-      LIMITS.cornerRadius,
-      config.cornerRadius,
-    );
-
-    config.strokeWidth = getEditorValue(
-      strokeWidthCtrl,
-      LIMITS.strokeWidth,
-      config.strokeWidth,
-    );
-
+    config.cornerRadius = getEditorValue(radiusCtrl, LIMITS.cornerRadius, config.cornerRadius);
+    config.strokeWidth = getEditorValue(strokeWidthCtrl, LIMITS.strokeWidth, config.strokeWidth);
+    try {
+      config.strokeAlignment = STROKE_ALIGNMENT_VALUES[strokeAlignmentCtrl.selectedIndex];
+    } catch (_) {
+      config.strokeAlignment = config.strokeAlignment || StrokeAlignment.Outside;
+    }
     config.colour = getPickerValue(picker, config.colour);
-
     config.strokeColour = getPickerValue(strokePicker, config.strokeColour);
+    config.normalizeHeight = normalizeHeightSwitch.value;
+    config.normalizeWidth = normalizeWidthSwitch.value;
+    config.textAlign = textAlignCtrl.selectedIndex;
+    config.livePreview = livePreviewSwitch.value;
+
+    config._maxReferenceHeight = config.normalizeHeight ? globalMaxReferenceHeight : 0;
+    config._maxReferenceWidth = config.normalizeWidth ? globalMaxWidth : 0;
   }
 
   function refreshPreview() {
-    if (previewRunning) {
-      previewQueued = true;
-      return;
-    }
-
+    if (previewRunning) { previewQueued = true; return; }
     previewRunning = true;
-
     try {
       clearPreviews(doc);
-      executeButtonCommand(doc, targets, config, true);
-    } catch (_) {
-      // Silent preview failure
-    } finally {
-      previewRunning = false;
-
-      if (previewQueued) {
-        previewQueued = false;
-        queuePreview();
+      if (config.livePreview) {
+        executePreview(doc, targets, config);
       }
+    } catch (_) {} finally {
+      previewRunning = false;
+      if (previewQueued) { previewQueued = false; queuePreview(); }
     }
   }
 
   function queuePreview() {
-    if (previewTimer) {
-      return;
-    }
-
+    if (previewTimer) return;
     previewTimer = setTimeout(PREVIEW_DELAY, () => {
       previewTimer = null;
       refreshPreview();
@@ -753,46 +575,49 @@ function main() {
 
   picker.onValueChangedHandler = handleUpdate;
   strokePicker.onValueChangedHandler = handleUpdate;
+  strokeAlignmentCtrl.onValueChangedHandler = handleUpdate;
+  normalizeHeightSwitch.onValueChangedHandler = handleUpdate;
+  normalizeWidthSwitch.onValueChangedHandler = handleUpdate;
+  textAlignCtrl.onValueChangedHandler = handleUpdate;
   linkSwitch.onValueChangedHandler = handleUpdate;
   padXCtrl.onValueChangedHandler = handleUpdate;
   padYCtrl.onValueChangedHandler = handleUpdate;
   radiusCtrl.onValueChangedHandler = handleUpdate;
   strokeWidthCtrl.onValueChangedHandler = handleUpdate;
+  livePreviewSwitch.onValueChangedHandler = handleUpdate;
 
   const historyStart = doc.history.position;
-
   updateConfigFromUI();
   refreshPreview();
 
   const result = dlg.show();
-
   clearPreviews(doc);
 
   if (result.value === DialogResult.Ok.value) {
     updateConfigFromUI();
-
+    let created = false;
     try {
-      createButtonsAndGroups(doc, targets, config);
-    } catch (_) {
-      app.alert("Unable to create one or more grouped buttons.", APP_NAME);
+      created = createButtonsAndGroups(doc, targets, config);
+    } catch (e) {
+      console.log("Make Button: unexpected error creating buttons - " + String(e));
+    }
+    if (!created) {
+      app.alert("Unable to create one or more grouped buttons. No changes were made.", APP_NAME);
+      try {
+        if (doc.history.position !== historyStart)
+          doc.history.position = historyStart;
+      } catch (_) {}
     }
   } else {
     try {
-      if (doc.history.position !== historyStart) {
+      if (doc.history.position !== historyStart)
         doc.history.position = historyStart;
-      }
     } catch (_) {}
   }
 
   restoreSelection(doc, originalNodes);
-
-  setTimeout(0, () => {
-    restoreSelection(doc, originalNodes);
-  });
-
-  setTimeout(100, () => {
-    restoreSelection(doc, originalNodes);
-  });
+  setTimeout(0, () => { restoreSelection(doc, originalNodes); });
+  setTimeout(100, () => { restoreSelection(doc, originalNodes); });
 }
 
 main();
