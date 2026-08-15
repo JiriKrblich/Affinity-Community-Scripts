@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-08-10",
+  "last_updated": "2026-08-15",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -1105,6 +1105,17 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/blobgenerator.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/blobgenerator.js"
+    },
+    {
+      "id": "podhodRandomColors",
+      "name": "PODHOD Random Color",
+      "description": "Colors the fills/strokes of selected objects with random colors or color variations within a specified HSL range",
+      "author": "Vladimir Solovev",
+      "version": "2026.08.11",
+      "category": "Color",
+      "url": "https://podhod.com",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/podhodRandomColors.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/podhodRandomColors.js"
     }
   ]
 }
