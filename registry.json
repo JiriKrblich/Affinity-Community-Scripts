@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-08-15",
+  "last_updated": "2026-08-24",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -1116,6 +1116,16 @@
       "url": "https://podhod.com",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/podhodRandomColors.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/podhodRandomColors.js"
+    },
+    {
+      "id": "CreateGridBackground",
+      "name": "Create Grid Background",
+      "description": "Creates a centered grid bg in a container layer with size, color, gap control.",
+      "author": "Deba33",
+      "version": "0.1.0",
+      "category": "Layout",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/CreateGridBackground.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/CreateGridBackground.js"
     }
   ]
 }
