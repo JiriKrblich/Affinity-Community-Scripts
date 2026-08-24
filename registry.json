@@ -1145,6 +1145,18 @@
       "version": "1.0.0",
       "category": "Other",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/AngleBetweenTwoLines.js"
+    },
+    {
+      "id": "AutoDimensionPro",
+      "name": "Auto Dimension Pro",
+      "description": "Auto Dimension Pro is an advanced script for Affinity Designer and Publisher that automates the creation of technical dimensions, measurements, and dimensional annotations for selected objects. Ideal for architects, engineers, packaging designers (dielines), and any professional who needs accurate and scaled technical markings.",
+      "author": "spetoijmm",
+      "email": "sohcial.design@outlook.com",
+      "url": "sohcialdesign.com",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/AutoDimensionPro.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/AutoDimensionPro.js"
     }
   ]
 }
