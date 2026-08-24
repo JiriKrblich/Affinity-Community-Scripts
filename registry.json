@@ -915,10 +915,10 @@
     {
       "id": "gradient-tweak",
       "name": "Gradient Tweak",
-      "description": "Gradient Tweak modifies the colour stops of a gradient fill or stroke on a selected object in Affinity 3.0. It supports regular vector objects (shapes), whole text objects, and individual marked character ranges within a text.",
+      "description": "Gradient Tweak modifies the colour stops of a gradient fill or stroke on a selected object in Affinity Designer or Publisher. It supports regular vector objects, text objects (whole or only a marked character range), and offers extensive colour and spacing tools including presets.",
       "author": "Erhard Otto",
       "email": "erhard.otto@bossmail.de",
-      "version": "3.0.0",
+      "version": "3.5.0",
       "category": "Color",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/gradient-tweak.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/gradient-tweak.js"
@@ -1133,9 +1133,18 @@
       "description": "Creates a centered grid bg in a container layer with size, color, gap control.",
       "author": "Deba33",
       "version": "0.1.0",
-      "category": "Layout",
+      "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/RandomMutedBlob.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/RandomMutedBlob.js"
+    },
+    {
+      "id": "AngleBetweenTwoLines",
+      "name": "Angle Between Two Lines",
+      "description": "Measures the angle between two independent lines (curves) you have selected and displays it in a window",
+      "author": "ziplock9000",
+      "version": "1.0.0",
+      "category": "Other",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/AngleBetweenTwoLines.js"
     }
   ]
 }
