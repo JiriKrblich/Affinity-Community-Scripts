@@ -1126,6 +1126,16 @@
       "category": "Layout",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/CreateGridBackground.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/CreateGridBackground.js"
+    },
+    {
+      "id": "RandomMutedBlob",
+      "name": "Random Muted Blob",
+      "description": "Creates a centered grid bg in a container layer with size, color, gap control.",
+      "author": "Deba33",
+      "version": "0.1.0",
+      "category": "Layout",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/RandomMutedBlob.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/RandomMutedBlob.js"
     }
   ]
 }
