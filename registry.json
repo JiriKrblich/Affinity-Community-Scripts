@@ -1157,6 +1157,17 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/AutoDimensionPro.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/AutoDimensionPro.js"
-    }
+    },
+    {
+          "id": "RandomizeAnchorPoints",
+          "name": "Randomize Anchor Points",
+          "description": "Randomize Anchor Points is an Affinity script that randomly moves the anchor points of curve objects. Three effects Linear (independent X/Y jitter), Radial (displacement to/from a center point), and Direction can be used simultaneously Control points (bezier handles) are, by default, moved rigidly together with their respective anchor point, so the underlying curve shape isn't damaged by distorted tangents, optionally switchable off. The script respects a partial selection of anchor points made in the Node tool – optionally only a random percentage of them.",
+          "author": "Erhard Otto",
+          "email": "erhard.otto@bossmail.de",
+          "version": "2.0.0",
+          "category": "Object",
+          "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/RandomizeAnchorPoints.jpg",
+          "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/RandomizeAnchorPoints.js"
+        }
   ]
 }
