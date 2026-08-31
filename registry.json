@@ -731,7 +731,7 @@
       "name": "Quick Mirror",
       "description": "Mirrors the selected layer to the left, right, top, or bottom with an adjustable gap.",
       "author": "hellsfaun",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/quick-mirror.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/quick-mirror.js"

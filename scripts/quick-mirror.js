@@ -1,7 +1,7 @@
 /**
  * name: Quick Mirror
  * description: Mirrors the selected layer to the left, right, top, or bottom with an adjustable gap.
- * version: 1.0.0
+ * version: 1.1.1
  * author: hellsfaun
  */
 
@@ -10,14 +10,8 @@
 const { app } = require("/application");
 const { Document } = require("/document");
 const { Dialog, DialogResult } = require("/dialog");
-const {
-  AddChildNodesCommandBuilder,
-  CompoundCommandBuilder,
-  DocumentCommand,
-  InsertionMode,
-  NodeChildType,
-  NodeMoveType,
-} = require("/commands");
+const { AddChildNodesCommandBuilder, CompoundCommandBuilder, DocumentCommand, InsertionMode, NodeChildType, NodeMoveType } = require("/commands");
+const { DocumentCommandApi } = require("affinity:commands");
 const { Transform } = require("/geometry");
 const { ContainerNodeDefinition } = require("/nodes");
 const { Selection } = require("/selections");
@@ -26,48 +20,29 @@ const { UnitType } = require("/units");
 const APP_NAME = "Quick Mirror";
 const DIRECTIONS = ["Right", "Left", "Bottom", "Top"];
 const DEFAULT_GAP = 0;
-const DEFAULT_GROUP_RESULT = false;
+const OUTPUT_MODES = ["Separate layers", "A container layer", "A merged shape"];
+const DEFAULT_OUTPUT_MODE_INDEX = 0;
 
 const doc = Document.current;
 
 function toArray(collection) {
   if (!collection) return [];
-  try {
-    if (collection.toArray) return collection.toArray();
-  } catch (_) {}
-  try {
-    if (Array.isArray(collection)) return collection.slice();
-  } catch (_) {}
-  try {
-    if (collection.length !== undefined && typeof collection !== "string")
-      return Array.from(collection);
-  } catch (_) {}
+  try { if (collection.toArray) return collection.toArray(); } catch (_) {}
+  try { if (Array.isArray(collection)) return collection.slice(); } catch (_) {}
+  try { if (collection.length !== undefined && typeof collection !== 'string') return Array.from(collection); } catch (_) {}
   const result = [];
-  try {
-    for (const item of collection) result.push(item);
-  } catch (_) {}
+  try { for (const item of collection) result.push(item); } catch (_) {}
   return result;
 }
 
 function getSelectedNodes() {
-  try {
-    return toArray(doc.selection.nodes);
-  } catch (_) {
-    return [];
-  }
+  try { return toArray(doc.selection.nodes); } catch (_) { return []; }
 }
 
 function getNodeLabel(node, fallback) {
   try {
-    return (
-      node.userDescription ||
-      node.defaultDescriptionForDisplay ||
-      node.defaultDescription ||
-      fallback
-    );
-  } catch (_) {
-    return fallback;
-  }
+    return node.userDescription || node.defaultDescriptionForDisplay || node.defaultDescription || fallback;
+  } catch (_) { return fallback; }
 }
 
 function getNodeBox(node) {
@@ -75,11 +50,7 @@ function getNodeBox(node) {
     const box = node.getSpreadBaseBox(false);
     if (box && isFinite(box.x) && isFinite(box.y)) return box;
   } catch (_) {}
-  try {
-    return node.baseBox;
-  } catch (_) {
-    return null;
-  }
+  try { return node.baseBox; } catch (_) { return null; }
 }
 
 function getMirrorTransform(box, direction, gap) {
@@ -89,45 +60,19 @@ function getMirrorTransform(box, direction, gap) {
 
   switch (direction) {
     case "Left":
-      return Transform.createTranslate(-gap, 0)
-        .multiply(Transform.createTranslate(x, 0))
-        .multiply(Transform.createScale(-1, 1))
-        .multiply(Transform.createTranslate(-x, 0));
+      return Transform.createTranslate(-gap, 0).multiply(Transform.createTranslate(x, 0)).multiply(Transform.createScale(-1, 1)).multiply(Transform.createTranslate(-x, 0));
     case "Top":
-      return Transform.createTranslate(0, -gap)
-        .multiply(Transform.createTranslate(0, y))
-        .multiply(Transform.createScale(1, -1))
-        .multiply(Transform.createTranslate(0, -y));
+      return Transform.createTranslate(0, -gap).multiply(Transform.createTranslate(0, y)).multiply(Transform.createScale(1, -1)).multiply(Transform.createTranslate(0, -y));
     case "Bottom":
-      return Transform.createTranslate(0, gap)
-        .multiply(Transform.createTranslate(0, bottom))
-        .multiply(Transform.createScale(1, -1))
-        .multiply(Transform.createTranslate(0, -bottom));
+      return Transform.createTranslate(0, gap).multiply(Transform.createTranslate(0, bottom)).multiply(Transform.createScale(1, -1)).multiply(Transform.createTranslate(0, -bottom));
     case "Right":
     default:
-      return Transform.createTranslate(gap, 0)
-        .multiply(Transform.createTranslate(right, 0))
-        .multiply(Transform.createScale(-1, 1))
-        .multiply(Transform.createTranslate(-right, 0));
+      return Transform.createTranslate(gap, 0).multiply(Transform.createTranslate(right, 0)).multiply(Transform.createScale(-1, 1)).multiply(Transform.createTranslate(-right, 0));
   }
-}
-
-function isCurveNode(node) {
-  try {
-    return !!(node && node.isPolyCurveNode && node.polyCurve);
-  } catch (_) {
-    return false;
-  }
-}
-
-function allSelectedAreCurves(nodes) {
-  return nodes.length > 0 && nodes.every(isCurveNode);
 }
 
 function safeExec(cmd) {
-  try {
-    if (cmd) doc.executeCommand(cmd);
-  } catch (_) {}
+  try { if (cmd) doc.executeCommand(cmd); } catch (_) {}
 }
 
 function sel(nodes, append) {
@@ -135,19 +80,13 @@ function sel(nodes, append) {
     if (nodes === undefined) return Selection.create(doc);
     if (Array.isArray(nodes)) return Selection.create(doc, nodes, !!append);
     return Selection.create(doc, nodes);
-  } catch (_) {
-    return Selection.create(doc);
-  }
+  } catch (_) { return Selection.create(doc); }
 }
 
 function createContainerAndMove(nodes, nearNode, name) {
   if (!nodes || !nodes.length) return null;
   const builder = AddChildNodesCommandBuilder.create();
-  try {
-    builder.setInsertionTargetSelection(sel(nearNode));
-  } catch (_) {
-    builder.setInsertionTarget(doc.currentSpread);
-  }
+  try { builder.setInsertionTargetSelection(sel(nearNode)); } catch (_) { builder.setInsertionTarget(doc.currentSpread); }
   builder.addContainerNode(ContainerNodeDefinition.create(name));
   const addCmd = builder.createCommand(true, NodeChildType.Main);
   safeExec(addCmd);
@@ -157,14 +96,7 @@ function createContainerAndMove(nodes, nearNode, name) {
   let added = 0;
   for (const node of nodes) {
     try {
-      compound.addCommand(
-        DocumentCommand.createMoveNodes(
-          sel(node),
-          container,
-          NodeMoveType.Inside,
-          NodeChildType.Main,
-        ),
-      );
+      compound.addCommand(DocumentCommand.createMoveNodes(sel(node), container, NodeMoveType.Inside, NodeChildType.Main));
       added++;
     } catch (_) {}
   }
@@ -175,11 +107,39 @@ function createContainerAndMove(nodes, nearNode, name) {
 function duplicateMirroredLayer(node, direction, gap) {
   const box = getNodeBox(node);
   if (!box) return null;
+  const originalLabel = getNodeLabel(node, "Layer");
   const duplicate = node.duplicate(getMirrorTransform(box, direction, gap));
-  try {
-    duplicate.userDescription = getNodeLabel(node, "Layer") + " (Mirror)";
-  } catch (_) {}
+  try { duplicate.userDescription = originalLabel + " — M"; } catch (_) {}
+  try { node.userDescription = originalLabel + " — O"; } catch (_) {}
   return duplicate;
+}
+
+function unionMirroredPair(node, direction, gap) {
+  const box = getNodeBox(node);
+  if (!box) return null;
+  const duplicate = node.duplicate(getMirrorTransform(box, direction, gap));
+  if (!duplicate) return null;
+
+  const pairSelection = sel([node, duplicate]);
+  let unionCmd;
+  try {
+    unionCmd = new DocumentCommand(DocumentCommandApi.createBoolOpUnionCommand(pairSelection.handle));
+  } catch (_) {
+    return null;
+  }
+
+  try { doc.executeCommand(unionCmd); } catch (_) { return null; }
+
+  let result = null;
+  try {
+    const selected = toArray(doc.selection.nodes);
+    result = selected && selected[0];
+  } catch (_) {}
+
+  if (result) {
+    try { result.userDescription = getNodeLabel(node, "Layer") + " — MC"; } catch (_) {}
+  }
+  return result;
 }
 
 function mirrorAsLayers(nodes, direction, gap, groupResult) {
@@ -187,7 +147,7 @@ function mirrorAsLayers(nodes, direction, gap, groupResult) {
 
   if (groupResult) {
     const first = nodes[0];
-    const groupName = getNodeLabel(first, "Layer") + " (Mirrored)";
+    const groupName = getNodeLabel(first, "Layer") + " — M";
     const toMove = [];
     for (const node of nodes) {
       const duplicate = duplicateMirroredLayer(node, direction, gap);
@@ -197,8 +157,7 @@ function mirrorAsLayers(nodes, direction, gap, groupResult) {
     }
     if (toMove.length) {
       const container = createContainerAndMove(toMove, first, groupName);
-      if (container) outputNodes.push(container);
-      else outputNodes.push(...toMove.filter(Boolean));
+      if (container) outputNodes.push(container); else outputNodes.push(...toMove.filter(Boolean));
     }
   } else {
     for (const node of nodes) {
@@ -209,40 +168,18 @@ function mirrorAsLayers(nodes, direction, gap, groupResult) {
     }
   }
 
-  if (outputNodes.length)
-    safeExec(DocumentCommand.createSetSelection(sel(outputNodes, true)));
+  if (outputNodes.length) safeExec(DocumentCommand.createSetSelection(sel(outputNodes, true)));
   return outputNodes.length;
 }
 
-function mirrorAsCurveNodes(nodes, direction, gap, groupResult) {
+function mirrorAsCompound(nodes, direction, gap) {
   const outputNodes = [];
-
-  if (groupResult) {
-    const first = nodes[0];
-    const groupName = getNodeLabel(first, "Layer") + " (Mirrored)";
-    const toMove = [];
-    for (const node of nodes) {
-      const duplicate = duplicateMirroredLayer(node, direction, gap);
-      if (!duplicate) continue;
-      toMove.push(node);
-      toMove.push(duplicate);
-    }
-    if (toMove.length) {
-      const container = createContainerAndMove(toMove, first, groupName);
-      if (container) outputNodes.push(container);
-      else outputNodes.push(...toMove.filter(Boolean));
-    }
-  } else {
-    for (const node of nodes) {
-      const duplicate = duplicateMirroredLayer(node, direction, gap);
-      if (!duplicate) continue;
-      outputNodes.push(node);
-      outputNodes.push(duplicate);
-    }
+  for (const node of nodes) {
+    const result = unionMirroredPair(node, direction, gap);
+    if (result) outputNodes.push(result);
   }
-
-  if (outputNodes.length)
-    safeExec(DocumentCommand.createSetSelection(sel(outputNodes, true)));
+  if (!outputNodes.length) return 0;
+  safeExec(DocumentCommand.createSetSelection(sel(outputNodes, true)));
   return outputNodes.length;
 }
 
@@ -253,13 +190,7 @@ function createLayerPreviewCommand(nodes, direction, gap) {
     const box = getNodeBox(node);
     if (!box) continue;
     try {
-      compound.addCommand(
-        DocumentCommand.createTransform(
-          Selection.create(doc, node),
-          getMirrorTransform(box, direction, gap),
-          { duplicateNodes: true },
-        ),
-      );
+      compound.addCommand(DocumentCommand.createTransform(Selection.create(doc, node), getMirrorTransform(box, direction, gap), { duplicateNodes: true }));
       commandCount++;
     } catch (_) {}
   }
@@ -267,53 +198,39 @@ function createLayerPreviewCommand(nodes, direction, gap) {
 }
 
 function clearPreview() {
-  try {
-    doc.executeCommand(DocumentCommand.createClearPreviews());
-  } catch (_) {}
+  try { doc.executeCommand(DocumentCommand.createClearPreviews()); } catch (_) {}
 }
 
-function buildDialog(curveMode) {
+function buildDialog() {
   const dlg = Dialog.create(APP_NAME);
   const col = dlg.addColumn();
   const mirrorGroup = col.addGroup("Mirror");
   dlg.direction = mirrorGroup.addComboBox("Direction", DIRECTIONS, 0);
   dlg.direction.customSize = { width: 130, height: -1 };
-  dlg.gap = mirrorGroup.addUnitValueEditor(
-    "Gap",
-    UnitType.Pixel,
-    UnitType.Pixel,
-    DEFAULT_GAP,
-    0,
-    100,
-  );
+  dlg.gap = mirrorGroup.addUnitValueEditor("Gap", UnitType.Pixel, UnitType.Pixel, DEFAULT_GAP, 0, 100);
   dlg.gap.showPopupSlider = true;
   const outputGroup = col.addGroup("Output");
-  dlg.groupResult = outputGroup.addSwitch("Group result", DEFAULT_GROUP_RESULT);
+  dlg.outputMode = outputGroup.addRadioGroup("Keep result as", OUTPUT_MODES, DEFAULT_OUTPUT_MODE_INDEX);
   return dlg;
 }
 
 function main() {
-  if (!doc) {
-    app.alert("Quick Mirror requires an open document.");
-    return;
-  }
+  if (!doc) { app.alert("Quick Mirror requires an open document."); return; }
 
   const nodes = getSelectedNodes();
-  if (!nodes.length) {
-    app.alert("Select one or more layers first.");
-    return;
-  }
+  if (!nodes.length) { app.alert("Select one or more layers first."); return; }
 
-  const curveMode = allSelectedAreCurves(nodes);
-  const dlg = buildDialog(curveMode);
+  const dlg = buildDialog();
   let inPreview = false;
   let dialogOpen = false;
 
   function readValues() {
+    const outputMode = OUTPUT_MODES[dlg.outputMode.selectedIndex] || OUTPUT_MODES[0];
     return {
       direction: DIRECTIONS[dlg.direction.selectedIndex] || DIRECTIONS[0],
       gap: Number(dlg.gap.value) || 0,
-      groupResult: !!dlg.groupResult.value,
+      groupResult: outputMode === "A container layer",
+      compoundResult: outputMode === "A merged shape",
     };
   }
 
@@ -322,11 +239,7 @@ function main() {
     inPreview = true;
     try {
       const values = readValues();
-      const command = createLayerPreviewCommand(
-        nodes,
-        values.direction,
-        values.gap,
-      );
+      const command = createLayerPreviewCommand(nodes, values.direction, values.gap);
       clearPreview();
       if (command) doc.executeCommand(command, true);
     } catch (_) {
@@ -338,7 +251,7 @@ function main() {
 
   dlg.direction.onValueChangedHandler = updatePreview;
   dlg.gap.onValueChangedHandler = updatePreview;
-  dlg.groupResult.onValueChangedHandler = updatePreview;
+  dlg.outputMode.onValueChangedHandler = updatePreview;
   dlg.onControlValueChangedHandler = updatePreview;
 
   dialogOpen = true;
@@ -350,18 +263,12 @@ function main() {
 
   if (result.value !== DialogResult.Ok.value) return;
 
-  const count = curveMode
-    ? mirrorAsCurveNodes(
-        nodes,
-        values.direction,
-        values.gap,
-        values.groupResult,
-      )
+  const count = values.compoundResult
+    ? mirrorAsCompound(nodes, values.direction, values.gap)
     : mirrorAsLayers(nodes, values.direction, values.gap, values.groupResult);
 
-  if (count === 0)
-    app.alert("Quick Mirror could not mirror the selected layer.");
+  if (count === 0) app.alert("Quick Mirror could not mirror the selected layer.");
 }
 
 main();
-module.exports.main = main;
+module.exports.main = main;``
