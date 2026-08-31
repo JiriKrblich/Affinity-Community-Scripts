@@ -1211,6 +1211,17 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Oneclickhideandadjustfiltereffects.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Oneclickhideandadjustfiltereffects.js"
+    },
+    {
+      "id": "FindAndReplaceArtboardNames",
+      "name": "Find & Replace Artboard Names",
+      "description": "Lets users batch Find and Replace text in artboard names.",
+      "author": "MysiSprzet",
+      "email": "kacper.wegrowski@gmail.com",
+      "version": "1.0.0",
+      "category": "Artboards",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/FindAndReplaceArtboardNames.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/FindAndReplaceArtboardNames.js"
     }
   ]
 }
