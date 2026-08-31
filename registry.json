@@ -1200,6 +1200,17 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Warp-into-Shape.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Warp-into-Shape.js"
+    },
+    {
+      "id": "Oneclickhideandadjustfiltereffects",
+      "name": "One click hide and adjust filter effects",
+      "description": "Hide all effect layers to solve the problem of unsmooth images caused by too many effects",
+      "author": "wcpone",
+      "email": "2371659595@qq.com",
+      "version": "0.1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Oneclickhideandadjustfiltereffects.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Oneclickhideandadjustfiltereffects.js"
     }
   ]
 }
