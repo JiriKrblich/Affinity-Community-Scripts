@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-08-24",
+  "last_updated": "2026-08-31",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -1170,7 +1170,7 @@
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/RandomizeAnchorPoints.js"
     },
     {
-    "id": "split-art-text",
+      "id": "split-art-text",
       "name": "Split Art Text",
       "description": "Split multi-line text into single lines, split spaced single-line text into segments, and split unspaced single-line text into individual characters.",
       "author": "wcpone",
@@ -1179,6 +1179,27 @@
       "category": "Text",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/split-art-text.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/split-art-text.js"
+    },
+    {
+      "id": "Warp-into-Shape",
+      "name": "Warp into Shape",
+      "description": "Warp into Shape is an Affinity script that fits a vector object or vector group into the contour of any base shape (area warp) or arranges it along that contour (path mode). The script offers seven warp methods, adjustable resolution and detail fidelity, start/end offsets to avoid strong distortion at the edges, a preset system for saving/loading settings, and a genuine live preview: every parameter change updates the result in the document immediately",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Warp-into-Shape.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Warp-into-Shape.js"
+    },
+    {
+      "id": "advancedframebuilder",
+      "name": "Advanced Frame Builder",
+      "description": "Generate up to 5 concentric frames. Stable geometry for ultra-thick strokes.",
+      "author": "sort0m",
+      "version": "2.10.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Warp-into-Shape.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Warp-into-Shape.js"
     }
   ]
 }
