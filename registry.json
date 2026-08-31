@@ -1222,6 +1222,17 @@
       "category": "Artboards",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/FindAndReplaceArtboardNames.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/FindAndReplaceArtboardNames.js"
+    },
+    {
+      "id": "PrintAndPackagingLayerSetup",
+      "name": "Print & Packaging Layer Setup",
+      "description": "This script instantly generates a standardized, industry-ready layer structure for print and packaging design. When executed, it creates a perfectly ordered, bottom-to-top Z-axis layer stack consisting of Backgrounds, Main Design, Special Finishes, and Dielines (with sub-layers for cuts, creases, and foil/emboss). It automatically detects if you have an Artboard selected and will nest the new structure safely inside it; otherwise, it builds the layers globally on the current spread. This is a massive time-saver for setting up mechanical files and ensures technical/non-artwork paths stay separated from print artwork.",
+      "author": "Anand Kumar",
+      "email": "akgaming1344fi@gmail.com",
+      "version": "1.0.0",
+      "category": "Artboards",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/PrintAndPackagingLayerSetup.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/PrintAndPackagingLayerSetup.js"
     }
   ]
 }
