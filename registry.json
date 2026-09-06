@@ -1245,6 +1245,16 @@
       "category": "Export",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/exportallopenfilesasjpeg.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/exportallopenfilesasjpeg.js"
+    },
+    {
+      "id": "normalmapmaker",
+      "name": "Normal Map Maker",
+      "description": "Generate a normal map from a selected raster image inside Affinity. You can make fine adjustments with a live preview and the normal map will save as new layer inside the document.",
+      "author": "jeffthor10",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/normalmapmaker.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/exportallopenfilesasjpeg.js"
     }
   ]
 }
