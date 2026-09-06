@@ -87,7 +87,7 @@
       "name": "Zig Zag Effect",
       "description": "This script transforms a selected shape or line into a zig zag pattern. Simply select a shape or path, run the script, and it will automatically apply a zig zag effect to it.",
       "author": "BlackMortimer-13",
-      "version": "2.0",
+      "version": "3.0",
       "category": "Effect",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ZigZag.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/zigzageffect.js"
@@ -153,10 +153,10 @@
     },
     {
       "id": "PuckerBloatEffect",
-      "name": "PuckerBloatEffect",
+      "name": "Pucker & Bloat",
       "description": "Applies a Pucker & Bloat effect to the selected object(s), pulling anchor points inward (Pucker) or outward (Bloat) to distort",
       "author": "BlackMortimer-13",
-      "version": "1.0",
+      "version": "3.0",
       "category": "Effect",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Pucker&Bloat.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/PuckerBloatEffect.js"
@@ -239,7 +239,7 @@
       "name": "ReplaceObjectwithObject",
       "description": "The script replaces all selected objects with duplicates of the key object (select 2 objects then press Option on Mac or Alt on Windows on the object you want to become the key object), while preserving position and rotation, with optional size matching.",
       "author": "BlackMortimer-13",
-      "version": "2.0.0",
+      "version": "3.0.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ReplaceObjectsWithObject.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replaceobjectswithobject.js"
@@ -259,7 +259,7 @@
       "name": "Arrange on Path",
       "description": "Distributes selected objects evenly along auto-detected vector paths, with support for multiple paths, randomization, interpolation, smart sorting, open/closed paths, and repeat mode for tiling objects along the path.",
       "author": "BlackMortimer-13",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "category": "Path",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ArrangeObjectsOnPath.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/arrange-on-path-v1.js"
@@ -348,7 +348,7 @@
       "name": "Fill Path With Objects",
       "description": "This script fills a selected closed vector path with multiple copies of one or more template objects. It supports different grid types (rectangular, hex, circular, radial, etc.), randomization, scaling, rotation, and spacing controls. Select a closed path and objects, adjust settings, then preview or apply.  ",
       "author": "BlackMortimer-13",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "category": "Generator",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/FillPathWithObjects.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/fill-path-with-objects-v1.js"
@@ -369,7 +369,7 @@
       "name": "Extrude Tool",
       "description": "This script generates a 3D-like extrusion effect by connecting selected vector shapes. Once executed, the tool automatically calculates, subdivides, and renders the connecting geometry, organizing the resulting faces while preserving your original shapes as caps",
       "author": "BlackMortimer-13",
-      "version": "4.0.0",
+      "version": "5.0.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Extrude.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/extrudetool.js"
@@ -418,7 +418,7 @@
       "name": "Twist Effect",
       "description": "This script applies a progressive polar rotation (twist) to selected curves, shapes, or groups, mimicking Adobe Illustrator's twist effect. Select your vector elements first; the script subdivides Bezier curves, twists points radially based on distance from the center, and reconstructs the path.",
       "author": "BlackMortimer-13",
-      "version": "2.0.0",
+      "version": "3.0.0",
       "category": "Effect",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Twist.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/twist-effect.js"
@@ -661,7 +661,7 @@
       "name": "Radial Repeat",
       "description": "Select one or more objects, then duplicate them automatically in a radial layout around the center of the selection. The script supports multiple circular rows, live preview, controls for radius, spacing, rotation, and scaling, plus a row template mode for assigning different selected objects to specific rows",
       "author": "BlackMortimer-13",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/RadialRepeat.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/radial-repeat.js"
