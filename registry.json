@@ -1324,7 +1324,7 @@
       "description": "By default, all decimal points of layer position dimensions will be eliminated. If a layer is selected, only the selected layer will be eliminated.",
       "author": "wcpone",
       "version": "1.1.0",
-      "category": "Text",
+      "category": "Object",
       "email":"2371659595@qq.com",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/remove-decimal-point.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/remove-decimal-point.js"
