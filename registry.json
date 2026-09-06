@@ -570,8 +570,9 @@
       "name": "Simplify Curves",
       "description": "Script for reducing points of object curves",
       "author": "JiriKrblich",
+      "contributors":"BlackMortimer-13",
       "url": "https://jirikrblich.netlify.app",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/simplify_curves.gif",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/simplify_curves.js"
@@ -1266,6 +1267,67 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/colorcard.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/colorcard.js"
+    },
+    {
+      "id": "Rougheneffect",
+      "name": "Roughen Effect",
+      "description": "Converts procedural effects into normal editable vector shapes. It takes the generated result out of the effect group, preserves any of your own objects inside it, and removes the hidden source layers and wrapper group. In short: it is the bake/expand command for these effects.",
+      "author": "BlackMortimer-13",
+      "version": "3.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Rougheneffect.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Rougheneffect.js"
+    },
+    {
+      "id": "PivotRepeat",
+      "name": "Pivot Repeat",
+      "description": "Repeats one or more objects around a central pivot point. Use it to create flowers, mandalas, rosettes, radial patterns, circular ornaments, and gear-like designs. You can control copy count, rotation, distance from the center, scale, concentric rings, and layer order.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/PivotRepeat.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/PivotRepeat.js"
+    },
+    {
+      "id": "StrokeWidth",
+      "name": "Stroke Width",
+      "description": "Changes the stroke width of every selected vector object at once, including objects inside groups, masks, and clipping structures. It has one simple setting: stroke width in points, with a live preview.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/StrokeWidth.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/StrokeWidth.js"
+    },
+    {
+      "id": "ProceduralTransform",
+      "name": "Procedural Transform",
+      "description": "Applies a gradual transformation across multiple objects. For example, objects can progressively become larger, narrower, taller, or more rotated. It includes curve controls, so the transformation can be linear, smooth, accelerated, wave-like, or concentrated around a middle point.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ProceduralTransform.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ProceduralTransform.js"
+    },
+    {
+      "id": "ShowAllHiddenInArtboard",
+      "name": "Show All Hidden In Artboard",
+      "description": "Instantly reveals every hidden item inside the selected artboard: layers, objects, groups, masks, clipped items, and nested content. If nothing is selected, it checks the artboards on the active spread.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ShowAllHiddenInArtboard.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ShowAllHiddenInArtboard.js"
+    },
+    {
+      "id": "remove-decimal-point",
+      "name": "Remove Decimal Point",
+      "description": "By default, all decimal points of layer position dimensions will be eliminated. If a layer is selected, only the selected layer will be eliminated.",
+      "author": "wcpone",
+      "version": "1.1.0",
+      "category": "Text",
+      "email":"2371659595@qq.com",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/remove-decimal-point.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/remove-decimal-point.js"
     }
   ]
 }
