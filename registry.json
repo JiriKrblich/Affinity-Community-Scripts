@@ -1255,6 +1255,17 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/normalmapmaker.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/exportallopenfilesasjpeg.js"
+    },
+    {
+      "id": "colorcard",
+      "name": "Color Card",
+      "description": "Generates a compact color swatch card (color square + name if it matches a named color + HEX + RGB + HSL + CMYK) for each object selected on the artboard. Ignores any unselected object. If nothing is selected, or none of the selected objects has a solid fill, displays a warning instead of generating empty cards",
+      "author": "Ana Quiros 'Nita'",
+      "email":"vquirosq2510@gmail.com",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/colorcard.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/colorcard.js"
     }
   ]
 }
