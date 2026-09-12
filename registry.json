@@ -1328,6 +1328,17 @@
       "email":"2371659595@qq.com",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/remove-decimal-point.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/remove-decimal-point.js"
+    },
+    {
+      "id": "SwissCalendarCreator",
+      "name": "Swiss Calendar Creator",
+      "description": "Generates calendars in the International Typographic Style (Swiss design): strict grid, flush-left sans-serif, hairline rules, generous white space, one accent ink. Four views: Year (12 mini-months, the grid adapts to the page proportion), Month (the classic grid, with an optional week-number column, ISO 8601 or from 1 the way commercial planners count, and dimmed adjacent-month days), Week (7 full-height columns with the date range and ISO week number), and Day (a single day with an optional hour agenda that reflows: on a landscape area the date sits left and the hours fill the right column, on a portrait area everything stacks). Interface and calendar content in English or Spanish.",
+      "author": "Victor Crespo (3dvic)",
+      "version": "1.0.0",
+      "category": "Object",
+      "url":"https://github.com/vicc3d",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/SwissCalendarCreator.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/SwissCalendarCreator.js"
     }
   ]
 }
