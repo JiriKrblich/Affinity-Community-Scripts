@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-09-06",
+  "last_updated": "2026-09-15",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -1339,6 +1339,28 @@
       "url":"https://github.com/vicc3d",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/SwissCalendarCreator.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/SwissCalendarCreator.js"
+    },
+    {
+      "id": "optical-kerning",
+      "name": "Optical Kerning",
+      "description": "Automatically kerns the selected text by the shapes of the letters",
+      "author": "JiriKrblich",
+      "url": "https://jirikrblich.netlify.app",
+      "version": "1.0.0",
+      "category": "Text",
+      "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/optical-kerning.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/optical-kerning.js"
+    },
+    {
+      "id": "CMYK-Black-Preview",
+      "name": "CMYK Black Preview",
+      "description": "Shows CMYK blacks on screen the way Adobe apps do with Appearance of Black: Display All Blacks as Rich Black",
+      "author": "JiriKrblich",
+      "url": "https://jirikrblich.netlify.app",
+      "version": "1.0.0",
+      "category": "Color",
+      "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/CMYK-Black-Preview.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/CMYK-Black-Preview.js"
     }
   ]
 }
