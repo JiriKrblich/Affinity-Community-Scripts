@@ -612,12 +612,22 @@
             }
         }
 
+        function isSafeUrl(url) {
+            try {
+                const protocol = new URL(url, REGISTRY_URL).protocol;
+                return protocol === 'https:' || protocol === 'http:';
+            } catch {
+                return false;
+            }
+        }
+
         function resolveAssetUrl(assetUrl) {
             if (!assetUrl) return '';
             try {
-                return new URL(assetUrl, REGISTRY_URL).toString();
+                const resolved = new URL(assetUrl, REGISTRY_URL).toString();
+                return isSafeUrl(resolved) ? resolved : '';
             } catch {
-                return assetUrl;
+                return isSafeUrl(assetUrl) ? assetUrl : '';
             }
         }
 
@@ -704,7 +714,7 @@
             const version = escapeHtml(script.version || '1.0');
             const category = script.category ? escapeHtml(script.category) : null;
             const imageUrl = script._imageUrl || '';
-            const downloadUrl = script.download_url || '';
+            const downloadUrl = isSafeUrl(script.download_url) ? script.download_url : '';
 
             const backdrop = document.createElement('div');
             backdrop.className = 'modal-backdrop';
