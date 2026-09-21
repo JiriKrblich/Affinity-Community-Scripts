@@ -1395,6 +1395,17 @@
       "category": "Artboards",
       "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/covnerttoartboards.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/covnerttoartboards.js"
+    },
+    {
+      "id": "BBoxMaker",
+      "name": "BBox Maker",
+      "description": "Creates a bounding box for each selected element using either Bounding box or Effective Pixel Area. Choose BBox to place the original inside its box, or Layer to pair them in a group. Style and object opacity are independent: the default fill is green with approximately 50% color alpha, and object opacity is 100%. Select one or more elements, run the script, choose the settings, and confirm.",
+      "author": "WaveF",
+      "email": "wavef@live.com",
+      "version": "1.3.5",
+      "category": "Layer",
+      "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/BBoxMaker.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/BBoxMaker.js"
     }
   ]
 }
