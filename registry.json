@@ -1417,6 +1417,17 @@
       "category": "Layer",
       "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/layerreoder.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/layerreoder.js"
+    },
+    {
+      "id": "containertogroup",
+      "name": "Container to Group",
+      "description": "The script converts all containers in the document into groups. For this to work, a group must already exist in the document; if none exists, insert an empty group into the layer stack. The reason for this is that the script cannot currently create groups, and further processing may be complicated by the presence of containers.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0.0",
+      "category": "Layer",
+      "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/containertogroup.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/containertogroup.js"
     }
   ]
 }
