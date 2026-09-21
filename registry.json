@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-09-15",
+  "last_updated": "2026-09-21",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -1361,6 +1361,16 @@
       "category": "Color",
       "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/CMYK-Black-Preview.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/CMYK-Black-Preview.js"
+    },
+    {
+      "id": "datamergetagformatter",
+      "name": "Data Merge Tag Formatter",
+      "description": "Formats all text in a document between tags with associated text styles. Especially useful for documents generated with Data Merge.",
+      "author": "wunditta",
+      "version": "1.00.001",
+      "category": "Text",
+      "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/datamergetagformatter.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/datamergetagformatter.js"
     }
   ]
 }
