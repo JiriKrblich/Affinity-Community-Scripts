@@ -948,12 +948,13 @@
     },
     {
       "id": "Renamer",
-      "name": "Renamer",
-      "description": "Batch-rename selected layers and objects in Affinity with remove, replace, prefix, suffix, overwrite, and automatic numbering tools. Supports selection order or position-based order, plus reverse numbering for fast and consistent naming of repeated elements.",
+      "name": "Renamer Pro",
+      "description": "Batch-renames selected elements in selection order or spatial Position order. Supports removing a range, replacing matching text, adding text as a prefix, suffix, indexed insertion or complete overwrite, and sequential numbering with padding, separators and reverse order. Select elements and run the script. Add is enabled by default with Overwrite selected: enter the desired Text or disable Add before confirming.",
       "author": "WaveF",
-      "version": "0.8.0",
+      "email":"wavef@live.com",
+      "version": "1.0.4",
       "category": "Layer",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Renamer.jpg",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/renamer.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Renamer.js"
     },
     {

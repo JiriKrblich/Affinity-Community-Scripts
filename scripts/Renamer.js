@@ -1,8 +1,10 @@
 /**
- * name: Renamer
- * description: Rename selected elements with remove, append, replace, and prefix, suffix, or insert numbering operations.
- * version: 0.8.0
+ * name: Renamer Pro
+ * description: Rename selected elements with remove, add, replace, and prefix, suffix, or insert numbering operations.
+ * version: 1.0.4
  * author: WaveF
+ * email: wavef@live.com
+ * website: https://minicg.com
 */
 'use strict';
 
@@ -13,7 +15,7 @@ const { Selection } = require('/selections');
 const { UnitType } = require('/units');
 const { app } = require('/application');
 
-const APP_NAME = 'Renamer';
+const APP_NAME = 'Renamer Pro';
 const doc = Document.current;
 
 if (!doc) {
@@ -189,10 +191,16 @@ function buildRenamedText(baseName, index, totalCount, settings) {
   }
 
   if (settings.append.enabled) {
-    if (settings.append.forceName !== '') {
-      nextName = settings.append.forceName;
+    if (settings.append.position === 'overwrite') {
+      nextName = settings.append.text;
+    } else if (settings.append.position === 'insert') {
+      const insertAt = clamp(toInt(settings.append.insertAt, 0), 0, nextName.length);
+      nextName = nextName.slice(0, insertAt) + settings.append.text + nextName.slice(insertAt);
+    } else if (settings.append.position === 'suffix') {
+      nextName = nextName + settings.append.text;
+    } else {
+      nextName = settings.append.text + nextName;
     }
-    nextName = settings.append.prefix + nextName + settings.append.suffix;
   }
 
   if (settings.number.enabled) {
@@ -238,19 +246,14 @@ function collectRenamePreview(settings) {
 }
 
 function buildDialog() {
-  const dlg = Dialog.create(`${APP_NAME} v0.8`);
+  const dlg = Dialog.create(`${APP_NAME} v1.0.4`);
   dlg.initialWidth = 380;
   dlg.isResizable = false;
 
   const col = dlg.addColumn();
 
   const orderModeGroup = col.addGroup('Order');
-  dlg.orderMode = orderModeGroup.addComboBox('Mode', ['Selection', 'Position'], 0);
-  dlg.orderMode.isFullWidth = true;
-
-  const orderGroup = col.addGroup('');
-  dlg.orderText = orderGroup.addStaticText('', 'Order: Remove -> Replace -> Append -> Number');
-  dlg.orderText.isFullWidth = true;
+  dlg.orderMode = orderModeGroup.addButtonSet('Mode', ['Selection', 'Position'], 1);
 
   const removeGroup = col.addGroup('Remove');
   dlg.removeEnabled = removeGroup.addSwitch('Enabled', false);
@@ -263,34 +266,30 @@ function buildDialog() {
   dlg.removeLength.showPopupSlider = false;
   dlg.removeLength.setIsEnabledBy(dlg.removeEnabled);
 
-  const appendGroup = col.addGroup('Append');
-  dlg.appendEnabled = appendGroup.addSwitch('Enabled', false);
-  dlg.appendPrefix = appendGroup.addTextBox('Prefix', '');
-  dlg.appendPrefix.isFullWidth = true;
-  dlg.appendPrefix.setIsEnabledBy(dlg.appendEnabled);
-  dlg.appendSuffix = appendGroup.addTextBox('Suffix', '');
-  dlg.appendSuffix.isFullWidth = true;
-  dlg.appendSuffix.setIsEnabledBy(dlg.appendEnabled);
-  dlg.appendForceName = appendGroup.addTextBox('Overwrite', '');
-  dlg.appendForceName.isFullWidth = true;
-  dlg.appendForceName.setIsEnabledBy(dlg.appendEnabled);
+  const appendGroup = col.addGroup('Add');
+  dlg.appendEnabled = appendGroup.addSwitch('Enabled', true);
+  dlg.appendPosition = appendGroup.addButtonSet('Position', ['Prefix', 'Suffix', 'Insert', 'Overwrite'], 3);
+  dlg.appendPosition.setIsEnabledBy(dlg.appendEnabled);
+  dlg.appendInsertAt = appendGroup.addUnitValueEditor('Insert at', UnitType.Number, UnitType.Number, 0, 0, 999999);
+  dlg.appendInsertAt.precision = 0;
+  dlg.appendInsertAt.showPopupSlider = false;
+  dlg.appendInsertAt.setIsEnabledBy(dlg.appendEnabled);
+  dlg.appendInsertAt.setIsEnabledByControlIDWithSelectedIndex(dlg.appendPosition.controlID, 2);
+  dlg.appendText = appendGroup.addTextBox('Text', '');
+  dlg.appendText.setIsEnabledBy(dlg.appendEnabled);
 
   const replaceGroup = col.addGroup('Replace');
   dlg.replaceEnabled = replaceGroup.addSwitch('Enabled', false);
   dlg.replaceFind = replaceGroup.addTextBox('Find', '');
-  dlg.replaceFind.isFullWidth = true;
   dlg.replaceFind.setIsEnabledBy(dlg.replaceEnabled);
   dlg.replaceWith = replaceGroup.addTextBox('With', '');
-  dlg.replaceWith.isFullWidth = true;
   dlg.replaceWith.setIsEnabledBy(dlg.replaceEnabled);
 
   const numberGroup = col.addGroup('Number');
   dlg.numberEnabled = numberGroup.addSwitch('Enabled', false);
-  dlg.numberMode = numberGroup.addComboBox('', ['Suffix', 'Prefix', 'Insert'], 0);
-  dlg.numberMode.isFullWidth = true;
+  dlg.numberMode = numberGroup.addButtonSet('Position', ['Prefix', 'Suffix', 'Insert'], 1);
   dlg.numberMode.setIsEnabledBy(dlg.numberEnabled);
   dlg.numberSeparator = numberGroup.addTextBox('Separator', '_');
-  dlg.numberSeparator.isFullWidth = true;
   dlg.numberSeparator.setIsEnabledBy(dlg.numberEnabled);
   dlg.numberAt = numberGroup.addUnitValueEditor('Insert at', UnitType.Number, UnitType.Number, 0, 0, 999999);
   dlg.numberAt.precision = 0;
@@ -337,9 +336,9 @@ const settings = {
   },
   append: {
     enabled: dlg.appendEnabled.value,
-    prefix: dlg.appendPrefix.text || '',
-    suffix: dlg.appendSuffix.text || '',
-    forceName: dlg.appendForceName.text || '',
+    position: dlg.appendPosition.selectedIndex === 1 ? 'suffix' : (dlg.appendPosition.selectedIndex === 2 ? 'insert' : (dlg.appendPosition.selectedIndex === 3 ? 'overwrite' : 'prefix')),
+    insertAt: toInt(dlg.appendInsertAt.value, 0),
+    text: dlg.appendText.text || '',
   },
   replace: {
     enabled: dlg.replaceEnabled.value,
@@ -348,7 +347,7 @@ const settings = {
   },
   number: {
     enabled: dlg.numberEnabled.value,
-    mode: dlg.numberMode.selectedIndex === 1 ? 'prefix' : (dlg.numberMode.selectedIndex === 2 ? 'insert' : 'suffix'),
+    mode: dlg.numberMode.selectedIndex === 0 ? 'prefix' : (dlg.numberMode.selectedIndex === 2 ? 'insert' : 'suffix'),
     reverse: dlg.numberReverse.value,
     separator: dlg.numberSeparator.text || '',
     at: toInt(dlg.numberAt.value, 0),
