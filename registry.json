@@ -751,11 +751,12 @@
     {
       "id": "progressive-transform",
       "name": "Progressive Transform",
-      "description": "Select multiple objects in Affinity, then run this script. Applies progressive scale, rotation, fill color, and opacity across selected objects in selection order. Progression is evenly divided based on the number of selected objects.",
+      "description": "Applies progressive scale, rotation, color and opacity changes across selected elements. Supports evenly distributed values, fixed steps, relative adjustments and reverse direction, with color overlay effects for supported elements. Select multiple elements, run the script, enable the properties to change and configure their values before confirming.",
       "author": "WaveF",
-      "version": "1.0.0",
+      "email": "wavef@live.com",
+      "version": "2.20.1",
       "category": "Generator",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/progressive-transform.jpg",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/progressive-transform.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/progressive-transform.js"
     },
     {
