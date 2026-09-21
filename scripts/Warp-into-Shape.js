@@ -1,14 +1,30 @@
-
 'use strict';
-// Warp into Shape Group v64-EN
-// English GUI variant of "Form in Verzerrungsgruppe v64". All logic and
+// Warp into Shape Group v69-EN
+// English GUI variant of "Form in Verzerrungsgruppe v69". All logic and
 // math are identical - only dialog texts, group/node names translated.
-// Includes: (1) new "Hide base shape" option in Path Mode, (2) removed
-// the redundant Preview/Apply/Cancel buttons in favour of the native
-// dialog OK/Cancel footer (live preview still runs automatically on
-// every change), (3) fix for a nested-modal-dialog bug that silently
-// swallowed the "object not converted to curves" warning - status/error
-// messages are now shown inline as text instead of a nested dialog.
+// Includes the critical fix for the current Affinity app version:
+// PolyCurveNodeDefinition.create() changed its parameter order. The
+// documented signature is now:
+//   create(curve, brushFill, lineFill, lineStyle, transparencyFill)
+// The script used to call it everywhere with the 3rd/4th parameters
+// swapped: create(curve, brushFill, LINESTYLE, LINEFILL, ...) - this
+// caused the runtime error "expected FillDescriptorHandle" in the
+// current version (a LineStyleDescriptor instance was passed where a
+// FillDescriptor for the line/pen fill is expected, and vice versa).
+// Fix: all three call sites (buildPolyCurveNode, buildGridNode,
+// buildResultNodes) now use the correct order curve, brushFill,
+// lineFill, lineStyle, transparencyFill. Empirically verified with a
+// direct test call using a real gradient fill object in the current
+// Affinity version.
+//
+// Earlier changes (v68):
+// 1. FIX for the mesh method at reduced strength: the 0-strength
+//    reference is "trapezoidPoint" (follows the top/bottom contour
+//    exactly, only the length distortion/column curvature is reduced)
+//    instead of the bounding-box rectangle, which used to lie partially
+//    outside the shape.
+// 2. New "Mesh Extra" option: Twirl, Barrel/Cushion, and Swing Warp can
+//    now be applied on top of the mesh.
 
 const { Document }                    = require('/document');
 const { DocumentCommand,
@@ -125,6 +141,40 @@ function autoDetectRoles(nodeA, nodeB){
     if(aC&&!bC)return{formNode:nodeA,objNode:nodeB};
     if(bC&&!aC)return{formNode:nodeB,objNode:nodeA};
     return null;
+}
+
+// ── Automatische Kurven-Konvertierung ────────────────────────────────────────
+// SDK-Grenze (empirisch getestet): Node-Referenzen sind nach
+// DocumentCommand.createConvertToCurves() NICHT zuverlaessig wiederauffindbar
+// (weder ueber doc.selection noch ueber Identitaetsvergleich zwischen
+// getrennten doc.layers.all-Durchlaeufen). Robuste Loesung fuer den
+// Hauptfall (objNode ist eine GRUPPE mit mehreren Shape-Kindern): nach
+// jeder Einzelkonvertierung erneut FRISCH von der stabilen Gruppen-
+// Referenz aus scannen (das Gruppen-Objekt selbst bleibt gueltig, auch
+// wenn einzelne Kind-Referenzen ungueltig werden).
+function tryConvertToCurves(doc,node){
+    try{
+        doc.executeCommand(DocumentCommand.createConvertToCurves(Selection.create(doc,[node])));
+        return true;
+    }catch(e){return false;}
+}
+function findFirstShapeNode(node){
+    const tag=node[Symbol.toStringTag]||'';
+    if(node.isGroupNode||tag==='GroupNode'){
+        for(const ch of node.children){const r=findFirstShapeNode(ch);if(r)return r;}
+        return null;
+    }
+    if(classifyLeaf(node)==='shape')return node;
+    return null;
+}
+function convertDescendantShapesToCurves(doc,node){
+    const tag=node[Symbol.toStringTag]||'';
+    if(!(node.isGroupNode||tag==='GroupNode'))return;
+    for(let iter=0;iter<200;iter++){
+        const target=findFirstShapeNode(node);
+        if(!target)break;
+        if(!tryConvertToCurves(doc,target))break;
+    }
 }
 
 // ── Kontur-Berechnung (Flächen-Warp) ──────────────────────────────────────────
@@ -247,6 +297,122 @@ function buildPathContour(formNode, angleDeg, N){
     return{cols,N,totalLen,fromRot,pathFromRot:pathFromRotNormal,pathFromRotUpright,pathFromRotUprightPlain,nbb,isPath:true};
 }
 
+// ── Mesh mode: Coons patch with curved rows AND columns ──────────────────
+// Unlike buildContourForAngle (only top/bottom per column), here the
+// ENTIRE closed contour is sampled once with cumulative arc length. The
+// four contour points nearest to the four corners of the rotated
+// bounding box define four boundary arcs (top/bottom/left/right). A
+// classic bilinear Coons patch formula interpolates the interior from
+// these - so BOTH grid directions follow the actual contour.
+
+function sampleAtS(samples,totalLen,sTarget){
+    let s=((sTarget%totalLen)+totalLen)%totalLen;
+    for(let i=1;i<samples.length;i++){
+        if(samples[i].s>=s){
+            const s0=samples[i-1].s,s1=samples[i].s;
+            const f=(s1>s0)?(s-s0)/(s1-s0):0;
+            return{
+                x:samples[i-1].x+(samples[i].x-samples[i-1].x)*f,
+                y:samples[i-1].y+(samples[i].y-samples[i-1].y)*f
+            };
+        }
+    }
+    return{x:samples[samples.length-1].x,y:samples[samples.length-1].y};
+}
+// Returns a point on the SHORTER of the two possible arcs between sA
+// (t=0) and sB (t=1) along the closed contour - regardless of whether
+// "forward" (increasing s) or "backward" is the shorter path. This
+// makes boundary assignment independent of the base shape's winding
+// direction and curve starting point.
+function shortArcPoint(samples,totalLen,sA,sB,t){
+    let fwd=sB-sA; if(fwd<0)fwd+=totalLen;
+    const bwd=totalLen-fwd;
+    if(fwd<=bwd) return sampleAtS(samples,totalLen,sA+t*fwd);
+    return sampleAtS(samples,totalLen,sA-t*bwd);
+}
+
+function buildMeshContour(formNode, angleDeg, N){
+    const curves=getNodeCurvesSpreadForContour(formNode);if(!curves)return null;
+    const nbb=formNode.getSpreadBaseBox(false);
+    const rad=angleDeg*Math.PI/180,cos=Math.cos(rad),sin=Math.sin(rad);
+    function toRot(x,y){return{x:x*cos+y*sin,y:-x*sin+y*cos};}
+    function fromRot(x,y){return{x:x*cos-y*sin,y:x*sin+y*cos};}
+
+    const samples=[];let totalLen=0;
+    for(const c of curves){
+        for(const bz of c.bzs){
+            const rbz={
+                start:toRot(bz.start.x,bz.start.y),c1:toRot(bz.c1.x,bz.c1.y),
+                c2:toRot(bz.c2.x,bz.c2.y),end:toRot(bz.end.x,bz.end.y)
+            };
+            let px=rbz.start.x,py=rbz.start.y;
+            if(samples.length===0)samples.push({x:px,y:py,s:0});
+            for(let ti=1;ti<=80;ti++){
+                const p=bzPt(rbz,ti/80);
+                totalLen+=Math.sqrt((p.x-px)**2+(p.y-py)**2);
+                samples.push({x:p.x,y:p.y,s:totalLen});
+                px=p.x;py=p.y;
+            }
+        }
+    }
+    if(totalLen<1)return null;
+
+    let uMin=Infinity,uMax=-Infinity,vMin=Infinity,vMax=-Infinity;
+    for(const s of samples){
+        if(s.x<uMin)uMin=s.x;if(s.x>uMax)uMax=s.x;
+        if(s.y<vMin)vMin=s.y;if(s.y>vMax)vMax=s.y;
+    }
+    if(uMax-uMin<1||vMax-vMin<1)return null;
+
+    // Each of the four bounding-box corners gets EXPLICITLY assigned its
+    // nearest contour point (instead of blindly sorting by arc length
+    // and guessing which corner is which). v0=0 corresponds to "top"
+    // (y-down convention), v0=1 to "bottom".
+    function nearestS(cx,cy){
+        let bestS=0,bestD=Infinity;
+        for(const s of samples){
+            const d=(s.x-cx)*(s.x-cx)+(s.y-cy)*(s.y-cy);
+            if(d<bestD){bestD=d;bestS=s.s;}
+        }
+        return bestS;
+    }
+    const sTL=nearestS(uMin,vMin), sTR=nearestS(uMax,vMin);
+    const sBR=nearestS(uMax,vMax), sBL=nearestS(uMin,vMax);
+    const P00=sampleAtS(samples,totalLen,sTL); // top-left    (u=0,v=0)
+    const P10=sampleAtS(samples,totalLen,sTR); // top-right   (u=1,v=0)
+    const P11=sampleAtS(samples,totalLen,sBR); // bottom-right(u=1,v=1)
+    const P01=sampleAtS(samples,totalLen,sBL); // bottom-left (u=0,v=1)
+
+    function coonsPoint(uN,vN){
+        uN=Math.max(0,Math.min(1,uN));vN=Math.max(0,Math.min(1,vN));
+        const Tu=shortArcPoint(samples,totalLen,sTL,sTR,uN); // top:    u 0->1
+        const Bu=shortArcPoint(samples,totalLen,sBL,sBR,uN); // bottom: u 0->1
+        const Lv=shortArcPoint(samples,totalLen,sTL,sBL,vN); // left:   v 0->1
+        const Rv=shortArcPoint(samples,totalLen,sTR,sBR,vN); // right:  v 0->1
+        const x=(1-vN)*Tu.x+vN*Bu.x+(1-uN)*Lv.x+uN*Rv.x
+               -((1-uN)*(1-vN)*P00.x+uN*(1-vN)*P10.x+(1-uN)*vN*P01.x+uN*vN*P11.x);
+        const y=(1-vN)*Tu.y+vN*Bu.y+(1-uN)*Lv.y+uN*Rv.y
+               -((1-uN)*(1-vN)*P00.y+uN*(1-vN)*P10.y+(1-uN)*vN*P01.y+uN*vN*P11.y);
+        return fromRot(x,y);
+    }
+    // 0-strength reference: straight vertical interpolation between the
+    // ACTUAL top and bottom contour curve (like the Trapezoid method) -
+    // always stays on/inside the base shape, unlike the axis-aligned
+    // bounding-box rectangle (meshIdentity). Keeps the height distortion,
+    // only the length distortion (column curvature) is reduced by
+    // strength.
+    function trapezoidPoint(uN,vN){
+        uN=Math.max(0,Math.min(1,uN));vN=Math.max(0,Math.min(1,vN));
+        const Tu=shortArcPoint(samples,totalLen,sTL,sTR,uN);
+        const Bu=shortArcPoint(samples,totalLen,sBL,sBR,uN);
+        return fromRot(Tu.x*(1-vN)+Bu.x*vN, Tu.y*(1-vN)+Bu.y*vN);
+    }
+    function meshIdentity(uN,vN){
+        return fromRot(uMin+uN*(uMax-uMin), vMin+vN*(vMax-vMin));
+    }
+    return{isMesh:true,coonsPoint,trapezoidPoint,meshIdentity,uMin,uMax,vMin,vMax,fromRot,nbb};
+}
+
 // ── UV-Mapping + Methoden (Flaechen-Warp) ─────────────────────────────────────
 
 function mapUV(u,v,con){
@@ -267,6 +433,9 @@ function applyMethod(u0,v0,method,strength){
     return{u:Math.max(0,Math.min(1,u)),v:Math.max(0,Math.min(1,v))};
 }
 
+// Erweitert sbb virtuell um Anfangs-/End-Offset (in % der Objektbreite).
+// Das Objekt "belegt" dann nur den Bereich [startPct..100-endPct] des
+// 0..1-Scan-Bereichs, der Rest bleibt Leerraum an den Enden.
 function computeOffsetSbb(sbb,startPct,endPct){
     const so=Math.max(0,Math.min(45,startPct))/100;
     const eo=Math.max(0,Math.min(45,endPct))/100;
@@ -277,8 +446,16 @@ function computeOffsetSbb(sbb,startPct,endPct){
     return{x:virtualX,y:sbb.y,width:virtualWidth,height:sbb.height};
 }
 
-function warpPt(x,y,sbb,con,method,strength,lockX,lockY,pathAlign){
+function warpPt(x,y,sbb,con,method,strength,lockX,lockY,pathAlign,meshExtra){
     const u0=(x-sbb.x)/sbb.width,v0=(y-sbb.y)/sbb.height;
+    if(con.isMesh){
+        const sFrac=Math.max(0,Math.min(1,strength));
+        let uu=u0,vv=v0;
+        if(meshExtra){const r=applyMethod(u0,v0,meshExtra,strength);uu=r.u;vv=r.v;}
+        const idp=con.trapezoidPoint(uu,vv);
+        const tgt=con.coonsPoint(uu,vv);
+        return{x:idp.x+(tgt.x-idp.x)*sFrac,y:idp.y+(tgt.y-idp.y)*sFrac};
+    }
     const{u:um,v:vm}=applyMethod(u0,v0,method,strength);
     const uf=lockX?u0:um,vf=lockY?v0:vm;
     if(con.isPath){
@@ -317,12 +494,35 @@ function subdivideCurvesAdaptive(curves,epsilon,maxDepth){
     }
     return curves.map(c=>({bzs:c.bzs.flatMap(bz=>rec(bz,0)),isClosed:c.isClosed}));
 }
-function warpCurves(curves,sbb,con,method,strength,lockX,lockY,pathAlign){
+// Gleichmaessige (uniforme) Unterteilung JEDES Bezier-Segments in n gleiche
+// Teile, UNABHAENGIG von dessen Kruemmung - im Gegensatz zur adaptiven
+// Unterteilung oben, die gerade Segmente (keine interne Kruemmung) gar
+// nicht unterteilt. Fuegt "Zwischenpunkte" hinzu, die das Warp-Ergebnis
+// bei geraden Kanten (z.B. Rechtecken) deutlich verbessern.
+function subdivideUniform(bz,extraPoints){
+    if(extraPoints<=0)return[bz];
+    const n=extraPoints+1;
+    const result=[];
+    let remaining=bz;
+    for(let i=1;i<n;i++){
+        const t=1/(n-i+1);
+        const[l,r]=subdivideBez(remaining,t);
+        result.push(l);
+        remaining=r;
+    }
+    result.push(remaining);
+    return result;
+}
+function subdivideCurvesUniform(curves,extraPoints){
+    if(extraPoints<=0)return curves;
+    return curves.map(c=>({bzs:c.bzs.flatMap(bz=>subdivideUniform(bz,extraPoints)),isClosed:c.isClosed}));
+}
+function warpCurves(curves,sbb,con,method,strength,lockX,lockY,pathAlign,meshExtra){
     return curves.map(c=>({bzs:c.bzs.map(bz=>({
-        start:warpPt(bz.start.x,bz.start.y,sbb,con,method,strength,lockX,lockY,pathAlign),
-        c1:   warpPt(bz.c1.x,   bz.c1.y,   sbb,con,method,strength,lockX,lockY,pathAlign),
-        c2:   warpPt(bz.c2.x,   bz.c2.y,   sbb,con,method,strength,lockX,lockY,pathAlign),
-        end:  warpPt(bz.end.x,  bz.end.y,  sbb,con,method,strength,lockX,lockY,pathAlign)
+        start:warpPt(bz.start.x,bz.start.y,sbb,con,method,strength,lockX,lockY,pathAlign,meshExtra),
+        c1:   warpPt(bz.c1.x,   bz.c1.y,   sbb,con,method,strength,lockX,lockY,pathAlign,meshExtra),
+        c2:   warpPt(bz.c2.x,   bz.c2.y,   sbb,con,method,strength,lockX,lockY,pathAlign,meshExtra),
+        end:  warpPt(bz.end.x,  bz.end.y,  sbb,con,method,strength,lockX,lockY,pathAlign,meshExtra)
     })),isClosed:c.isClosed}));
 }
 
@@ -411,16 +611,24 @@ function buildPolyCurveNode(doc,curves,fd,pfd,ls){
     const pc=PolyCurve.create(),nof=FillDescriptor.createNone();
     for(const c of curves){if(!c.bzs?.length)continue;const cb=new CurveBuilder();cb.begin(c.bzs[0].start);for(const bz of c.bzs)cb.addBezier(bz.c1,bz.c2,bz.end);if(c.isClosed)cb.close();pc.addCurve(cb.createCurve());}
     if(pc.curveCount===0)return null;
-    const def=PolyCurveNodeDefinition.create(pc,fd||nof,ls||LineStyleDescriptor.createDefault(),pfd||nof,nof);
+    const def=PolyCurveNodeDefinition.create(pc,fd||nof,pfd||nof,ls||LineStyleDescriptor.createDefault(),nof);
     const gb=AddChildNodesCommandBuilder.create(doc);gb.addPolyCurveNode(def);doc.executeCommand(gb.createCommand());
     return doc.selection.at(0).node;
 }
 
-function buildGridNode(doc,con,cols,rows,method,strength,lockX,lockY,pathAlign){
+function buildGridNode(doc,con,cols,rows,method,strength,lockX,lockY,pathAlign,meshExtra){
     const nof=FillDescriptor.createNone(),gFD=FillDescriptor.createSolid(Colour.createRGBA8(77,77,77,255));
     const ls=LineStyleDescriptor.createDefault(),pc=PolyCurve.create();
     const S=60;
     function gPt(u0,v0){
+        if(con.isMesh){
+            const sFrac=Math.max(0,Math.min(1,strength));
+            let uu=u0,vv=v0;
+            if(meshExtra){const r=applyMethod(u0,v0,meshExtra,strength);uu=r.u;vv=r.v;}
+            const idp=con.trapezoidPoint(uu,vv);
+            const tgt=con.coonsPoint(uu,vv);
+            return{x:idp.x+(tgt.x-idp.x)*sFrac,y:idp.y+(tgt.y-idp.y)*sFrac};
+        }
         const{u,v}=applyMethod(u0,v0,method,strength);
         const uf=lockX?u0:u,vf=lockY?v0:v;
         if(con.isPath){
@@ -432,7 +640,7 @@ function buildGridNode(doc,con,cols,rows,method,strength,lockX,lockY,pathAlign){
     }
     for(let ci=0;ci<=cols;ci++){const u=ci/cols,cb=new CurveBuilder();cb.begin(gPt(u,0));for(let ri=1;ri<=S;ri++)cb.lineTo(gPt(u,ri/S));pc.addCurve(cb.createCurve());}
     for(let ri=0;ri<=rows;ri++){const v=ri/rows,cb=new CurveBuilder();cb.begin(gPt(0,v));for(let ci2=1;ci2<=S;ci2++)cb.lineTo(gPt(ci2/S,v));pc.addCurve(cb.createCurve());}
-    const def=PolyCurveNodeDefinition.create(pc,nof,ls,gFD,nof);
+    const def=PolyCurveNodeDefinition.create(pc,nof,gFD,ls,nof);
     const gb=AddChildNodesCommandBuilder.create(doc);gb.addPolyCurveNode(def);doc.executeCommand(gb.createCommand());
     const gn=doc.selection.at(0).node;try{gn.userDescription='Warp Grid';}catch(e){}return gn;
 }
@@ -456,7 +664,7 @@ if(sel.length!==2){
     g.addStaticText('','Selected: '+sel.length+' object(s)');
     g.addStaticText('','');
     g.addStaticText('','Note: Start script with the Move tool active.');
-    g.addStaticText('','All vector objects must be converted to curves first.');
+    g.addStaticText('','Vector objects will be converted to curves automatically where possible.');
     g.addStaticText('','(Adjustment layers are included. Masks are ignored.)');
     col.addGroup('').addButtonSet('', [' OK '], 0);
     d.runModal();
@@ -474,7 +682,7 @@ if(sel.length!==2){
     const dBot=(botNode.userDescription||botNode.defaultDescription||'bottom').substring(0,26);
 
     // ── Dialog: 2-column layout, resizable, compact, LIVE preview ───────────
-    const dlg=Dialog.create('Warp into Shape Group v64-EN');
+    const dlg=Dialog.create('Warp into Shape Group v69-EN');
     dlg.initialWidth=700;
     dlg.setIsResizable(true);
     const colL=dlg.addColumn(); colL.widthProportion=0.52;
@@ -494,11 +702,15 @@ if(sel.length!==2){
     const gM=colL.addGroup('Warp (Area Mode)');
     const cboMeth=gM.addComboBox('Method:',[
         'Trapezoid','Compressed','Cone/Fan','Barrel/Cushion',
-        'Banner/Flag','Swing Warp','Twirl',
+        'Banner/Flag','Swing Warp','Twirl','Mesh (Coons Patch)',
     ],0);
     const edStr=gM.addUnitValueEditor('Strength:','none',null,1.0,-3.0,3.0);edStr.value=1.0;
     const chkLockX=gM.addCheckBox('Lock X-axis',false);
     const chkLockY=gM.addCheckBox('Lock Y-axis',false);
+    const cboMeshExtra=gM.addComboBox('Mesh Extra:',[
+        'None','Twirl','Barrel/Cushion','Swing Warp'
+    ],0);
+    gM.addStaticText('','Mesh method: Strength = Trapezoid->Mesh blend. Extra active only for Mesh.');
 
     const gMod=colL.addGroup('Path Mode');
     const chkPath=gMod.addCheckBox('Arrange along contour',false);
@@ -517,6 +729,7 @@ if(sel.length!==2){
     const edScanRes=gRes.addUnitValueEditor('Res.:','none',null,400,100,2000);edScanRes.value=400;
     const edEpsilon=gRes.addUnitValueEditor('Eps. (px):','none',null,2.0,0.5,20.0);edEpsilon.value=2.0;
     const edSimplify=gRes.addUnitValueEditor('Simplify (px):','none',null,0.0,0.0,10.0);edSimplify.value=0.0;
+    const edOversample=gRes.addUnitValueEditor('Extra Points:','none',null,2,0,5);edOversample.value=2;
 
     const gG=colR.addGroup('Grid');
     const edCols=gG.addUnitValueEditor('Columns:','none',null,12,4,40);edCols.value=12;
@@ -524,7 +737,7 @@ if(sel.length!==2){
     const edOffStart=gG.addUnitValueEditor('Start Offset (%):','none',null,0,0,45);edOffStart.value=0;
     const edOffEnd=gG.addUnitValueEditor('End Offset (%):','none',null,0,0,45);edOffEnd.value=0;
 
-    for(const ed of [edStr,edAngle,edScanRes,edEpsilon,edSimplify,edCols,edRows,edOffStart,edOffEnd]){
+    for(const ed of [edStr,edAngle,edScanRes,edEpsilon,edSimplify,edOversample,edCols,edRows,edOffStart,edOffEnd]){
         try{ed.setIsFullWidth(true);}catch(e){}
     }
 
@@ -543,6 +756,7 @@ if(sel.length!==2){
             rows:       Math.max(4,Math.min(80,Math.round(Number(edRows.value)||24))),
             offStart:   Math.max(0,Math.min(45,Number(edOffStart.value)||0)),
             offEnd:     Math.max(0,Math.min(45,Number(edOffEnd.value)||0)),
+            oversample: Math.max(0,Math.min(5,Math.round(Number(edOversample.value)||0))),
             scanRes:    Math.max(100,Math.min(2000,Math.round(Number(edScanRes.value)||400))),
             epsilon:    Math.max(0.5,Math.min(20,Number(edEpsilon.value)||2.0)),
             simplify:   Math.max(0,Math.min(10,Number(edSimplify.value)||0)),
@@ -551,6 +765,7 @@ if(sel.length!==2){
             pathMode:   chkPath.value===true,
             pathAlign:  cboPathAlign.selectedIndex,
             hidePathBase: chkHidePath.value===true,
+            meshExtra:  [null,6,3,5][cboMeshExtra.selectedIndex]||null,
         };
     }
 
@@ -562,6 +777,7 @@ if(sel.length!==2){
         if(p.rows!==undefined)      edRows.value=p.rows;
         if(p.offStart!==undefined)  edOffStart.value=p.offStart;
         if(p.offEnd!==undefined)    edOffEnd.value=p.offEnd;
+        if(p.oversample!==undefined) edOversample.value=p.oversample;
         if(p.scanRes!==undefined)   edScanRes.value=p.scanRes;
         if(p.epsilon!==undefined)   edEpsilon.value=p.epsilon;
         if(p.simplify!==undefined)  edSimplify.value=p.simplify;
@@ -570,16 +786,23 @@ if(sel.length!==2){
         if(p.pathMode!==undefined)  try{chkPath.value=p.pathMode;}catch(e){}
         if(p.pathAlign!==undefined) try{cboPathAlign.selectedIndex=p.pathAlign;}catch(e){}
         if(p.hidePathBase!==undefined) try{chkHidePath.value=p.hidePathBase;}catch(e){}
+        if(p.meshExtra!==undefined){
+            const idx=[null,6,3,5].indexOf(p.meshExtra);
+            if(idx>=0)try{cboMeshExtra.selectedIndex=idx;}catch(e){}
+        }
     }
 
     let conCache=null,cacheSig='';
     function getCon(formNode,params){
-        const sig=JSON.stringify([formNode.userDescription||'_',params.angleDeg,params.scanRes,params.pathMode]);
+        const isMesh=params.method===7;
+        const sig=JSON.stringify([formNode.userDescription||'_',params.angleDeg,params.scanRes,params.pathMode,isMesh]);
         if(conCache&&cacheSig===sig)return conCache;
         cacheSig=sig;
         conCache=params.pathMode
             ?buildPathContour(formNode,params.angleDeg,params.scanRes)
-            :buildContourForAngle(formNode,params.angleDeg,params.scanRes);
+            :(isMesh
+                ?buildMeshContour(formNode,params.angleDeg,params.scanRes)
+                :buildContourForAngle(formNode,params.angleDeg,params.scanRes));
         return conCache;
     }
 
@@ -590,8 +813,9 @@ if(sel.length!==2){
 
         const offSbb=computeOffsetSbb(sbb,p.offStart,p.offEnd);
         const prepared=curveItems.map(item=>{
-            const sub=subdivideCurvesAdaptive(item.curves,p.epsilon,8);
-            let warped=warpCurves(sub,offSbb,con,em,p.strength,p.lockX,p.lockY,p.pathMode?p.pathAlign:0);
+            const uni=subdivideCurvesUniform(item.curves,p.oversample);
+            const sub=subdivideCurvesAdaptive(uni,p.epsilon,8);
+            let warped=warpCurves(sub,offSbb,con,em,p.strength,p.lockX,p.lockY,p.pathMode?p.pathAlign:0,p.meshExtra);
             if(p.simplify>0)warped=simplifyCurves(warped,p.simplify);
             let remFd=item.fd, remPfd=item.pfd;
             const srcBB=item.srcNode?getSrcLocalBB(item.srcNode):null;
@@ -619,7 +843,7 @@ if(sel.length!==2){
                     pc.addCurve(cb.createCurve());
                 }
                 if(pc.curveCount===0)continue;
-                const def=PolyCurveNodeDefinition.create(pc,pr.item.fd||nof,pr.item.ls||LineStyleDescriptor.createDefault(),pr.item.pfd||nof,nof);
+                const def=PolyCurveNodeDefinition.create(pc,pr.item.fd||nof,pr.item.pfd||nof,pr.item.ls||LineStyleDescriptor.createDefault(),nof);
                 gb.addPolyCurveNode(def);
                 validPrepared.push(pr);
             }
@@ -652,9 +876,20 @@ if(sel.length!==2){
     function doFullBuild(p){
         const formNode=p.formIdx===0?topNode:botNode;
         const objNode =p.formIdx===0?botNode:topNode;
+
+        convertDescendantShapesToCurves(doc,objNode);
+        if(classifyLeaf(formNode)==='shape')tryConvertToCurves(doc,formNode);
+        if(classifyLeaf(objNode)==='shape')tryConvertToCurves(doc,objNode);
+
         const em=p.method===4?0:p.method;
         const con=getCon(formNode,p);
-        if(!con)return{success:false,message:'Contour calculation failed (base shape invalid or empty).'};
+        if(!con){
+            if(classifyLeaf(formNode)==='shape'){
+                const nm=formNode.userDescription||formNode.defaultDescription||'base shape';
+                return{success:false,message:'"'+nm+'" is not yet a curve. Please convert it first via Curves -> Convert to Curves.'};
+            }
+            return{success:false,message:'Contour calculation failed (base shape invalid or empty).'};
+        }
         const sbb=objNode.getSpreadBaseBox(false);
         const tag=objNode[Symbol.toStringTag]||'';
 
@@ -676,7 +911,7 @@ if(sel.length!==2){
         const resultNodes=buildResultNodes(items,sbb,con,p);
         if(!resultNodes.length)return{success:false,message:'Warp produced no result objects.'};
 
-        const gNode=buildGridNode(doc,con,p.cols,p.rows,em,p.strength,p.lockX,p.lockY,p.pathMode?p.pathAlign:0);
+        const gNode=buildGridNode(doc,con,p.cols,p.rows,em,p.strength,p.lockX,p.lockY,p.pathMode?p.pathAlign:0,p.meshExtra);
         const subDef=ContainerNodeDefinition.create('Warp Content');
         const gbS=AddChildNodesCommandBuilder.create(doc);gbS.addContainerNode(subDef);doc.executeCommand(gbS.createCommand());
         const subGrp=doc.selection.at(0).node;

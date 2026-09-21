@@ -1,7 +1,7 @@
 /**
  * name: Renamer Pro
  * description: Rename selected elements with remove, add, replace, and prefix, suffix, or insert numbering operations.
- * version: 1.0.4
+ * version: 1.1.0
  * author: WaveF
  * email: wavef@live.com
  * website: https://minicg.com
@@ -29,7 +29,7 @@ if (count === 0) {
   return;
 }
 
-const sourceNodes = doc.selection.nodes;
+const sourceNodes = Array.from(doc.selection.nodes);
 const sourceSelection = Selection.create(doc, sourceNodes);
 
 function restoreSourceSelection() {
@@ -92,17 +92,27 @@ function shouldJoinRow(row, itemBox) {
 }
 
 function getOrderedSelectionItems(orderMode) {
-  const items = [];
-  for (let i = 0; i < count; i++) {
-    const item = doc.selection.at(i);
-    const node = item && item.node;
-    if (!node) continue;
-    items.push({
-      sourceIndex: i,
-      item,
-      node,
-      box: getNodeBox(node),
-    });
+  const items = sourceNodes.map((node, sourceIndex) => ({
+    sourceIndex,
+    node,
+    box: getNodeBox(node),
+  }));
+
+  if (orderMode === 'layer') {
+    const ranks = [];
+    function visit(parent) {
+      const children = Array.from(parent.children).reverse();
+      for (const node of children) {
+        ranks.push(node);
+        visit(node);
+      }
+    }
+    for (const spread of doc.spreads) visit(spread);
+    function rank(node) {
+      const index = ranks.findIndex(candidate => candidate.isSameNode(node));
+      return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+    }
+    return items.sort((a, b) => rank(a.node) - rank(b.node) || a.sourceIndex - b.sourceIndex);
   }
 
   if (orderMode !== 'position') {
@@ -246,14 +256,14 @@ function collectRenamePreview(settings) {
 }
 
 function buildDialog() {
-  const dlg = Dialog.create(`${APP_NAME} v1.0.4`);
+  const dlg = Dialog.create(`${APP_NAME} v1.1.0`);
   dlg.initialWidth = 380;
   dlg.isResizable = false;
 
   const col = dlg.addColumn();
 
   const orderModeGroup = col.addGroup('Order');
-  dlg.orderMode = orderModeGroup.addButtonSet('Mode', ['Selection', 'Position'], 1);
+  dlg.orderMode = orderModeGroup.addButtonSet('Processing Order', ['Selection', 'Position', 'Layer Index'], 1);
 
   const removeGroup = col.addGroup('Remove');
   dlg.removeEnabled = removeGroup.addSwitch('Enabled', false);
@@ -327,7 +337,7 @@ if (result.value !== DialogResult.Ok.value) {
 
 const settings = {
   order: {
-    mode: dlg.orderMode.selectedIndex === 1 ? 'position' : 'selection',
+    mode: ['selection', 'position', 'layer'][dlg.orderMode.selectedIndex],
   },
   remove: {
     enabled: dlg.removeEnabled.value,

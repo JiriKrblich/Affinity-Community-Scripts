@@ -952,7 +952,7 @@
       "description": "Batch-renames selected elements in selection order or spatial Position order. Supports removing a range, replacing matching text, adding text as a prefix, suffix, indexed insertion or complete overwrite, and sequential numbering with padding, separators and reverse order. Select elements and run the script. Add is enabled by default with Overwrite selected: enter the desired Text or disable Add before confirming.",
       "author": "WaveF",
       "email":"wavef@live.com",
-      "version": "1.0.4",
+      "version": "1.1.0",
       "category": "Layer",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/renamer.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Renamer.js"
@@ -1190,7 +1190,7 @@
       "description": "Warp into Shape is an Affinity script that fits a vector object or vector group into the contour of any base shape (area warp) or arranges it along that contour (path mode). The script offers seven warp methods, adjustable resolution and detail fidelity, start/end offsets to avoid strong distortion at the edges, a preset system for saving/loading settings, and a genuine live preview: every parameter change updates the result in the document immediately",
       "author": "Erhard Otto",
       "email": "erhard.otto@bossmail.de",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Warp-into-Shape.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Warp-into-Shape.js"
