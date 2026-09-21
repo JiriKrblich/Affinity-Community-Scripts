@@ -754,7 +754,7 @@
       "description": "Applies progressive scale, rotation, color and opacity changes across selected elements. Supports evenly distributed values, fixed steps, relative adjustments and reverse direction, with color overlay effects for supported elements. Select multiple elements, run the script, enable the properties to change and configure their values before confirming.",
       "author": "WaveF",
       "email": "wavef@live.com",
-      "version": "2.20.1",
+      "version": "2.21.1",
       "category": "Generator",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/progressive-transform.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/progressive-transform.js"

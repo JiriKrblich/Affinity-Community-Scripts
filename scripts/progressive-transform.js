@@ -1,7 +1,7 @@
 /**
- * name: Progressive Transform v2.20.1
- * description: Progressive scale, rotation, color, and opacity with single-column settings layout, tab-style even/step switching, inline value labels, relative mode, corrected rotation semantics, fixed per-node opacity application, and a single color layer effects overwrite mode.
- * version: 2.20.1
+ * name: Progressive Transform v2.21.1
+ * description: Progressive transforms with Position, Layer Index or Selection ordering, unified values reporting and reversible live preview.
+ * version: 2.21.1
  * author: WaveF
  * email: wavef@live.com
  * website: https://minicg.com
@@ -19,7 +19,7 @@ const { ColourOverlayLayerEffect } = require('/layereffects');
 const { UnitType } = require('/units');
 const { app } = require('/application');
 
-const APP_NAME = 'Progressive Transform v2.20.1';
+const APP_NAME = 'Progressive Transform v2.21.1';
 const doc = Document.current;
 
 if (!doc) {
@@ -33,7 +33,7 @@ if (count === 0) {
   return;
 }
 
-const sourceNodes = doc.selection.nodes;
+const sourceNodes = Array.from(doc.selection.nodes);
 const sourceSelection = Selection.create(doc, sourceNodes);
 
 function restoreSourceSelection() {
@@ -41,6 +41,125 @@ function restoreSourceSelection() {
     doc.selection = sourceSelection;
   } catch (_) {}
 }
+
+function getNodeBox(node) {
+  try {
+    const box = node.getSpreadBaseBox(false);
+    return {
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+      right: box.x + box.width,
+      bottom: box.y + box.height,
+      centerY: box.y + box.height * 0.5,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function shouldJoinRow(row, itemBox) {
+  const overlap = Math.min(row.bottom, itemBox.bottom) - Math.max(row.top, itemBox.y);
+  const minHeight = Math.max(1, Math.min(row.avgHeight, itemBox.height));
+  const overlapRatio = overlap / minHeight;
+  const centerDelta = Math.abs(itemBox.centerY - row.centerY);
+  const centerTolerance = Math.max(row.avgHeight, itemBox.height) * 0.35;
+  return overlapRatio >= 0.3 || centerDelta <= centerTolerance;
+}
+
+function getOrderedSelectionItems(orderMode) {
+  const items = sourceNodes.map((node, sourceIndex) => ({
+    sourceIndex, node, box: getNodeBox(node)
+  }));
+  if (orderMode === 'layer') {
+    const ranks = [];
+    function visit(parent) {
+      const children = Array.from(parent.children).reverse();
+      for (const node of children) {
+        ranks.push(node);
+        visit(node);
+      }
+    }
+    for (const spread of doc.spreads) visit(spread);
+    function rank(node) {
+      const index = ranks.findIndex(n => n.isSameNode(node));
+      return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+    }
+    return items.sort((a, b) => rank(a.node) - rank(b.node) || a.sourceIndex - b.sourceIndex);
+  }
+
+  if (orderMode !== 'position') {
+    return items;
+  }
+
+  const sortable = items.slice().sort((a, b) => {
+    if (!a.box && !b.box) return a.sourceIndex - b.sourceIndex;
+    if (!a.box) return 1;
+    if (!b.box) return -1;
+    if (a.box.centerY !== b.box.centerY) return a.box.centerY - b.box.centerY;
+    if (a.box.x !== b.box.x) return a.box.x - b.box.x;
+    return a.sourceIndex - b.sourceIndex;
+  });
+
+  const rows = [];
+  for (let i = 0; i < sortable.length; i++) {
+    const entry = sortable[i];
+    if (!entry.box) {
+      rows.push({
+        top: 0,
+        bottom: 0,
+        centerY: 0,
+        avgHeight: 1,
+        items: [entry],
+      });
+      continue;
+    }
+
+    let row = rows[rows.length - 1];
+    if (!row || !shouldJoinRow(row, entry.box)) {
+      row = {
+        top: entry.box.y,
+        bottom: entry.box.bottom,
+        centerY: entry.box.centerY,
+        avgHeight: entry.box.height,
+        items: [],
+      };
+      rows.push(row);
+    } else {
+      const itemCount = row.items.length;
+      row.top = Math.min(row.top, entry.box.y);
+      row.bottom = Math.max(row.bottom, entry.box.bottom);
+      row.centerY = ((row.centerY * itemCount) + entry.box.centerY) / (itemCount + 1);
+      row.avgHeight = ((row.avgHeight * itemCount) + entry.box.height) / (itemCount + 1);
+    }
+    row.items.push(entry);
+  }
+
+  const flattened = [];
+  for (let i = 0; i < rows.length; i++) {
+    const rowItems = rows[i].items.slice().sort((a, b) => {
+      if (!a.box && !b.box) return a.sourceIndex - b.sourceIndex;
+      if (!a.box) return 1;
+      if (!b.box) return -1;
+      if (a.box.x !== b.box.x) return a.box.x - b.box.x;
+      if (a.box.centerY !== b.box.centerY) return a.box.centerY - b.box.centerY;
+      return a.sourceIndex - b.sourceIndex;
+    });
+    for (let j = 0; j < rowItems.length; j++) {
+      flattened.push(rowItems[j]);
+    }
+  }
+
+  return flattened;
+}
+
+// Freeze the sequence before preview can move objects or affect selection.
+const orderedNodes = {
+  position: getOrderedSelectionItems('position').map(entry => entry.node),
+  layer: getOrderedSelectionItems('layer').map(entry => entry.node),
+  selection: sourceNodes.slice()
+};
 
 function fromCenterOrig(bb, xf) {
   if (!bb) return xf;
@@ -196,18 +315,6 @@ function getColorValueHeading(colorSettings) {
   return 'Color (Fill):';
 }
 
-function applyOpacityOperations(operations) {
-  for (let i = 0; i < operations.length; i++) {
-    const op = operations[i];
-    if (!op || !op.node) continue;
-    try {
-      const nodeSelection = Selection.create(doc, op.node);
-      doc.selection = nodeSelection;
-      doc.executeCommand(DocumentCommand.createSetOpacity(nodeSelection, op.opacity));
-    } catch (_) {}
-  }
-}
-
 function buildDialog() {
   const dlg = Dialog.create(APP_NAME);
   dlg.initialWidth = 380;
@@ -215,45 +322,32 @@ function buildDialog() {
 
   const col = dlg.addColumn();
 
+  const orderGroup = col.addGroup('Order');
+  dlg.orderMode = orderGroup.addButtonSet('Processing Order', ['Position', 'Layer Index', 'Selection'], 0);
+
   const scaleGroup = col.addGroup('Scale');
   dlg.scaleEnabled = scaleGroup.addSwitch('Enabled', false);
   dlg.scaleMode = scaleGroup.addButtonSet('', ['Even', 'Step'], 0);
   dlg.scaleMode.isFullWidth = true;
-  dlg.scaleMode.setIsEnabledBy(dlg.scaleEnabled);
   dlg.scaleEvenInfo = scaleGroup.addStaticText('', 'Even Value: 0% -> 100%');
   dlg.scaleEvenInfo.isFullWidth = true;
-  dlg.scaleEvenInfo.setIsEnabledBy(dlg.scaleEnabled);
   dlg.scaleStep = scaleGroup.addUnitValueEditor('Step Value', UnitType.Number, UnitType.Number, 0.25, -999999, 999999);
   dlg.scaleStep.precision = 3;
   dlg.scaleStep.showPopupSlider = false;
-  dlg.scaleStep.setIsEnabledBy(dlg.scaleEnabled);
-  dlg.scaleStep.setIsEnabledByControlIDWithSelectedIndex(dlg.scaleMode.controlID, 1);
   dlg.scaleRelative = scaleGroup.addSwitch('Relative', false);
-  dlg.scaleRelative.setIsEnabledBy(dlg.scaleEnabled);
   dlg.scaleReverse = scaleGroup.addSwitch('Reverse', false);
-  dlg.scaleReverse.setIsEnabledBy(dlg.scaleEnabled);
-  dlg.scaleShowValues = scaleGroup.addSwitch('Show Values', false);
-  dlg.scaleShowValues.setIsEnabledBy(dlg.scaleEnabled);
 
   const rotGroup = col.addGroup('Rotation');
   dlg.rotEnabled = rotGroup.addSwitch('Enabled', false);
   dlg.rotMode = rotGroup.addButtonSet('', ['Even', 'Step'], 0);
   dlg.rotMode.isFullWidth = true;
-  dlg.rotMode.setIsEnabledBy(dlg.rotEnabled);
   dlg.rotEvenInfo = rotGroup.addStaticText('', `Even Value: 360° / ${count} = ${formatNumber(computeRotationEvenIncrement(count), 1)}°`);
   dlg.rotEvenInfo.isFullWidth = true;
-  dlg.rotEvenInfo.setIsEnabledBy(dlg.rotEnabled);
   dlg.rotStep = rotGroup.addUnitValueEditor('Step Value', UnitType.Number, UnitType.Number, 15, -999999, 999999);
   dlg.rotStep.precision = 3;
   dlg.rotStep.showPopupSlider = false;
-  dlg.rotStep.setIsEnabledBy(dlg.rotEnabled);
-  dlg.rotStep.setIsEnabledByControlIDWithSelectedIndex(dlg.rotMode.controlID, 1);
   dlg.rotRelative = rotGroup.addSwitch('Relative', false);
-  dlg.rotRelative.setIsEnabledBy(dlg.rotEnabled);
   dlg.rotReverse = rotGroup.addSwitch('Reverse', false);
-  dlg.rotReverse.setIsEnabledBy(dlg.rotEnabled);
-  dlg.rotShowValues = rotGroup.addSwitch('Show Values', false);
-  dlg.rotShowValues.setIsEnabledBy(dlg.rotEnabled);
 
   const colorGroup = col.addGroup('Color');
   dlg.colorEnabled = colorGroup.addSwitch('Enabled', false);
@@ -261,26 +355,15 @@ function buildDialog() {
   dlg.colorEnd = colorGroup.addColourPicker('End');
   dlg.colorStart.allowPickNone = false;
   dlg.colorEnd.allowPickNone = false;
-  dlg.colorStart.setIsEnabledBy(dlg.colorEnabled);
-  dlg.colorEnd.setIsEnabledBy(dlg.colorEnabled);
   dlg.colorLayerEffects = colorGroup.addSwitch('Layer Effects', false);
-  dlg.colorLayerEffects.setIsEnabledBy(dlg.colorEnabled);
   dlg.colorReverse = colorGroup.addSwitch('Reverse', false);
-  dlg.colorReverse.setIsEnabledBy(dlg.colorEnabled);
-  dlg.colorShowValues = colorGroup.addSwitch('Show Values', false);
-  dlg.colorShowValues.setIsEnabledBy(dlg.colorEnabled);
 
   const opacityGroup = col.addGroup('Opacity');
   dlg.opacityEnabled = opacityGroup.addSwitch('Enabled', false);
   dlg.opacityEvenInfo = opacityGroup.addStaticText('', `Even Value: ${formatNumber(computeOpacityEvenIncrement(count) * 100, 1)}%`);
   dlg.opacityEvenInfo.isFullWidth = true;
-  dlg.opacityEvenInfo.setIsEnabledBy(dlg.opacityEnabled);
   dlg.opacityRelative = opacityGroup.addSwitch('Relative', false);
-  dlg.opacityRelative.setIsEnabledBy(dlg.opacityEnabled);
   dlg.opacityReverse = opacityGroup.addSwitch('Reverse', false);
-  dlg.opacityReverse.setIsEnabledBy(dlg.opacityEnabled);
-  dlg.opacityShowValues = opacityGroup.addSwitch('Show Values', false);
-  dlg.opacityShowValues.setIsEnabledBy(dlg.opacityEnabled);
 
   const firstItem = doc.selection.at(0);
   const lastItem = doc.selection.at(count - 1);
@@ -291,11 +374,23 @@ function buildDialog() {
   dlg.colorStart.value = RGBA8(startDefault.r, startDefault.g, startDefault.b, startDefault.a);
   dlg.colorEnd.value = RGBA8(endDefault.r, endDefault.g, endDefault.b, endDefault.a);
 
-  const statusGroup = col.addGroup('');
+  const statusGroup = col.addGroup('Test');
   dlg.statusText = statusGroup.addStaticText('', `Selected Elements: ${count}`);
   dlg.statusText.isFullWidth = true;
+  dlg.showValues = statusGroup.addSwitch('Show Values', false);
+  dlg.preview = statusGroup.addSwitch('Preview', true);
 
+  updateControlState(dlg);
   return dlg;
+}
+
+function updateControlState(dlg) {
+  for (const key of ['scaleMode','scaleEvenInfo','scaleRelative','scaleReverse']) dlg[key].isEnabled = dlg.scaleEnabled.value;
+  dlg.scaleStep.isEnabled = dlg.scaleEnabled.value && dlg.scaleMode.selectedIndex === 1;
+  for (const key of ['rotMode','rotEvenInfo','rotRelative','rotReverse']) dlg[key].isEnabled = dlg.rotEnabled.value;
+  dlg.rotStep.isEnabled = dlg.rotEnabled.value && dlg.rotMode.selectedIndex === 1;
+  for (const key of ['colorStart','colorEnd','colorLayerEffects','colorReverse']) dlg[key].isEnabled = dlg.colorEnabled.value;
+  for (const key of ['opacityEvenInfo','opacityRelative','opacityReverse']) dlg[key].isEnabled = dlg.opacityEnabled.value;
 }
 
 function analyzeValues(settings) {
@@ -309,8 +404,7 @@ function analyzeValues(settings) {
   const opacityOperations = [];
 
   for (let i = 0; i < count; i++) {
-    const item = doc.selection.at(i);
-    const node = item && item.node;
+    const node = orderedNodes[settings.order][i];
     if (!node) continue;
 
     let bb = null;
@@ -393,41 +487,44 @@ function analyzeValues(settings) {
     }
   }
 
-  if (settings.scale.enabled && settings.scale.showValues) {
+  if (settings.scale.enabled) {
     valueSections.push(`Scale:\n[${scaleValues.join(', ')}]`);
   }
-  if (settings.rotation.enabled && settings.rotation.showValues) {
+  if (settings.rotation.enabled) {
     valueSections.push(`Rotation:\n[${rotationValues.join(', ')}]`);
   }
-  if (settings.color.enabled && settings.color.showValues) {
+  if (settings.color.enabled) {
     valueSections.push(`${getColorValueHeading(settings.color)}\n[${colorValues.join(', ')}]`);
   }
-  if (settings.opacity.enabled && settings.opacity.showValues) {
+  if (settings.opacity.enabled) {
     valueSections.push(`Opacity:\n[${opacityValues.join(', ')}]`);
   }
 
+  // Opacity is applied per node with its selection made current, preserving
+  // the v2.20 workaround while using one preview transaction for all properties.
+  for (const op of opacityOperations) {
+    const selection = Selection.create(doc, op.node);
+    builder.addCommand(DocumentCommand.createSetSelection(selection));
+    builder.addCommand(DocumentCommand.createSetOpacity(selection, op.opacity));
+  }
+  const hasCommands = nonOpacityCommandCount > 0 || opacityOperations.length > 0;
+  if (hasCommands) builder.addCommand(DocumentCommand.createSetSelection(sourceSelection));
   return {
-    command: nonOpacityCommandCount > 0 ? builder.createCommand() : null,
+    command: hasCommands ? builder.createCommand() : null,
     opacityOperations,
     showValuesText: valueSections.join('\n\n'),
   };
 }
 
-const dlg = buildDialog();
-const result = dlg.runModal();
-
-if (result.value !== DialogResult.Ok.value) {
-  return;
-}
-
-const settings = {
+function readSettings(dlg) {
+return {
+  order: ['position', 'layer', 'selection'][dlg.orderMode.selectedIndex],
   scale: {
     enabled: dlg.scaleEnabled.value,
     mode: dlg.scaleMode.selectedIndex === 0 ? 'even' : 'step',
     stepValue: Number(dlg.scaleStep.value),
     relative: dlg.scaleRelative.value,
     reverse: dlg.scaleReverse.value,
-    showValues: dlg.scaleShowValues.value,
   },
   rotation: {
     enabled: dlg.rotEnabled.value,
@@ -435,7 +532,6 @@ const settings = {
     stepValue: Number(dlg.rotStep.value),
     relative: dlg.rotRelative.value,
     reverse: dlg.rotReverse.value,
-    showValues: dlg.rotShowValues.value,
   },
   color: {
     enabled: dlg.colorEnabled.value,
@@ -443,31 +539,71 @@ const settings = {
     end: normalizeRGBA(dlg.colorEnd.value) || { r: 255, g: 255, b: 255, a: 255 },
     layerEffects: dlg.colorLayerEffects.value,
     reverse: dlg.colorReverse.value,
-    showValues: dlg.colorShowValues.value,
   },
   opacity: {
     enabled: dlg.opacityEnabled.value,
     relative: dlg.opacityRelative.value,
     reverse: dlg.opacityReverse.value,
-    showValues: dlg.opacityShowValues.value,
   },
 };
-
-if (!settings.scale.enabled && !settings.rotation.enabled && !settings.color.enabled && !settings.opacity.enabled) {
-  app.alert('Step 2: Please enable at least one property', APP_NAME);
-  return;
 }
 
-const analyzed = analyzeValues(settings);
-
-if (analyzed.showValuesText) {
-  app.alert(analyzed.showValuesText, `${APP_NAME} - Values`);
+function runDialog() {
+  const dlg = buildDialog();
+  let updating = false;
+  let hasPreview = false;
+  function clearPreview() {
+    if (!hasPreview) return;
+    doc.clearPreviews();
+    hasPreview = false;
+    restoreSourceSelection();
+  }
+  function updatePreview() {
+    if (updating) return;
+    updating = true;
+    try {
+      clearPreview();
+      updateControlState(dlg);
+      dlg.statusText.text = `Selected Elements: ${count}`;
+      if (dlg.preview.value) {
+        const analyzed = analyzeValues(readSettings(dlg));
+        if (analyzed.command) {
+          hasPreview = true;
+          doc.executeCommand(analyzed.command, true);
+        }
+      }
+    } catch (error) {
+      clearPreview();
+      updateControlState(dlg);
+      dlg.statusText.text = `Preview error: ${String(error.message || error)}`;
+    } finally {
+      updating = false;
+    }
+  }
+  dlg.onControlValueChangedHandler = updatePreview;
+  try {
+    const result = dlg.runModal();
+    clearPreview();
+    if (result.value !== DialogResult.Ok.value) return;
+    const settings = readSettings(dlg);
+    const analyzed = analyzeValues(settings);
+    if (!analyzed.command) {
+      app.alert('Please enable at least one property', APP_NAME);
+      return;
+    }
+    if (dlg.showValues.value) {
+      const names = orderedNodes[settings.order].map((n, i) =>
+        `${i + 1}. ${n.userDescription || n.defaultDescription || 'Element'}`);
+      app.alert(`Elements (${['Position', 'Layer Index', 'Selection'][dlg.orderMode.selectedIndex]}):\n${names.join('\n')}\n\n${analyzed.showValuesText}`, `${APP_NAME} - Values`);
+    }
+    doc.executeCommand(analyzed.command);
+  } catch (error) {
+    console.log(error.stack || String(error));
+    app.alert(String(error.message || error), APP_NAME);
+  } finally {
+    clearPreview();
+    restoreSourceSelection();
+  }
 }
 
-if (analyzed.command) {
-  doc.executeCommand(analyzed.command);
-}
-if (analyzed.opacityOperations.length > 0) {
-  applyOpacityOperations(analyzed.opacityOperations);
-}
-restoreSourceSelection();
+runDialog();
