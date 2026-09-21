@@ -1406,6 +1406,17 @@
       "category": "Layer",
       "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/BBoxMaker.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/BBoxMaker.js"
+    },
+    {
+      "id": "layerreoder",
+      "name": "Layer Reorder",
+      "description": "Layer Reorder rearranges the order of child layers within selected groups and/or swaps the canvas positions of objects according to the new order. The script offers 13 sorting modes, three action modes, and a preview function that lets you evaluate the result before committing permanently. The layer structure is fully preserved — all operations take place exclusively within the selected group(s).",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0.0",
+      "category": "Layer",
+      "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/layerreoder.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/layerreoder.js"
     }
   ]
 }
