@@ -1428,6 +1428,28 @@
       "category": "Layer",
       "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/containertogroup.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/containertogroup.js"
+    },
+    {
+      "id": "UniqueObjectNames",
+      "name": "Unique Object Names",
+      "description": "The script converts all containers in the document into groups. For this to work, a group must already exist in the document; if none exists, insert an empty group into the layer stack. The reason for this is that the script cannot currently create groups, and further processing may be complicated by the presence of containers.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0.0",
+      "category": "Layer",
+      "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/UniqueObjectNames.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/UniqueObjectNames.js"
+    },
+    {
+      "id": "NumberingSequences",
+      "name": "Numbering - Sequences",
+      "description": "This script replaces the text objects inside a selected group (or a direct multi-selection of text objects) with an automatically generated sequence – for example a running number, a letter sequence, Roman numerals, weekday or month abbreviations, a date sequence with a freely definable format, or a freely defined custom list of values. The text attributes of the placeholder objects are fully preserved (font, size, colour, alignment, etc.) – only the text content itself is replaced. Even when a single object contains multiple differently formatted text sections (e.g. in placeholder mode), the new text inherits the formatting of the section it replaces. The order in which objects are numbered follows their actual position in the document (or, optionally, the layer stacking order) and can be configured for almost any reading direction. Row × Column Enables a combined labelling scheme where every row and every columngets its own, independent sequence. When type “Date” is selected, the fields in the “Sequence” column change and format placeholders (tokens) like Excel are used.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0.0",
+      "category": "Generator",
+      "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/NumberingSequences.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/NumberingSequences.js"
     }
   ]
 }
