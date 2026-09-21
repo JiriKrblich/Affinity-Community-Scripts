@@ -1383,6 +1383,17 @@
       "category": "Layer",
       "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/reverseorder.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/reverseorder.js"
+    },
+    {
+      "id": "covnerttoartboards",
+      "name": "Convert to Artboards",
+      "description": "Converts each selected element into an independent artboard. Existing artboards are skipped. Images and elements without direct artboard support are placed into a new artboard sized to their spread-space bounds, rounded outward to avoid clipping. Select the elements and run the script; a result dialog reports conversion results.",
+      "author": "WaveF",
+      "email": "wavef@live.com",
+      "version": "1.0.2",
+      "category": "Artboards",
+      "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/covnerttoartboards.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/covnerttoartboards.js"
     }
   ]
 }
