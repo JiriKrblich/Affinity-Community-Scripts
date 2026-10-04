@@ -1,8 +1,37 @@
 /**
 name: Randomize Objects
-version: 1.0.1
+version: 1.1.0
 description: Randomization of size, position, rotation, skew, opacity, color, and stroke of selected objects.
-*/
+
+ * author: zaum
+ *
+ * 1.1.0 - checked/adapted for current Affinity SDK (3.3):
+ *  - doc.spreads and spread.layers are Collections; index access like
+ *    doc.spreads[0] silently returns undefined (only .length and .at(i)
+ *    work, or for-of iteration). findStorageNode() used [0] on both, so it
+ *    always threw inside its own try/catch -> settings were silently never
+ *    saved or restored between runs. Fixed with .at(0).
+ *  - UnitType.Percent does not exist (undefined) -> UnitType.Percentage.
+ *    The dialog didn't crash, but the Strength field showed a plain number
+ *    instead of a percentage.
+ *  - Stroke randomization: DocumentCommand.createSetLineStyle /
+ *    createSetLineStyleDescriptor are silent no-ops on an existing node in
+ *    this build (they add an undo step but never change the rendered
+ *    stroke - confirmed with weight, cap and join). Stroke weight is now
+ *    set via the working node.lineStyleInterface.lineWeight = value
+ *    instead. That setter commits immediately (there is no "preview" form
+ *    of it) - and confirmed live, ANY real commit silently discards
+ *    whatever native preview (executeCommand(cmd, true)) is currently
+ *    pending, on every node, not just the one touched. So whenever Stroke
+ *    is enabled, the other properties are now also applied as a real
+ *    commit (preview=false) instead of a native preview; the preview/
+ *    cancel cleanup rolls the document history back to where it stood
+ *    when the dialog opened (in addition to clearPreviews()) to discard
+ *    those real commits again. One side effect: with Stroke enabled, the
+ *    stroke change lands as its own extra undo step per object on Apply,
+ *    instead of being folded into the single combined step the other
+ *    properties share.
+ */
 
 "use strict";
 
@@ -42,11 +71,11 @@ const DEFAULTS = {
 function findStorageNode(doc) {
   if (!doc.spreads.length) return null;
 
-  const spread = doc.spreads[0];
+  const spread = doc.spreads.at(0);
 
-  if (!spread.layers.length) return null;
+  if (!spread || !spread.layers.length) return null;
 
-  return spread.layers[0];
+  return spread.layers.at(0);
 }
 
 function loadSettings(doc) {
@@ -198,6 +227,7 @@ function randomSeed() {
 
 function buildCmds(doc, nodes, origBoxes, s) {
   const cmds = [];
+  const strokeOps = [];
 
   function r(i, o) {
     return applyDir(
@@ -339,26 +369,37 @@ function buildCmds(doc, nodes, origBoxes, s) {
         const ld = node.lineStyleDescriptor;
 
         if (ld) {
-          const ls = ld.lineStyle.clone();
-
-          ls.weight = Math.max(
+          const newWeight = Math.max(
             0.1,
 
-            ls.weight + ((r(i, 8) * s.str) / 100) * 10,
+            ld.lineStyle.weight + ((r(i, 8) * s.str) / 100) * 10,
           );
 
-          cmds.push(
-            DocumentCommand.createSetLineStyleDescriptor(
-              sel,
-              ld.cloneWithNewLineStyle(ls),
-            ),
-          );
+          // createSetLineStyle / createSetLineStyleDescriptor are no-ops on
+          // an existing node in this SDK build; the property setter is the
+          // one that actually works, but it commits immediately (no
+          // "preview" mode) - collected separately from the batched cmds.
+          strokeOps.push({ node, weight: newWeight });
         }
       } catch (e) {}
     }
   }
 
-  return cmds;
+  return { cmds, strokeOps };
+}
+
+function applyStrokeOps(strokeOps) {
+  let applied = false;
+
+  for (const op of strokeOps) {
+    try {
+      op.node.lineStyleInterface.lineWeight = op.weight;
+
+      applied = true;
+    } catch (e) {}
+  }
+
+  return applied;
 }
 
 function execCmds(doc, cmds, preview) {
@@ -395,8 +436,8 @@ function buildDialog(sv) {
 
   const strCtrl = grpStr.addUnitValueEditor(
     "Strength %",
-    UnitType.Percent,
-    UnitType.Percent,
+    UnitType.Percentage,
+    UnitType.Percentage,
     sv.str,
     0,
     100,
@@ -486,6 +527,19 @@ if (!doc) {
   } else {
     const spread = doc.currentSpread;
 
+    // Preview and cancel both roll the document back to this point, since
+    // stroke changes (see applyStrokeOps) commit immediately and can't be
+    // discarded with clearPreviews() alone.
+    const basePos = doc.history.position;
+
+    function resetPreview() {
+      doc.clearPreviews();
+
+      let guard = 100000;
+
+      while (doc.history.position > basePos && guard-- > 0) doc.history.undo();
+    }
+
     const origBoxes = nodes.map((n) => {
       try {
         return n.getSpreadBaseBox(false);
@@ -509,7 +563,7 @@ if (!doc) {
       const state = Object.assign(getState(), { spread });
 
       if (result.value !== DialogResult.Ok.value) {
-        if (previewActive) doc.clearPreviews();
+        resetPreview();
 
         saveSettings(
           doc,
@@ -526,24 +580,29 @@ if (!doc) {
 
         lastPreviewSeed = seed;
 
-        if (previewActive) doc.clearPreviews();
+        resetPreview();
 
-        const cmds = buildCmds(
+        const { cmds, strokeOps } = buildCmds(
           doc,
           nodes,
           origBoxes,
           Object.assign({}, state, { seed }),
         );
 
-        previewActive = execCmds(doc, cmds, true);
+        // A real commit (stroke, below) silently discards any pending
+        // native preview - on every node, not only the one it touches - so
+        // once Stroke is enabled the rest has to be a real commit too.
+        const cmdsApplied = execCmds(doc, cmds, state.doStroke ? false : true);
+        const strokeApplied = applyStrokeOps(strokeOps);
+        previewActive = cmdsApplied || strokeApplied;
 
         sv = Object.assign({}, state);
       } else {
-        if (previewActive) doc.clearPreviews();
+        resetPreview();
 
         const seed = lastPreviewSeed !== null ? lastPreviewSeed : randomSeed();
 
-        const cmds = buildCmds(
+        const { cmds, strokeOps } = buildCmds(
           doc,
           nodes,
           origBoxes,
@@ -551,6 +610,7 @@ if (!doc) {
         );
 
         execCmds(doc, cmds, false);
+        applyStrokeOps(strokeOps);
 
         saveSettings(doc, state);
 
