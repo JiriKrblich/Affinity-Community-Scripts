@@ -1205,7 +1205,8 @@
       "name": "Advanced Frame Builder",
       "description": "Generate up to 5 concentric frames. Stable geometry for ultra-thick strokes.",
       "author": "sort0m",
-      "version": "2.10.0",
+      "contributors":"Erhard.otto",
+      "version": "2.11.1",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/advancedframebuilder.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/advancedframebuilder.js"

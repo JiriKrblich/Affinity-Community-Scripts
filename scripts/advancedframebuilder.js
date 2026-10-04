@@ -1,13 +1,18 @@
 /**
- * name: Advanced Frame Builder
+ * name: Advanced Frame Builder 2.11.1
  * description: Generate up to 5 concentric frames. Stable geometry for ultra-thick strokes.
- * version: 2.10.0
+ * version: 2.11.1
  * author: sort0m
  */
 
+// v2.10.1 – SDK compatibility update for the current Affinity version:
+//   * PolyCurveNodeDefinition.create(curve, brushFill, lineFill, lineStyle, transparencyFill)
+//     (lineFill/lineStyle order swapped in the SDK -> "expected FillDescriptorHandle")
+//   * PolyCurve via PolyCurve.create(); explicit insertion mode for the frame group
+
 const { Document } = require("/document");
 const { PolyCurveNodeDefinition, ContainerNodeDefinition, NodeChildType } = require("/nodes");
-const { AddChildNodesCommandBuilder } = require("/commands");
+const { AddChildNodesCommandBuilder, InsertionMode } = require("/commands");
 const { CurveBuilder, PolyCurve } = require("/geometry");
 const { FillDescriptor } = require("/fills");
 const { LineStyle, LineStyleDescriptor } = require("/linestyle");
@@ -113,7 +118,7 @@ function buildPolyForStyle(style, cx, cy, W, H, rArr, S) {
     cb.beginXY(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) cb.lineToXY(pts[i].x, pts[i].y);
     cb.close();
-    const poly = new PolyCurve();
+    const poly = PolyCurve.create();
     poly.addCurve(cb.createCurve());
     return poly;
 }
@@ -218,6 +223,7 @@ function main() {
 
     const childBuilder = AddChildNodesCommandBuilder.create();
     childBuilder.setInsertionTarget(groupNode);
+    childBuilder.setInsertionMode(InsertionMode.Inside_AtBack);
 
     const wVal = ctrlW.value || 500;
     const hVal = ctrlH.value || 500;
@@ -262,7 +268,8 @@ function main() {
             }
 
             let poly = buildPolyForStyle(styles[i].selectedIndex, cx, cy, wVal, hVal, radii, currentOffset);
-            childBuilder.addNode(PolyCurveNodeDefinition.create(poly, transparent, customLineStyle(wThickness), black, transparent));
+            // SDK order: (curve, brushFill, lineFill, lineStyle, transparencyFill)
+            childBuilder.addNode(PolyCurveNodeDefinition.create(poly, transparent, black, customLineStyle(wThickness), transparent));
 
             prevThickness = wThickness;
             isFirstDrawn = false;
