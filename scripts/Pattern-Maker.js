@@ -1,8 +1,20 @@
 /**
 name: Pattern Maker
-version: 1.1.0
+version: 1.2.0
 description: Create patterns from an object. Supports brick and drop patterns.
 author: Nic Kraneis
+
+1.2.0 – checked/adapted for current Affinity SDK (3.3):
+ - Preview rollback via doc.history.position instead of counting commands
+   and replaying "Undo" commands (a miscount could undo the user's own
+   earlier work).
+ - Single runModal(): "Update Preview" button keeps the dialog open,
+   native OK = apply, Cancel/X/ESC = discard. (Before: ButtonSet
+   Preview/Apply + re-opening the dialog in a loop.)
+ - Initial preview uses the dialog values; start values set explicitly.
+ - Gap X/Y in document units (internally px) instead of plain numbers.
+ - Pattern layer is created in the parent of the original objects
+   (layer/artboard) instead of always at spread level.
 */
 
 // Google Gemini was used in creation of this script.
@@ -32,15 +44,14 @@ function getNodeBox(node) {
   );
 }
 
-function getSelectionBounds(selection) {
+function getSelectionBounds(nodes) {
   let minX = Infinity,
     minY = Infinity,
     maxX = -Infinity,
     maxY = -Infinity;
   let valid = false;
 
-  for (let i = 0; i < selection.length; i++) {
-    const node = selection.at(i).node;
+  for (const node of nodes) {
     const bb = getNodeBox(node);
     if (bb) {
       valid = true;
@@ -61,43 +72,39 @@ function getSelectionBounds(selection) {
   };
 }
 
-function exec(doc, cmd) {
-  doc.executeCommand(cmd);
+// Parent of the originals (layer / artboard / spread) as insertion target
+function findParentTarget(doc, nodes) {
+  try {
+    const p = nodes[0].parent;
+    if (p && p[Symbol.toStringTag] !== "DocumentNode") return p;
+  } catch (e) {}
+  return doc.currentSpread;
 }
 
-function undoN(doc, n) {
-  for (let i = 0; i < n; i++) exec(doc, DocumentCommand.createUndo());
-}
-
-function createGroupContainer(doc, groupName) {
+function createGroupContainer(doc, target, groupName) {
   const builder = AddChildNodesCommandBuilder.create();
-  builder.setInsertionTarget(doc.currentSpread);
+  builder.setInsertionTarget(target);
   builder.addContainerNode(ContainerNodeDefinition.create(groupName));
   const command = builder.createCommand(false, NodeChildType.Main);
   doc.executeCommand(command);
-  return command.newNodes[0];
+  const node = command.newNodes[0];
+  if (!node) throw new Error("Could not create layer '" + groupName + "'.");
+  return node;
 }
 
 function moveNodesIntoContainer(doc, nodes, container) {
-  if (!nodes || nodes.length === 0) return;
-
-  const validNodes = [];
-  for (let i = 0; i < nodes.length; i++) {
-    if (nodes[i] !== undefined && nodes[i] !== null) {
-      validNodes.push(nodes[i]);
-    }
-  }
-
+  const validNodes = (nodes || []).filter((n) => n !== undefined && n !== null);
   if (validNodes.length === 0) return;
 
   const selection = Selection.create(doc, validNodes);
-  const command = DocumentCommand.createMoveNodes(
-    selection,
-    container,
-    NodeMoveType.Inside,
-    NodeChildType.Main,
+  doc.executeCommand(
+    DocumentCommand.createMoveNodes(
+      selection,
+      container,
+      NodeMoveType.Inside,
+      NodeChildType.Main,
+    ),
   );
-  doc.executeCommand(command);
 }
 
 function showError(msg) {
@@ -126,63 +133,29 @@ function main() {
   for (let i = 0; i < sel.length; i++) {
     origNodes.push(sel.at(i).node);
   }
-  const bounds = getSelectionBounds(sel);
+  const bounds = getSelectionBounds(origNodes);
+  const parentTarget = findParentTarget(doc, origNodes);
+
+  // ---- dialog -------------------------------------------------------------
 
   const dlg = Dialog.create("Pattern Maker");
   dlg.initialWidth = 380;
   const col = dlg.addColumn();
 
   const gridGrp = col.addGroup("Grid");
-  const colsCtrl = gridGrp.addUnitValueEditor(
-    "Columns (X)",
-    UnitType.Number,
-    UnitType.Number,
-    3,
-    1,
-    100,
-  );
+  const colsCtrl = gridGrp.addUnitValueEditor("Columns (X)", UnitType.Number, UnitType.Number, 3, 1, 100);
   colsCtrl.precision = 0;
-  const rowsCtrl = gridGrp.addUnitValueEditor(
-    "Rows (Y)",
-    UnitType.Number,
-    UnitType.Number,
-    3,
-    1,
-    100,
-  );
+  const rowsCtrl = gridGrp.addUnitValueEditor("Rows (Y)", UnitType.Number, UnitType.Number, 3, 1, 100);
   rowsCtrl.precision = 0;
 
   const spacingGrp = col.addGroup("Spacing");
-  const gapXCtrl = spacingGrp.addUnitValueEditor(
-    "Gap X",
-    UnitType.Number,
-    UnitType.Number,
-    0,
-    -10000,
-    10000,
-  );
-  gapXCtrl.precision = 1;
-  const gapYCtrl = spacingGrp.addUnitValueEditor(
-    "Gap Y",
-    UnitType.Number,
-    UnitType.Number,
-    0,
-    -10000,
-    10000,
-  );
-  gapYCtrl.precision = 1;
+  const gapXCtrl = spacingGrp.addUnitValueEditor("Gap X", UnitType.Pixel, doc.units, 0, -10000, 10000);
+  const gapYCtrl = spacingGrp.addUnitValueEditor("Gap Y", UnitType.Pixel, doc.units, 0, -10000, 10000);
 
   const staggerGrp = col.addGroup("Stagger");
   const staggerRowCtrl = staggerGrp.addSwitch("Stagger Rows (Brick)", false);
   const staggerColCtrl = staggerGrp.addSwitch("Stagger Columns (Drop)", false);
-  const staggerAmtCtrl = staggerGrp.addUnitValueEditor(
-    "Stagger Amount (%)",
-    UnitType.Number,
-    UnitType.Number,
-    50,
-    0,
-    100,
-  );
+  const staggerAmtCtrl = staggerGrp.addUnitValueEditor("Stagger Amount (%)", UnitType.Number, UnitType.Number, 50, 0, 100);
   staggerAmtCtrl.precision = 1;
 
   const hintGrp = col.addGroup("Editing Tip");
@@ -193,177 +166,127 @@ function main() {
   hintTxt.isFullWidth = true;
 
   const actGrp = col.addGroup("");
+  const previewBtn = actGrp.addButton("↺ Update Preview");
+  previewBtn.isFullWidth = true;
+  const statusTxt = actGrp.addStaticText("", "OK = apply, Cancel = discard");
+  statusTxt.isFullWidth = true;
 
-  const btns = actGrp.addButtonSet("", ["↺ Preview", "✓ Apply"], 0);
-  btns.isFullWidth = true;
+  // Start values explicitly (initial values are not reliably taken over)
+  colsCtrl.value = 3;
+  rowsCtrl.value = 3;
+  gapXCtrl.value = 0;
+  gapYCtrl.value = 0;
+  staggerRowCtrl.value = false;
+  staggerColCtrl.value = false;
+  staggerAmtCtrl.value = 50;
 
-  function doApply(
-    cols,
-    rows,
-    gapX,
-    gapY,
-    staggerRow,
-    staggerCol,
-    staggerAmt,
-    isFinal,
-  ) {
-    let cmds = 0;
-    const unitW = (bounds.width || 0) + gapX;
-    const unitH = (bounds.height || 0) + gapY;
+  function readParams() {
+    return {
+      cols: Math.max(1, Math.round(Number(colsCtrl.value) || 1)),
+      rows: Math.max(1, Math.round(Number(rowsCtrl.value) || 1)),
+      gapX: Number(gapXCtrl.value) || 0,
+      gapY: Number(gapYCtrl.value) || 0,
+      staggerRow: !!staggerRowCtrl.value,
+      staggerCol: !!staggerColCtrl.value,
+      staggerAmt: (Number(staggerAmtCtrl.value) || 0) / 100,
+    };
+  }
+
+  // ---- build --------------------------------------------------------------
+
+  function doApply(p, isFinal) {
+    const unitW = (bounds.width || 0) + p.gapX;
+    const unitH = (bounds.height || 0) + p.gapY;
 
     if (isFinal) {
-
-      const patternGroup = createGroupContainer(
-        doc,
-        `Pattern (${cols}x${rows})`,
-      );
-      cmds++;
-
+      // Flat structure: every copy is its own object in the pattern layer
+      const patternGroup = createGroupContainer(doc, parentTarget, `Pattern (${p.cols}x${p.rows})`);
       moveNodesIntoContainer(doc, origNodes, patternGroup);
-      cmds++;
 
-      for (let r = 0; r < rows; r++) {
-        let rowDx = staggerRow && r % 2 !== 0 ? unitW * staggerAmt : 0;
-        let rowDy = r * unitH;
+      for (let r = 0; r < p.rows; r++) {
+        const rowDx = p.staggerRow && r % 2 !== 0 ? unitW * p.staggerAmt : 0;
+        const rowDy = r * unitH;
 
-        for (let c = 0; c < cols; c++) {
+        for (let c = 0; c < p.cols; c++) {
           if (r === 0 && c === 0) continue;
-
-          let colDx = c * unitW;
-          let colDy = staggerCol && c % 2 !== 0 ? unitH * staggerAmt : 0;
-
-          let dx = rowDx + colDx;
-          let dy = rowDy + colDy;
-
+          const dx = rowDx + c * unitW;
+          const dy = rowDy + (p.staggerCol && c % 2 !== 0 ? unitH * p.staggerAmt : 0);
           for (const node of origNodes) {
-            try {
-              const dup = node.duplicate(Transform.createTranslate(dx, dy));
-              if (dup) cmds++;
-            } catch (e) {}
+            node.duplicate(Transform.createTranslate(dx, dy));
           }
         }
       }
+      return patternGroup;
+    }
 
-      return { cmds: cmds, group: patternGroup };
-    } else {
-
-      const firstRowNodes = [...origNodes];
-
-      for (let c = 1; c < cols; c++) {
-        let dx = c * unitW;
-        let dy = staggerCol && c % 2 !== 0 ? unitH * staggerAmt : 0;
-        for (const node of origNodes) {
-          try {
-            const dup = node.duplicate(Transform.createTranslate(dx, dy));
-            if (dup) {
-              firstRowNodes.push(dup);
-              cmds++;
-            }
-          } catch (e) {}
-        }
+    // Preview: build one row, then duplicate the row (much faster)
+    const firstRowNodes = [...origNodes];
+    for (let c = 1; c < p.cols; c++) {
+      const dx = c * unitW;
+      const dy = p.staggerCol && c % 2 !== 0 ? unitH * p.staggerAmt : 0;
+      for (const node of origNodes) {
+        const dup = node.duplicate(Transform.createTranslate(dx, dy));
+        if (dup) firstRowNodes.push(dup);
       }
+    }
 
-      const rowGroup = createGroupContainer(doc, `TempRow`);
-      cmds++;
-      moveNodesIntoContainer(doc, firstRowNodes, rowGroup);
-      cmds++;
+    const rowGroup = createGroupContainer(doc, parentTarget, "TempRow");
+    moveNodesIntoContainer(doc, firstRowNodes, rowGroup);
 
-      const allRows = [rowGroup];
+    const allRows = [rowGroup];
+    for (let r = 1; r < p.rows; r++) {
+      const dx = p.staggerRow && r % 2 !== 0 ? unitW * p.staggerAmt : 0;
+      const dy = r * unitH;
+      const rowDup = rowGroup.duplicate(Transform.createTranslate(dx, dy));
+      if (rowDup) allRows.push(rowDup);
+    }
 
-      for (let r = 1; r < rows; r++) {
-        let dx = staggerRow && r % 2 !== 0 ? unitW * staggerAmt : 0;
-        let dy = r * unitH;
-        try {
-          const rowDup = rowGroup.duplicate(Transform.createTranslate(dx, dy));
-          if (rowDup) {
-            allRows.push(rowDup);
-            cmds++;
-          }
-        } catch (e) {}
-      }
+    const patternGroup = createGroupContainer(doc, parentTarget, `Preview (${p.cols}x${p.rows})`);
+    moveNodesIntoContainer(doc, allRows, patternGroup);
+    return patternGroup;
+  }
 
-      const patternGroup = createGroupContainer(
-        doc,
-        `Preview (${cols}x${rows})`,
-      );
-      cmds++;
-      moveNodesIntoContainer(doc, allRows, patternGroup);
-      cmds++;
+  // ---- preview handling via history position -----------------------------
 
-      return { cmds: cmds, group: patternGroup };
+  const basePos = doc.history.position;
+
+  function rollback() {
+    let guard = 100000;
+    while (doc.history.position > basePos && guard-- > 0) {
+      doc.history.undo();
     }
   }
 
-  let cmdCount = 0;
-  let previewActive = false;
+  function updatePreview() {
+    rollback();
+    try {
+      const p = readParams();
+      doApply(p, false);
+      statusTxt.text = `Preview ${p.cols} × ${p.rows} – OK = apply, Cancel = discard`;
+    } catch (e) {
+      rollback();
+      statusTxt.text = "Preview error: " + e.message;
+      console.log("Preview Error: " + e.message);
+    }
+  }
+
+  previewBtn.setOnClickHandler(updatePreview);
+
+  updatePreview();
+
+  const result = dlg.runModal();
+
+  // Always discard the preview first
+  rollback();
+
+  if (!result || result.value !== DialogResult.Ok.value) return;
 
   try {
-    const res = doApply(3, 3, 0, 0, false, false, 0.5, false);
-    cmdCount = res.cmds;
-    previewActive = true;
+    const group = doApply(readParams(), true);
+    doc.executeCommand(DocumentCommand.createSetSelection(group.selfSelection));
   } catch (e) {
-    console.error("Error: " + e.message);
-  }
-
-  let running = true;
-  while (running) {
-    btns.selectedIndex = 0;
-    const result = dlg.runModal();
-
-    const cols = Math.max(1, Math.round(colsCtrl.value));
-    const rows = Math.max(1, Math.round(rowsCtrl.value));
-    const gapX = gapXCtrl.value;
-    const gapY = gapYCtrl.value;
-    const stRow = staggerRowCtrl.value;
-    const stCol = staggerColCtrl.value;
-    const stAmt = staggerAmtCtrl.value / 100;
-
-    const mode = btns.selectedIndex;
-
-    if (result.value !== DialogResult.Ok.value) {
-      if (previewActive) {
-        undoN(doc, cmdCount);
-        previewActive = false;
-      }
-      running = false;
-    } else if (mode === 1) {
-      if (previewActive) {
-        undoN(doc, cmdCount);
-        previewActive = false;
-      }
-      try {
-        const finalRes = doApply(
-          cols,
-          rows,
-          gapX,
-          gapY,
-          stRow,
-          stCol,
-          stAmt,
-          true,
-        );
-        exec(
-          doc,
-          DocumentCommand.createSetSelection(finalRes.group.selfSelection),
-        );
-        running = false;
-      } catch (e) {
-        console.error("Apply Error: " + e.message);
-      }
-    } else {
-      if (previewActive) {
-        undoN(doc, cmdCount);
-        previewActive = false;
-        cmdCount = 0;
-      }
-      try {
-        const res = doApply(cols, rows, gapX, gapY, stRow, stCol, stAmt, false);
-        cmdCount = res.cmds;
-        previewActive = true;
-      } catch (e) {
-        console.error("Preview Error: " + e.message);
-      }
-    }
+    rollback();
+    showError("Apply Error:\n" + e.message);
   }
 }
 
