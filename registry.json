@@ -561,7 +561,8 @@
       "name": "Image Trace Superior",
       "description": "Converts raster/image layers into clean, scalable black-and-white vectors directly inside Affinity — no external tools needed. Engine: marching-squares contour tracer with adaptive Bezier smoothing, corner-aware RDP simplification, and anti-staircase curve fitting.",
       "author": "Dimas Nirwan",
-      "version": "1.1.0",
+      "contributors":"Erhard.otto",
+      "version": "1.1.1",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ImageTraceSuperior.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/image-trace-superior.js"

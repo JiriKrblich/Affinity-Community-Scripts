@@ -1,3 +1,30 @@
+/**
+ * name: Image Trace Superior
+ * description: Converts raster/image layers into clean, scalable black-and-white vectors directly inside Affinity — no external tools needed. Engine: marching-squares contour tracer with adaptive Bezier smoothing, corner-aware RDP simplification, and anti-staircase curve fitting.
+ * version: 1.1.1
+ * author: Dimas Nirwan
+ *
+ * 1.1.1 - checked against current Affinity SDK (3.3):
+ *  - PolyCurveNodeDefinition.create() now expects
+ *    (curve, brushFill, lineFill, lineStyle, transparencyFill) - lineFill
+ *    (a FillDescriptor) comes BEFORE lineStyle (a LineStyleDescriptor).
+ *    Both calls in this script had them swapped, which throws "expected
+ *    FillDescriptorHandle" immediately - confirmed live, reproduced the
+ *    exact error and fixed it. This means every Preview/Apply attempt was
+ *    failing outright and landing in the catch block, regardless of any
+ *    settings; the trace math, threshold detection, and marching-squares
+ *    engine themselves were never actually reached. Fixed by swapping the
+ *    two arguments in both PolyCurveNodeDefinition.create() calls.
+ *  - rasterInterface / createCompatibleBitmap / PixelReaderRGBA8.readPixel
+ *    (the actual pixel-reading pipeline) checked against the current SDK
+ *    source and match this script's usage exactly - no changes needed
+ *    there. Could not run a full end-to-end trace against a real placed
+ *    PNG/JPG in this environment (no image asset available to test with,
+ *    and a from-scratch synthetic raster node didn't behave like a real
+ *    placed image closely enough to be a reliable stand-in) - please do
+ *    a quick real-world check after installing this version.
+ */
+
 'use strict';
 
 /**
@@ -553,12 +580,13 @@ function createTraceNode(doc, sourceNode) {
     const noStroke = FillDescriptor.createNone();
     const lineStyle = LineStyleDescriptor.createDefault(0);
 
-    const curveDef = PolyCurveNodeDefinition.create(poly, fill, lineStyle, noStroke, FillDescriptor.createNone());
+    // Current SDK order: (curve, brushFill, lineFill, lineStyle, transparencyFill)
+    const curveDef = PolyCurveNodeDefinition.create(poly, fill, noStroke, lineStyle, FillDescriptor.createNone());
     curveDef.userDescription = 'Image Trace Superior Auto Curves';
 
     const bgPoly = PolyCurve.create();
     bgPoly.addCurve(buildBoundsRect(box));
-    const bgDef = PolyCurveNodeDefinition.create(bgPoly, whiteFill, lineStyle, noStroke, FillDescriptor.createNone());
+    const bgDef = PolyCurveNodeDefinition.create(bgPoly, whiteFill, noStroke, lineStyle, FillDescriptor.createNone());
     bgDef.userDescription = 'Image Trace Superior Background';
 
     const bgBuilder = AddChildNodesCommandBuilder.create();
