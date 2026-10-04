@@ -1,3 +1,25 @@
+/**
+ * name: Plotter Declutter (Native)
+ * description: Removes hidden geometry from layered plotter/generative-art SVGs (Cavalry, Processing, and similar rigs) directly inside Affinity. Select all the shapes making up the artwork and run the script -- each shape is clipped to only the portion not covered by shapes drawn after it, using Affinity's boolean subtract/union operations. Shapes fully hidden behind later shapes are removed entirely. Works on closed shapes (real filled/fillable areas); open strokes with no closed area aren't clipped correctly yet. A browser-based version of the same tool (no Affinity required) is also available.
+ * version: 4.0.1
+ * author: Victor Crespo (3dvic)
+ *
+ * 4.0.1 - checked against current Affinity SDK (3.3):
+ *  - showMessage() called addStaticText(line, "") - the FIRST argument is
+ *    the control's label, the SECOND is the actual displayed text. Every
+ *    message this script shows ("select at least 2 shapes", the final
+ *    "N shapes processed..." summary) was passed as the label with an
+ *    empty text body, so the dialogs rendered with no visible message.
+ *    Confirmed live (label vs .text) and fixed by swapping the arguments.
+ *  - The core algorithm itself (duplicate(), boolean subtract/union via
+ *    DocumentCommandApi, reading the result from doc.selection after each
+ *    op since these commands don't expose newNodes, deleteSelection on a
+ *    raw node) is unchanged - all confirmed still working exactly as
+ *    written: tested a 3-shape partial-overlap stack (clipped shapes
+ *    gained the expected extra corners, the topmost stayed a plain
+ *    rectangle) and a fully-hidden shape (correctly detected and removed).
+*/
+
 // Plotter Declutter (Native) — v4
 // Computes what's actually visible in a stack of overlapping vector shapes by
 // subtracting everything drawn on top of each shape from that shape.
@@ -32,7 +54,7 @@ function showMessage(title, lines) {
     const grp = col.addGroup("");
     for (const line of lines) {
         if (line === "") continue;
-        const label = grp.addStaticText(line, "");
+        const label = grp.addStaticText("", line);
         label.isFullWidth = true;
     }
     dlg.runModal();
