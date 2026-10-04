@@ -1,11 +1,19 @@
 /**
- * name: Pizza Cutter
- * description: Slice a selected object into a precise grid or pie pieces.
- * version: 1.0.0
+ * name: Pizza Cutter 3.0.1
+ * description: Slice a selected object into a precise pie or grid pieces
+ * version: 1.0.1
  * author: hellsfaun
  */
 
 "use strict";
+
+// v1.0.1 – SDK compatibility update for the current Affinity version:
+//   * Dialog.show() (deprecated) -> runModal()
+//   * CurveBuilder via CurveBuilder.create() instead of the constructor
+//   * addDropDownList() does not exist -> addComboBox() directly
+//   * Live preview guarded against re-entrant calls; explicit dialog start values
+//   * Final selection of the pieces via doc.selection (the former trial-and-error
+//     selection commands produced extra undo steps)
 const { Document } = require("/document");
 const { Dialog, DialogResult } = require("/dialog");
 const { UnitType } = require("/units");
@@ -175,7 +183,7 @@ function generateSlices(origNode, origBox) {
         const p1 = rotPt(cx - R_grid, y);
         const p2 = rotPt(cx + R_grid, y);
         cutLines.push(
-          new CurveBuilder()
+          CurveBuilder.create()
             .beginXY(p1.x, p1.y)
             .lineToXY(p2.x, p2.y)
             .createCurve(),
@@ -189,7 +197,7 @@ function generateSlices(origNode, origBox) {
         const p1 = rotPt(x, cy - R_grid);
         const p2 = rotPt(x, cy + R_grid);
         cutLines.push(
-          new CurveBuilder()
+          CurveBuilder.create()
             .beginXY(p1.x, p1.y)
             .lineToXY(p2.x, p2.y)
             .createCurve(),
@@ -209,7 +217,7 @@ function generateSlices(origNode, origBox) {
     for (let i = 0; i < numCuts; i++) {
       const angle = startRad + i * angleStep;
       cutLines.push(
-        new CurveBuilder()
+        CurveBuilder.create()
           .beginXY(
             centerOffsetX + Math.cos(angle) * R,
             centerOffsetY + Math.sin(angle) * R,
@@ -278,35 +286,9 @@ function applySlicing(doc, origNode) {
   if (currentPieces && currentPieces.length > 0) {
     const finalSel = Selection.create(doc, currentPieces);
 
-    // Try direct assignment
     try {
       doc.selection = finalSel;
     } catch (e) {}
-
-    // Try various documented command patterns for selecting nodes safely
-    const selectionCommands = [
-      "createSelectNodes",
-      "createSelectSelection",
-      "createSetSelection",
-      "createSelect",
-    ];
-    for (const cmdName of selectionCommands) {
-      if (typeof DocumentCommand[cmdName] === "function") {
-        try {
-          doc.executeCommand(DocumentCommand[cmdName](finalSel));
-        } catch (e) {}
-        try {
-          doc.executeCommand(DocumentCommand[cmdName](finalSel, true));
-        } catch (e) {}
-      }
-    }
-
-    // Try raw property mutation as a fallback
-    for (const p of currentPieces) {
-      try {
-        p.selected = true;
-      } catch (e) {}
-    }
   }
 
   groupToCleanup = null;
@@ -323,7 +305,7 @@ function run() {
       .addColumn()
       .addGroup("")
       .addStaticText("", "No object selected.").isFullWidth = true;
-    dlg.show();
+    dlg.runModal();
     return;
   }
 
@@ -342,7 +324,7 @@ function run() {
         "",
         "Selected object has invalid dimensions.",
       ).isFullWidth = true;
-    dlg.show();
+    dlg.runModal();
     return;
   }
 
@@ -355,20 +337,13 @@ function run() {
 
   // Toggles between Pie (0) and Grid (1)
   const modeGrp = col.addGroup("Slicing Mode");
-  let modeToggle;
-  try {
-    modeToggle = modeGrp.addDropDownList(
-      "Method",
-      ["Pie", "Grid"],
-      config.mode,
-    );
-  } catch (e) {
-    modeToggle = modeGrp.addComboBox("Method", ["Pie", "Grid"], config.mode);
-  }
+  const modeToggle = modeGrp.addComboBox("Method", ["Pie", "Grid"], config.mode);
+  modeToggle.selectedIndex = config.mode;
   const keepOriginalCtrl = modeGrp.addSwitch(
     "Keep original shape (hidden)",
     config.keepOriginal,
   );
+  keepOriginalCtrl.value = !!config.keepOriginal;
 
   const pieGrp = col.addGroup("Pie Settings");
   const cutsCtrl = pieGrp.addUnitValueEditor(
@@ -379,6 +354,7 @@ function run() {
     1,
     32,
   );
+  cutsCtrl.value = config.cuts;
   cutsCtrl.precision = 0;
   const startAngleCtrl = pieGrp.addUnitValueEditor(
     "Start Angle",
@@ -388,6 +364,7 @@ function run() {
     -180,
     180,
   );
+  startAngleCtrl.value = config.startAngle;
   startAngleCtrl.precision = 0;
   startAngleCtrl.showPopupSlider = true;
   const offsetXCtrl = pieGrp.addUnitValueEditor(
@@ -398,6 +375,7 @@ function run() {
     -100,
     100,
   );
+  offsetXCtrl.value = config.offsetX;
   offsetXCtrl.showPopupSlider = true;
   const offsetYCtrl = pieGrp.addUnitValueEditor(
     "Center Y Offset (%)",
@@ -407,6 +385,7 @@ function run() {
     -100,
     100,
   );
+  offsetYCtrl.value = config.offsetY;
   offsetYCtrl.showPopupSlider = true;
 
   const gridGrp = col.addGroup("Grid Settings");
@@ -418,6 +397,7 @@ function run() {
     1,
     50,
   );
+  rowsCtrl.value = config.rows;
   rowsCtrl.precision = 0;
   const colsCtrl = gridGrp.addUnitValueEditor(
     "Columns",
@@ -427,6 +407,7 @@ function run() {
     1,
     50,
   );
+  colsCtrl.value = config.cols;
   colsCtrl.precision = 0;
   const gridAngleCtrl = gridGrp.addUnitValueEditor(
     "Angle",
@@ -436,6 +417,7 @@ function run() {
     -180,
     180,
   );
+  gridAngleCtrl.value = config.gridAngle;
   gridAngleCtrl.precision = 0;
   gridAngleCtrl.showPopupSlider = true;
 
@@ -457,25 +439,31 @@ function run() {
     config.startAngle = startAngleCtrl.value;
     config.offsetX = offsetXCtrl.value;
     config.offsetY = offsetYCtrl.value;
-    config.keepOriginal = keepOriginalCtrl.value;
+    config.keepOriginal = !!keepOriginalCtrl.value;
   }
 
+  let inPreview = false;
   function updatePreview() {
-    deletePieces();
-    readSettings();
+    if (inPreview) return false;
+    inPreview = true;
     try {
+      deletePieces();
+      readSettings();
       generateSlices(origNode, origBox);
       return true;
     } catch (e) {
+      console.log("Pizza Cutter preview error: " + e);
       return false;
+    } finally {
+      inPreview = false;
     }
   }
 
   // Bind real-time UI updates to instantly preview on slider change
   updatePreview();
-  dialog.onControlValueChangedHandler = updatePreview;
+  dialog.setOnControlValueChangedHandler(updatePreview);
 
-  const result = dialog.show();
+  const result = dialog.runModal();
 
   if (result.value === DialogResult.Ok.value) {
     // "OK" clicked - apply final result
