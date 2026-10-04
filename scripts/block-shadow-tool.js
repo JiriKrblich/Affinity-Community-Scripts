@@ -3,7 +3,22 @@
  * Fixed: preview undo now reliably removes the previous shadow before generating new one.
  * Preview never groups (keeps it as single undoable command).
  * Apply commits final version with grouping.
- */
+ 
+ * name: Vector Block Shadow Tool 3.0.1
+ * description: Replicate the Block Shadow functionality from CorelDRAW by generating a solid, 2D vector extrusion from a source object. Unlike a drop shadow, this must result in a flat vector path capable of being sent to a plotter or vinyl cutter.
+ * version: 1.4.1
+ * author: jn-373*/
+
+// v1.4.1 – SDK compatibility update for the current Affinity version:
+//   * PolyCurveNodeDefinition.create(curve, brushFill, lineFill, lineStyle, transparencyFill)
+//     (lineFill/lineStyle order swapped in the SDK -> no shadow was created)
+//   * Unit strings "mm" / "°" / "%" -> UnitType values, explicit start values
+//   * createMoveNodes() now gets its required NodeChildType argument
+//   * Preview removal by deleting the tracked preview shadows (the step-counting
+//     createUndo() no longer removed the preview -> shadows piled up); preview shadows are added
+//     with individual commands (newNodes of commands inside a compound throws
+//     INVALID_OP, which broke "Punch out" in the preview)
+//   * CurveBuilder / PolyCurve via .create()
 
 const { Document } = require("/document");
 const {
@@ -11,6 +26,7 @@ const {
   AddChildNodesCommandBuilder,
   InsertionMode,
   NodeMoveType,
+  NodeChildType,
   CompoundCommandBuilder,
 } = require("/commands");
 const { PolyCurveNodeDefinition, ContainerNodeDefinition } = require("/nodes");
@@ -20,6 +36,7 @@ const { FillDescriptor, SolidFill } = require("/fills");
 const { LineStyle, LineStyleDescriptor } = require("/linestyle");
 const { Dialog, DialogResult } = require("/dialog");
 const { Selection } = require("/selections");
+const { UnitType } = require("/units");
 
 // ── Geometry ─────────────────────────────────────────────────────────────────
 
@@ -118,11 +135,11 @@ function buildShadowPC(sourcePts, dx, dy, doPunch, sourceNode) {
   const offsetPts = sourcePts.map((p) => ({ x: p.x + dx, y: p.y + dy }));
   const hull = convexHull(sourcePts.concat(offsetPts));
   if (hull.length < 3) return null;
-  const cb = new CurveBuilder();
+  const cb = CurveBuilder.create();
   cb.beginXY(hull[0].x, hull[0].y);
   for (let i = 1; i < hull.length; i++) cb.lineToXY(hull[i].x, hull[i].y);
   cb.close();
-  const pc = new PolyCurve();
+  const pc = PolyCurve.create();
   pc.addCurve(cb.createCurve());
   if (doPunch) {
     try {
@@ -133,7 +150,7 @@ function buildShadowPC(sourcePts, dx, dy, doPunch, sourceNode) {
         if (cloned.curveCount > 0) pc.addCurve(cloned.at(0));
       } else {
         const bb = sourceNode.getSpreadBaseBox(false);
-        const cb2 = new CurveBuilder();
+        const cb2 = CurveBuilder.create();
         cb2.beginXY(bb.x, bb.y);
         cb2.lineToXY(bb.x + bb.width, bb.y);
         cb2.lineToXY(bb.x + bb.width, bb.y + bb.height);
@@ -146,13 +163,15 @@ function buildShadowPC(sourcePts, dx, dy, doPunch, sourceNode) {
   return pc;
 }
 
-// Preview: inserts all shadow nodes as a SINGLE compound command so one undo removes all
+// Preview: inserts the shadow nodes and RETURNS them, so the preview can be
+// removed again by deleting exactly these nodes (see removePreview in main).
+// Note: nodes created inside a CompoundCommand cannot be referenced afterwards
+// (newNodes throws INVALID_OP), so each shadow is added with its own command.
 function applyPreview(doc, nodes, params) {
+  const created = [];
   const { dx, dy, brushFill, doPunch } = params;
   const lsd = LineStyleDescriptor.create(LineStyle.createDefault(), {});
   const SAMPLES = 8;
-  const compound = CompoundCommandBuilder.create();
-  const addCmds = [];
 
   for (const node of nodes) {
     try {
@@ -163,8 +182,8 @@ function applyPreview(doc, nodes, params) {
       const def = PolyCurveNodeDefinition.create(
         shadowPC,
         brushFill,
-        lsd,
-        FillDescriptor.createNone(),
+        FillDescriptor.createNone(), // lineFill
+        lsd, // lineStyle  (SDK order: curve, brush, lineFill, lineStyle, transparency)
         FillDescriptor.createNone(),
       );
       def.userDescription = "Block Shadow";
@@ -175,36 +194,26 @@ function applyPreview(doc, nodes, params) {
       addBuilder.setInsertionMode(InsertionMode.Behind);
       addBuilder.clearCurrentSelection = true;
       const addCmd = addBuilder.createCommand(false);
-      compound.addCommand(addCmd);
-      addCmds.push({ addCmd, node, doPunch });
+      doc.executeCommand(addCmd);
+
+      const shadowNode = addCmd.newNodes?.[0];
+      if (shadowNode) created.push(shadowNode);
+
+      if (doPunch) {
+        if (shadowNode) {
+          doc.executeCommand(
+            DocumentCommand.createSetWindingMode(
+              Selection.create(doc, shadowNode),
+              1,
+            ),
+          );
+        }
+      }
     } catch (e) {
       console.log("Preview build err:", e.message);
     }
   }
-
-  // Execute all insertions as one compound (one undo step)
-  doc.executeCommand(compound.createCommand());
-
-  // Apply winding mode for punch-out (separate commands, but these get undone
-  // with the compound since doc.undo() steps through all history)
-  // We handle this by tracking previewCommandCount
-  let extraCmds = 0;
-  for (const { addCmd, doPunch } of addCmds) {
-    if (doPunch) {
-      const shadowNode = addCmd.newNodes?.[0];
-      if (shadowNode) {
-        doc.executeCommand(
-          DocumentCommand.createSetWindingMode(
-            Selection.create(doc, shadowNode),
-            1,
-          ),
-        );
-        extraCmds++;
-      }
-    }
-  }
-
-  return 1 + extraCmds; // number of undo steps needed to fully remove preview
+  return created;
 }
 
 // Apply final: full version with grouping, each node is its own compound
@@ -222,8 +231,8 @@ function applyFinal(doc, nodes, params) {
       const def = PolyCurveNodeDefinition.create(
         shadowPC,
         brushFill,
-        lsd,
-        FillDescriptor.createNone(),
+        FillDescriptor.createNone(), // lineFill
+        lsd, // lineStyle  (SDK order: curve, brush, lineFill, lineStyle, transparency)
         FillDescriptor.createNone(),
       );
       def.userDescription = "Block Shadow";
@@ -265,6 +274,7 @@ function applyFinal(doc, nodes, params) {
               Selection.create(doc, shadowNode),
               groupNode,
               NodeMoveType.Inside,
+              NodeChildType.Main,
             ),
           );
           doc.executeCommand(
@@ -272,6 +282,7 @@ function applyFinal(doc, nodes, params) {
               Selection.create(doc, node),
               groupNode,
               NodeMoveType.Inside,
+              NodeChildType.Main,
             ),
           );
         }
@@ -308,33 +319,39 @@ if (!doc) {
     const projGrp = col.addGroup("Projection");
     const distEd = projGrp.addUnitValueEditor(
       "Distance (mm)",
-      "mm",
-      "mm",
+      UnitType.Number,
+      UnitType.Number,
       10,
       0,
       200,
     );
+    distEd.value = 10;
     distEd.precision = 1;
     distEd.showPopupSlider = true;
     const angleEd = projGrp.addUnitValueEditor(
       "Angle (°)  0=right  90=down",
-      "°",
-      "°",
+      UnitType.Number,
+      UnitType.Number,
       45,
       0,
       360,
     );
+    angleEd.value = 45;
     angleEd.precision = 0;
     angleEd.showPopupSlider = true;
 
     const colGrp = col.addGroup("Shadow Colour (CMYK %)");
-    const cEd = colGrp.addUnitValueEditor("C", "%", "%", 0, 0, 100);
+    const cEd = colGrp.addUnitValueEditor("C", UnitType.Number, UnitType.Number, 0, 0, 100);
+    cEd.value = 0;
     cEd.precision = 0;
-    const mEd = colGrp.addUnitValueEditor("M", "%", "%", 0, 0, 100);
+    const mEd = colGrp.addUnitValueEditor("M", UnitType.Number, UnitType.Number, 0, 0, 100);
+    mEd.value = 0;
     mEd.precision = 0;
-    const yEd = colGrp.addUnitValueEditor("Y", "%", "%", 0, 0, 100);
+    const yEd = colGrp.addUnitValueEditor("Y", UnitType.Number, UnitType.Number, 0, 0, 100);
+    yEd.value = 0;
     yEd.precision = 0;
-    const kEd = colGrp.addUnitValueEditor("K", "%", "%", 100, 0, 100);
+    const kEd = colGrp.addUnitValueEditor("K", UnitType.Number, UnitType.Number, 100, 0, 100);
+    kEd.value = 100;
     kEd.precision = 0;
 
     const optGrp = col.addGroup("Options");
@@ -342,7 +359,9 @@ if (!doc) {
       "Punch out source (hollow shadow)",
       false,
     );
+    punchCheck.value = false;
     const groupCheck = optGrp.addCheckBox("Group shadow with original", true);
+    groupCheck.value = true;
 
     const actGrp = col.addGroup("Action");
     const statusTxt = actGrp.addStaticText("", "Preview ready");
@@ -369,25 +388,44 @@ if (!doc) {
             }),
           ),
         ),
-        doPunch: punchCheck.value,
+        doPunch: !!punchCheck.value,
         doGroup: !!doGroup,
       };
     }
 
+    // Preview shadows currently in the document. Removing the preview deletes
+    // exactly these nodes (neither createUndo() nor a history rollback removes
+    // them reliably in the current SDK -> shadows piled up).
+    let previewShadows = [];
+
+    function undoPreview() {
+      if (previewShadows.length) {
+        try {
+          doc.executeCommand(
+            DocumentCommand.createDeleteSelection(
+              Selection.create(doc, previewShadows, true),
+              false,
+            ),
+          );
+        } catch (e) {
+          for (const n of previewShadows) {
+            try {
+              doc.executeCommand(
+                DocumentCommand.createDeleteSelection(n.selfSelection, false),
+              );
+            } catch (_) {}
+          }
+        }
+      }
+      previewShadows = [];
+    }
+
     // Show initial preview immediately
-    let previewUndoSteps = 0;
     try {
-      previewUndoSteps = applyPreview(doc, nodes, getParams(false));
+      previewShadows = applyPreview(doc, nodes, getParams(false));
       statusTxt.text = "Preview active";
     } catch (e) {
       statusTxt.text = "Error: " + e.message;
-    }
-
-    function undoPreview() {
-      for (let i = 0; i < previewUndoSteps; i++) {
-        doc.executeCommand(DocumentCommand.createUndo());
-      }
-      previewUndoSteps = 0;
     }
 
     let running = true;
@@ -409,7 +447,7 @@ if (!doc) {
         // Preview — remove old preview, generate new one
         undoPreview();
         try {
-          previewUndoSteps = applyPreview(doc, nodes, getParams(false));
+          previewShadows = applyPreview(doc, nodes, getParams(false));
           statusTxt.text =
             "Preview active — " +
             distEd.value.toFixed(1) +
@@ -418,7 +456,6 @@ if (!doc) {
             "°";
         } catch (e) {
           statusTxt.text = "Error: " + e.message;
-          previewUndoSteps = 0;
         }
       }
     }
