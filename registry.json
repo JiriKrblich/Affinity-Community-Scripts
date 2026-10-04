@@ -1520,13 +1520,22 @@
     {
       "id": "splittextbox",
       "name": "Split Textbox",
-      "description": "ISplits selected Art Text or Frame Text into separate character textboxes or line textboxes, supports chars and lines modes.",
+      "description": "Splits selected Art Text or Frame Text into separate character textboxes or line textboxes, supports chars and lines modes.",
       "author": "WaveF",
       "email": "wavef@live.com",
       "version": "1.4.5",
       "category": "Text",
       "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/splittextbox.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/splittextbox.js"
+    },
+    {
+      "id": "universalRTLFixerPro",
+      "name": "Universal RTL Fixer Pro",
+      "description": "Correction RTL visuelle universelle — Arabe/Persan/Ourdou (shaping complet + harakat) · Hébreu (inversion mot par mot) · Syriaque et autres RTL. Aligne à droite en option. Annuler : Ctrl+Z / Cmd+Z.",
+      "author": "Arabic engine — community (Arabic RTL Pro) · Hébreu + fusion — Kevin Blanchard",
+      "version": "1.0.0",
+      "category": "Text",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/universalRTLFixerPro.js"
     }
   ]
 }
