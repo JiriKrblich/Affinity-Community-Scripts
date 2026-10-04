@@ -269,7 +269,7 @@
       "name": "Swap Objects",
       "description": "The script swaps selected objects based on a custom mapping, with optional orientation and dimension swapping. Select at least 2 objects, choose how they should swap in the dialog, then use Preview or Apply.",
       "author": "BlackMortimer-13",
-      "version": "2.0.0",
+      "version": "4.0.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/SwapObjects.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/swapobjects.js"
