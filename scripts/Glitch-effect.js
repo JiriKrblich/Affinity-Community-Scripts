@@ -1,17 +1,26 @@
 /**
-name: Glitch effect
-version: 1.2.0
-description: Create a glitch effect on a vector object. Now with live preview.
+name: Glitch effect 3.0.1
+version: 1.2.1
+description: Create a glitch effect on a vector object.
 author: Nic Kraneis
 */
 
 "use strict";
+
+// v1.2.1 – SDK compatibility update for the current Affinity version:
+//   * Shapes are converted in ONE ConvertToCurves command (sequential conversions
+//     left only the last converted shape selected -> other shapes were lost)
+//   * Live preview via history rollback (no undo-step pile-up); Cancel also undoes
+//     the shape conversion
+//   * Dialog: real UnitTypes instead of unit strings, explicit start values,
+//     runModal() instead of the deprecated show()
 
 const { Document } = require("/document");
 const { DocumentCommand, CompoundCommandBuilder } = require("/commands");
 const { CurveBuilder, PolyCurve } = require("/geometry");
 const { Dialog, DialogResult } = require("/dialog");
 const { Selection } = require("/selections");
+const { UnitType } = require("/units");
 
 function showError(msg) {
   try {
@@ -19,8 +28,8 @@ function showError(msg) {
     d.initialWidth = 450;
     const col = d.addColumn();
     const txt = col.addGroup("Diagnostics").addStaticText("", msg);
-    txt.isFullWidth = true;
-    d.show();
+    txt.setIsFullWidth(true);
+    d.runModal();
   } catch (e) {}
 }
 
@@ -44,18 +53,28 @@ function main() {
     return;
   }
 
-  function ensureCurveNodes(raw) {
-    const poly = raw.filter((n) => n.isPolyCurveNode);
-    const shapes = raw.filter((n) => !n.isPolyCurveNode);
-
-    for (const s of shapes) {
-      doc.executeCommand(
-        DocumentCommand.createConvertToCurves(Selection.create(doc, s)),
-      );
+  function isCurveMutable(n) {
+    try {
+      return !!(n.curvesInterface && n.curvesInterface.isMutable);
+    } catch (e) {
+      return false;
     }
-    const converted = shapes.length
-      ? doc.selection.nodes.toArray().filter((n) => n.isPolyCurveNode)
-      : [];
+  }
+
+  function ensureCurveNodes(raw) {
+    const poly = raw.filter((n) => n.isPolyCurveNode && isCurveMutable(n));
+    const shapes = raw.filter((n) => !(n.isPolyCurveNode && isCurveMutable(n)));
+
+    if (!shapes.length) return poly;
+
+    // One command for all shapes: afterwards the selection holds exactly the
+    // converted curve nodes.
+    doc.executeCommand(
+      DocumentCommand.createConvertToCurves(Selection.create(doc, shapes, true)),
+    );
+    const converted = doc.selection.nodes
+      .toArray()
+      .filter((n) => isCurveMutable(n));
     return [...poly, ...converted];
   }
 
@@ -219,8 +238,19 @@ function main() {
     doc.executeCommand(cb.createCommand());
   }
 
+  // History position before anything (incl. conversion) -> Cancel target
+  const posStart = doc.history.position;
+
   const nodes = ensureCurveNodes(rawNodes);
+  if (!nodes.length) {
+    doc.history.position = posStart;
+    showError("The selected objects could not be converted to curves.");
+    return;
+  }
   const originalPolyCurves = nodes.map(n => n.curvesInterface.polyCurve.clone());
+
+  // History position after conversion -> every preview rolls back to here
+  const posBase = doc.history.position;
 
   const dlg = Dialog.create("Glitch");
   dlg.initialWidth = 380;
@@ -229,68 +259,74 @@ function main() {
   const paramGrp = col.addGroup("Distortion Map");
   const sliceEd = paramGrp.addUnitValueEditor(
     "Slices (Block Density)",
-    "",
-    "",
+    UnitType.Number,
+    UnitType.Number,
     25,
     5,
     200,
   );
+  sliceEd.value = 25;
   sliceEd.precision = 0;
   sliceEd.showPopupSlider = true;
 
   const chaosEd = paramGrp.addUnitValueEditor(
-    "Chaos (Glitch Probability %)",
-    "%",
-    "%",
+    "Chaos (Glitch Probability)",
+    UnitType.Percentage,
+    UnitType.Percentage,
     35,
     0,
     100,
   );
+  chaosEd.value = 35;
   chaosEd.precision = 0;
   chaosEd.showPopupSlider = true;
 
   const dirEd = paramGrp.addUnitValueEditor(
-    "Direction Angle (°)",
-    "°",
-    "°",
+    "Direction Angle",
+    UnitType.Degree,
+    UnitType.Degree,
     0,
     -360,
     360,
   );
+  dirEd.value = 0;
   dirEd.precision = 1;
   dirEd.showPopupSlider = true;
 
   const dmgGrp = col.addGroup("Damage Settings");
   const intEd = dmgGrp.addUnitValueEditor(
-    "Block Shift (px)",
-    "px",
-    "px",
+    "Block Shift",
+    UnitType.Pixel,
+    UnitType.Pixel,
     40,
     0,
     1000,
   );
+  intEd.value = 40;
   intEd.precision = 0;
   intEd.showPopupSlider = true;
 
   const jitEd = dmgGrp.addUnitValueEditor(
-    "Signal Jitter (px)",
-    "px",
-    "px",
+    "Signal Jitter",
+    UnitType.Pixel,
+    UnitType.Pixel,
     5,
     0,
     100,
   );
+  jitEd.value = 5;
   jitEd.precision = 1;
   jitEd.showPopupSlider = true;
 
   const seedEd = paramGrp.addUnitValueEditor(
     "Seed (Random ID)",
-    "",
-    "",
+    UnitType.Number,
+    UnitType.Number,
     1337,
     1,
     99999,
   );
+  seedEd.value = 1337;
   seedEd.precision = 0;
 
   function getConfig() {
@@ -304,25 +340,33 @@ function main() {
     };
   }
 
+  let inPreview = false;
   function updatePreview() {
+    if (inPreview) return;
+    inPreview = true;
     try {
+      // Roll back the previous preview so only ONE glitch step remains in history
+      if (doc.history.position !== posBase) doc.history.position = posBase;
       applyGlitch(nodes, originalPolyCurves, getConfig());
     } catch (e) {
+      console.log("Glitch preview error: " + e);
+    } finally {
+      inPreview = false;
     }
   }
 
   updatePreview();
-  dlg.onControlValueChangedHandler = updatePreview;
+  dlg.setOnControlValueChangedHandler(updatePreview);
 
-
-  const result = dlg.show();
+  const result = dlg.runModal();
 
   if (result.value !== DialogResult.Ok.value) {
-    const cb = CompoundCommandBuilder.create();
-    for (let i = 0; i < nodes.length; i++) {
-        cb.addCommand(DocumentCommand.createSetCurves(nodes[i].curvesInterface, originalPolyCurves[i]));
-    }
-    doc.executeCommand(cb.createCommand());
+    // Cancel: undo preview AND the shape-to-curve conversion
+    doc.history.position = posStart;
+  } else {
+    try {
+      doc.selection = Selection.create(doc, nodes, true);
+    } catch (e) {}
   }
 }
 
