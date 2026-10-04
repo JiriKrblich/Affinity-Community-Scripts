@@ -1,9 +1,33 @@
+/**
+ * name: Block_Text 1.2.1
+ * description: Scales selected art text to match the widest, left-aligns all objects, and spaces them vertically with a configurable point gap.
+ * version: 1.2.1
+ * author: pgraficzny
+ */
+
 const { Document } = require("/document");
 const { DocumentCommand, CompoundCommandBuilder } = require("/commands");
 const { Selection } = require("/selections");
 const { Transform } = require("/geometry");
 const { Dialog, DialogResult } = require("/dialog");
 const { UnitType } = require("/units");
+
+// v1.1.1 – fixes:
+//   * Spacing conversion pt -> document units used a fixed 96/72 factor. Spread
+//     coordinates are pixels at the DOCUMENT dpi (e.g. 300 dpi -> 1 pt = 4.1667 px),
+//     so the gap was far too small in print documents. Now uses the document's
+//     own unit converter (fallback: doc.dpi / 72).
+//   * Spacing editor start value set explicitly after creation.
+//   * Guard against zero-width objects (division by zero when scaling).
+
+function pointsToDocUnits(document, pt) {
+  try {
+    const f = document.unitValueConverter.getConversionFactor(UnitType.Point, UnitType.Pixel);
+    if (typeof f === "number" && isFinite(f) && f > 0) return pt * f;
+  } catch (e) {}
+  const dpi = typeof document.dpi === "number" && document.dpi > 0 ? document.dpi : 72;
+  return pt * (dpi / 72);
+}
 
 const doc = Document.current;
 if (!doc) {
@@ -46,12 +70,13 @@ if (!doc) {
       0,
       500,
     );
+    spacingEditor.value = 10;
 
     if (dlg.runModal().value === DialogResult.Ok.value) {
       const doScale = scaleSwitch.value;
       const doAlign = alignSwitch.value;
       const doSpacing = spacingSwitch.value;
-      const spacingPx = spacingEditor.value * (96 / 72);
+      const spacingPx = pointsToDocUnits(doc, spacingEditor.value);
 
       const items = textNodes
         .map(function (n) {
@@ -69,7 +94,7 @@ if (!doc) {
       }
 
       const scaled = items.map(function (e) {
-        var factor = doScale ? maxWidth / e.bb.width : 1;
+        var factor = doScale && e.bb.width > 1e-6 ? maxWidth / e.bb.width : 1;
         var newW = e.bb.width * factor;
         var newH = e.bb.height * factor;
         var cx = e.bb.x + e.bb.width / 2;

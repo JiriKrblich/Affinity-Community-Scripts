@@ -585,7 +585,8 @@
       "name": "Block_Text",
       "description": "Scales selected art text to match the widest, left-aligns all objects, and spaces them vertically with a all objects, and spates them verticaly with a configurable point gap.",
       "author": "pgraficzny",
-      "version": "1.1.0",
+      "contributors": "Erhard.otto",
+      "version": "1.2.1",
       "category": "Text",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/block_text.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/block_text.js"
