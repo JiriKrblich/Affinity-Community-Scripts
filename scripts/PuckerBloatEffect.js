@@ -1,5 +1,5 @@
 /**
- * name: Pucker & Bloat v3g
+ * name: Pucker & Bloat v3j
  */
 
 'use strict';
@@ -84,7 +84,7 @@ const { setTimeout } = require('/timers');
 // EFFECT REGISTRY & CONSTANTS
 // =============================================================================
 
-const SCRIPT_TITLE = 'Pucker & Bloat v3g';
+const SCRIPT_TITLE = 'Pucker & Bloat v3j';
 const CURRENT_EFFECT_ID = 'pucker_bloat';
 const EFFECT_ROUGHEN = 'roughen';
 const EFFECT_ZIGZAG = 'zigzag';
@@ -201,6 +201,14 @@ function isDescendantOf(node, parent) {
     try { cur = cur.parent; } catch (e) { break; }
   }
   return false;
+}
+
+function showAlert(message) {
+  try {
+    const d = Dialog.create(SCRIPT_TITLE);
+    d.addLabel(message);
+    d.show();
+  } catch (e) {}
 }
 
 // =============================================================================
@@ -741,23 +749,36 @@ function tagNodeRed(node) {
 // =============================================================================
 
 function readPolyCurveBounds(polyCurve) {
-  let bbox = null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  let hasPoints = false;
   try {
-    bbox = polyCurve.exactBoundingBox || polyCurve.boundingBox;
+    for (const curve of polyCurve) {
+      for (const bez of curve.beziers) {
+        hasPoints = true;
+        for (let s = 0; s <= 8; s++) {
+          const pt = evalBez(bez, s / 8);
+          if (pt.x < minX) minX = pt.x;
+          if (pt.x > maxX) maxX = pt.x;
+          if (pt.y < minY) minY = pt.y;
+          if (pt.y > maxY) maxY = pt.y;
+        }
+      }
+    }
   } catch (e) {}
 
-  if (!bbox) return { x: 0, y: 0, width: 100, height: 100, cx: 50, cy: 50, maxDimension: 100 };
-  const w = (bbox.width !== undefined) ? bbox.width : 100;
-  const h = (bbox.height !== undefined) ? bbox.height : 100;
-  const x = (bbox.x !== undefined) ? bbox.x : 0;
-  const y = (bbox.y !== undefined) ? bbox.y : 0;
+  if (!hasPoints || !isFinite(minX)) {
+    return { x: 0, y: 0, width: 100, height: 100, cx: 50, cy: 50, maxDimension: 100 };
+  }
+
+  const w = Math.max(1e-4, maxX - minX);
+  const h = Math.max(1e-4, maxY - minY);
   return {
-    x: x,
-    y: y,
+    x: minX,
+    y: minY,
     width: w,
     height: h,
-    cx: x + w / 2,
-    cy: y + h / 2,
+    cx: minX + w / 2,
+    cy: minY + h / 2,
     maxDimension: Math.max(w, h, 1)
   };
 }
@@ -1048,7 +1069,23 @@ function twistPoint(point, cx, cy, angleRad, maxR) {
   };
 }
 
+function twistCirclePoint(point, cx, cy, angleRad, maxR) {
+  const dx = point.x - cx;
+  const dy = point.y - cy;
+  const rBase = Math.hypot(dx, dy);
+  if (rBase < 1e-9) return point;
+  const phi = Math.atan2(dy, dx);
+  const swirlFactor = Math.sin(Math.min(Math.PI / 2, Math.abs(angleRad))) * Math.sign(angleRad);
+  const r = rBase * (1 - 0.35 * swirlFactor * Math.sin(2 * phi));
+  const angle = phi + angleRad * (r / maxR);
+  return {
+    x: cx + r * Math.cos(angle),
+    y: cy + r * Math.sin(angle)
+  };
+}
+
 function buildTwistPolyCurve(sourcePolyCurve, angleDeg, subdiv) {
+  if (angleDeg === 0) return sourcePolyCurve.clone();
   const bounds = readPolyCurveBounds(sourcePolyCurve);
   const cx = bounds.cx;
   const cy = bounds.cy;
@@ -1080,7 +1117,17 @@ function buildTwistPolyCurve(sourcePolyCurve, angleDeg, subdiv) {
       continue;
     }
 
-    const twisted = points.map(point => twistPoint(point, cx, cy, angleRad, maxR));
+    let minR = Infinity, maxR_curve = 0;
+    for (const p of points) {
+      const dist = Math.hypot(p.x - cx, p.y - cy);
+      if (dist < minR) minR = dist;
+      if (dist > maxR_curve) maxR_curve = dist;
+    }
+    const isCircular = curve.isClosed && (minR > 1e-3) && ((maxR_curve - minR) / maxR_curve < 0.08);
+
+    const transformFn = isCircular ? twistCirclePoint : twistPoint;
+    const twisted = points.map(point => transformFn(point, cx, cy, angleRad, maxR));
+
     const builder = CurveBuilder.create();
     builder.beginXY(twisted[0].x, twisted[0].y);
 
@@ -1104,8 +1151,8 @@ function createPolyCurveDefinition(polyCurve, style, name) {
   const def = PolyCurveNodeDefinition.create(
     polyCurve.clone(),
     s.brushFill,
-    s.hasStroke ? s.lineStyle : LineStyleDescriptor.createDefault(0),
     s.hasStroke ? s.lineFill : FillDescriptor.createNone(),
+    s.hasStroke ? s.lineStyle : LineStyleDescriptor.createDefault(0),
     s.transparencyFill
   );
   if (name) def.userDescription = name;
@@ -1207,8 +1254,8 @@ function doPreviewPipeline(document, previewGroupList, pipeline) {
       const def = PolyCurveNodeDefinition.create(
         resPolyCurve,
         previewBrushFill,
-        previewLineStyle,
         previewLineFill,
+        previewLineStyle,
         s.transparencyFill || FillDescriptor.createNone()
       );
 
@@ -1303,7 +1350,7 @@ function showDialog(title, initialParams, stackInfo, onPreview) {
 function mainCreate(sourceNodes) {
   const entries = extractSourceEntriesFromNodes(sourceNodes);
   if (!entries.length) {
-    alert('No usable vector curves were found in the selection.');
+    showAlert('No usable vector curves were found in the selection.');
     return;
   }
 
@@ -1415,7 +1462,7 @@ function mainUpdateMany(groups) {
 
     const entries = extractSourceEntriesFromGroup(group);
     if (!entries.length) {
-      alert('One selected effect group has no source curves to update.');
+      showAlert('One selected effect group has no source curves to update.');
       return;
     }
 
@@ -1571,7 +1618,7 @@ function mainUpdateMany(groups) {
 
 function main() {
   if (!doc) {
-    alert('Please open a document in Affinity first.');
+    showAlert('Please open a document in Affinity first.');
     return;
   }
 
@@ -1674,9 +1721,9 @@ function main() {
       if (groups.length === 1) {
         mainUpdateMany(groups);
       } else if (groups.length > 1) {
-        alert('Select the effect group or groups you want to update.');
+        showAlert('Select the effect group or groups you want to update.');
       } else {
-        alert('Please select at least one vector curve or shape.');
+        showAlert('Please select at least one vector curve or shape.');
       }
     }
   }

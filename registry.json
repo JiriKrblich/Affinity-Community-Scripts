@@ -156,7 +156,7 @@
       "name": "Pucker & Bloat",
       "description": "Applies a Pucker & Bloat effect to the selected object(s), pulling anchor points inward (Pucker) or outward (Bloat) to distort",
       "author": "BlackMortimer-13",
-      "version": "3.0",
+      "version": "4.0",
       "category": "Effect",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Pucker&Bloat.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/PuckerBloatEffect.js"
