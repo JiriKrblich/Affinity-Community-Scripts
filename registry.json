@@ -790,7 +790,8 @@
       "name": "Envelope Studio Pro",
       "description": "Multi-stage Illustrator-style warp engine with origin, direction, advanced falloff, custom profiles, live preview, and JSON presets.",
       "author": "tzvi20",
-      "version": "3.0.0",
+      "contributors":"Erhard.otto",
+      "version": "3.1.1",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/EnvelopeWarpStudio.js"
     },

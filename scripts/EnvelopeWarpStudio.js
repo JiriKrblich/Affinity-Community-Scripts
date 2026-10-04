@@ -1,11 +1,17 @@
 /**
- * name: Envelope Studio Pro
+ * name: Envelope Studio Pro 3.0.1
  * description: Multi-stage Illustrator-style warp engine with origin, direction, advanced falloff, custom profiles, live preview, and JSON presets.
- * version: 3.0.0
- * author:tzvi20 + ChatGPT
+ * version: 3.0.1
+ * author:tzvi20
  */
 
 "use strict";
+
+// v3.0.1 – SDK compatibility update for the current Affinity version:
+//   * ConvertToCurves: cmd.newNodes is always empty in the current SDK, so selected
+//     shapes (rectangles, ellipses, stars ...) were silently dropped. The converted
+//     nodes are now read from the selection after the command.
+//   * Preset saving: deprecated new File(path, "wb") -> File.create(path, "wb")
 
 (function () {
   const { app } = require("/application");
@@ -272,7 +278,18 @@
         );
         doc.executeCommand(cmd);
 
-        for (const n of collectVectorNodes(cmd.newNodes)) {
+        let converted = [];
+        try {
+          converted = collectVectorNodes(Array.from(cmd.newNodes || []));
+        } catch (e) {}
+
+        // cmd.newNodes is empty for ConvertToCurves in the current SDK:
+        // the converted nodes are the new selection.
+        if (!converted.length) {
+          converted = collectVectorNodes(doc.selection.nodes.toArray());
+        }
+
+        for (const n of converted) {
           if (isMutableCurveNode(n)) pushUnique(result, n);
         }
       } catch (e) {
@@ -859,7 +876,7 @@
       if (!name) return false;
 
       const path = folder + "/" + safePresetName(name);
-      const f = new File(path, "wb");
+      const f = File.create(path, "wb");
       f.writeString(configToPreset(cfg));
       f.close();
 
