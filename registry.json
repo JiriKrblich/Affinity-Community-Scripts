@@ -1379,8 +1379,9 @@
       "name": "Reverse Order",
       "description": "Reverses the stacking order of selected elements within each existing parent layer or group. Unselected elements keep their positions and grouping is preserved. Select at least two sibling elements and run the script. The selection is preserved and the operation supports a single undo. Masks and other non-main child nodes are excluded.",
       "author": "WaveF",
+      "contributors": "BlackMortimer-13",
       "email": "wavef@live.com",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "category": "Layer",
       "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/reverseorder.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/reverseorder.js"
