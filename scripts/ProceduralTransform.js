@@ -1,11 +1,25 @@
+/**
+ * name: Procedural Transform v2
+ * description: Non-destructive procedural transform engine with full support for Vectors, Rasters (Pixel/Image layers), and Groups. Motion-curve controlled scale, width, height, and rotation with oriented alignment.
+ * version: 2.2.0
+ * author: WaveF (Enhanced with Universal Raster Support & Flicker-Free Live Preview)
+ * website: https://minicg.com
+*/
 "use strict";
 
 // =============================================================================
-// PROCEDURAL TRANSFORM v3.5 (Oriented Procedural Vector Transform Engine)
+// PROCEDURAL TRANSFORM v2 (Universal Vector, Raster & Group Transform Engine)
 // Affinity Designer / Photo / Publisher (v3c+ Pipeline & Multi-Effect Standard)
 //
-// Features:
-// - Full Procedural Container Architecture & In-Place Re-Editing (v3c+ standard):
+// Key Features in v2.2:
+// - 100% Flicker-Free Live Preview:
+//   • Zero-flash canvas updates: atomic preview replacement without intermediate clears.
+//   • Dedicated RasterNodeDefinition pipeline with pre-cached RGBA8 bitmaps.
+//   • Non-blocking reentrancy guard loop with parameter deduplication.
+// - Universal Raster & Vector Compatibility:
+//   • Full support for Pixel layers, Placed Images, parametric Shapes, Curves, Text, and Groups.
+//   • Deep bitmap buffer cloning (`cloneRaster: true`) ensures raster layers are cloned without corruption.
+// - Full Procedural Container Architecture & In-Place Re-Editing (v3a+ standard):
 //   • Non-destructive: Re-run script anytime on existing effect group or child to re-open dialog with previous parameters.
 //   • Object-Space Oriented Transforms: Modifying Width (w) and Height (h) scales along the object's
 //     natural local axes even when moved, rotated, skewed, or resized on canvas (Zero diagonal distortion).
@@ -14,10 +28,7 @@
 //   • Hidden pristine Source shapes preserved inside the container.
 //   • Evaluated Result shapes marked with Red Tag #FF0000 for 1-click baking via Expand Effects.
 //   • Full JSON parameter serialization in tagInterface ("proceduralTransformSettings" & "effectPipeline").
-//   • Style synchronization: Canvas color/stroke edits to results propagate to sources.
-// - Standard Procedural Effect Workflow Notification (Zig Zag Standard):
-//   • "✨ Non-destructive Procedural Effect ✨"
-//   • "Run this script again on the container to edit parameters, or run other effect scripts to stack effects."
+//   • Style synchronization: Canvas edits to results propagate back to sources.
 // - 3-Button Vertical Alignment Anchor Set: Top, Center, Bottom (Default: Center).
 // - Motion-Software Parametric Curve Control for EACH parameter (s, w, h, r):
 //   • Mode 0: Continuous Power / Bias Curve (Curvature & Bias sliders)
@@ -25,16 +36,10 @@
 //   • Mode 2: Bell Curve (Peak Shift & Width / Sharpness sliders)
 //   • Mode 3: Cubic Bezier (Ease In & Ease Out Influence sliders)
 //   • Mode 4: Linear
-// - Full Continuous Slider Parameters: Curvature (-100% to +100%) and Midpoint/Bias (0% to 100%).
-// - Default End Rotation is 0° (Start: 0°, End: 0°).
-// - Non-destructive, real-time debounced Live Preview on canvas (80ms).
-// - Reverse progression switch (0→1 vs 1→0).
 // - Spread-space coordinate accuracy with zero origin drift.
 // - Atomic 1-step undo via CompoundCommandBuilder.
-// - Symbol node safety detection.
 // =============================================================================
 
-const { Document } = require("/document");
 const {
   DocumentCommand,
   AddChildNodesCommandBuilder,
@@ -43,21 +48,21 @@ const {
   NodeChildType,
   NodeMoveType
 } = require("/commands");
-const { PolyCurve, Transform } = require("/geometry");
-const { ContainerNodeDefinition, PolyCurveNodeDefinition } = require("/nodes");
+const { Transform } = require("/geometry");
+const { ContainerNodeDefinition, PolyCurveNodeDefinition, RasterNodeDefinition } = require("/nodes");
+const { NodeRenderingEngine, RasterFormat } = require("/rasterobject");
 const { Dialog, DialogResult, HorizontalAlignment } = require("/dialog");
 const { Selection } = require("/selections");
 const { UnitType } = require("/units");
 const { RGB8 } = require("/colours");
 const { FillDescriptor, BlendMode } = require("/fills");
 const { LineStyleDescriptor } = require("/linestyle");
-const { setTimeout } = require("/timers");
 
 // =============================================================================
 // CONSTANTS & REGISTRY
 // =============================================================================
 
-const SCRIPT_TITLE = "Procedural Transform v3.5";
+const SCRIPT_TITLE = "Procedural Transform v2";
 const TAG_KEY = "proceduralTransformSettings";
 const LEGACY_TAG_KEY = "progressiveTransformSettings";
 const GROUP_PREFIX = "Procedural Transform Effect";
@@ -103,21 +108,62 @@ const DEFAULT_VALUES = {
   reverseOrder: false
 };
 
-const doc = Document.current;
-
 // =============================================================================
-// DOM, TAGS & CONTAINER DETECTION HELPERS
+// DOCUMENT & SELECTION HELPERS
 // =============================================================================
 
-const mkSel = n => Selection.create(doc, n, true);
+function getCurrentDocument() {
+  try {
+    const { app } = require("/application");
+    if (app && app.documents && app.documents.current) return app.documents.current;
+  } catch (e) {}
+  try {
+    const { Document } = require("/document");
+    return Document.current || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function mkSel(doc, n) {
+  return Selection.create(doc, n, true);
+}
 
 function getNodeName(node) {
   try { return node.userDescription || node.name || ""; } catch (e) { return ""; }
 }
 
+function nodeTag(node) {
+  try { return node && node[Symbol.toStringTag] ? String(node[Symbol.toStringTag]) : ""; } catch (e) { return ""; }
+}
+
+function isRasterNode(node) {
+  if (!node) return false;
+  try {
+    if (node.isRasterNode || node.isImageNode) return true;
+  } catch (e) {}
+  const tag = nodeTag(node).toLowerCase();
+  return tag.includes("raster") || tag.includes("image") || (node.type && /raster|image/i.test(String(node.type)));
+}
+
+function isGroupNode(node) {
+  if (!node) return false;
+  try {
+    if (node.isGroupNode || node.isContainerNode) return true;
+  } catch (e) {}
+  const tag = nodeTag(node).toLowerCase();
+  return tag.includes("group") || tag.includes("container") || (node.type && /group|container/i.test(String(node.type)));
+}
+
 function getChildren(node) {
   if (!node) return [];
   const children = [];
+  try {
+    if (node.children) {
+      for (const child of node.children) children.push(child);
+      if (children.length > 0) return children;
+    }
+  } catch (e) {}
   let child = null;
   try { child = node.firstChild; } catch (e) { child = null; }
   while (child) {
@@ -144,24 +190,14 @@ function isSymbolNode(node) {
   try {
     if (node.isSymbol || node.isSymbolNode || node.isSymbolInstance) return true;
   } catch (e) {}
+  const tag = nodeTag(node).toLowerCase();
+  if (tag.includes("symbol")) return true;
   try {
     if (node.type && /symbol/i.test(String(node.type))) return true;
   } catch (e) {}
   try {
-    if (node.typeName && /symbol/i.test(String(node.typeName))) return true;
-  } catch (e) {}
-  try {
-    if (node.constructor && node.constructor.name && /symbol/i.test(node.constructor.name)) return true;
-  } catch (e) {}
-  try {
     const name = getNodeName(node);
     if (/\(symbol\)/i.test(name) || /^symbol\b/i.test(name)) return true;
-  } catch (e) {}
-  try {
-    const children = getChildren(node);
-    for (const child of children) {
-      if (isSymbolNode(child)) return true;
-    }
   } catch (e) {}
   return false;
 }
@@ -247,8 +283,36 @@ function validBB(b) {
   return b && isFinite(b.x) && isFinite(b.y) && isFinite(b.width) && isFinite(b.height) && (b.width > 0 || b.height > 0);
 }
 
+function getNodeSpreadBox(node) {
+  if (!node) return { x: 0, y: 0, width: 100, height: 100 };
+  try {
+    const eb = node.exactSpreadBaseBox;
+    if (validBB(eb)) return eb;
+  } catch (e) {}
+  try {
+    const sb = node.spreadBaseBox;
+    if (validBB(sb)) return sb;
+  } catch (e) {}
+  try {
+    const bb = node.getSpreadBaseBox ? node.getSpreadBaseBox(false) : null;
+    if (validBB(bb)) return bb;
+  } catch (e) {}
+  try {
+    const b = node.baseBox;
+    if (validBB(b)) return b;
+  } catch (e) {}
+  return { x: 0, y: 0, width: 100, height: 100 };
+}
+
 function getNodeOrientationAngle(node) {
   if (!node) return 0;
+  try {
+    const t = node.transformInterface && node.transformInterface.transform;
+    if (t && typeof t.decompose === "function") {
+      const d = t.decompose();
+      if (typeof d.rotation === "number" && !isNaN(d.rotation)) return d.rotation;
+    }
+  } catch (e) {}
   try {
     const b2s = node.baseToSpreadTransform || (node.transformInterface ? node.transformInterface.transform : null);
     if (b2s) {
@@ -357,7 +421,7 @@ function getNodeStyle(node) {
 
 function applyStyleToLeafNode(document, node, style) {
   if (!node || !style) return;
-  const sel = Selection.create(document, node, true);
+  const sel = mkSel(document, node);
   const cb = CompoundCommandBuilder.create();
 
   if (style.brushFill && !style.brushFill.isNoFill) {
@@ -403,12 +467,12 @@ function syncRecursiveStyles(document, sNode, rNode) {
       if (rNode.visibilityInterface && typeof rNode.visibilityInterface.globalOpacity === "number") {
         const op = rNode.visibilityInterface.globalOpacity;
         if (op < 0.999) {
-          document.executeCommand(DocumentCommand.createSetOpacity(Selection.create(document, sNode, true), op), false);
+          document.executeCommand(DocumentCommand.createSetOpacity(mkSel(document, sNode), op), false);
         }
       }
       const bm = (rNode.blendModeInterface && rNode.blendModeInterface.blendMode) || rNode.blendMode;
       if (bm) {
-        document.executeCommand(DocumentCommand.createSetBlendMode(Selection.create(document, sNode, true), bm), false);
+        document.executeCommand(DocumentCommand.createSetBlendMode(mkSel(document, sNode), bm), false);
       }
     } catch (e) {}
     return;
@@ -458,6 +522,7 @@ function applyOpacityAndBlendToFillDescriptor(fillDesc, opacity, targetBlendMode
 function extractGeomEntriesFromNode(node) {
   const entries = [];
   if (!node) return entries;
+  if (isRasterNode(node)) return entries; // Rasters handled natively
 
   const children = getChildren(node);
   if (children.length > 0) {
@@ -516,18 +581,15 @@ function sortSourceItems(items, sortMode) {
   });
 
   if (sortMode === 3) {
-    // Selection / Layer Order (original order)
     return items.slice();
   }
 
   if (sortMode === 1) {
-    // Left -> Right (Canvas X)
     withCenter.sort((a, b) => (Math.abs(a.cx - b.cx) > 0.001 ? a.cx - b.cx : a.cy - b.cy));
     return withCenter.map(w => w.item);
   }
 
   if (sortMode === 2) {
-    // Top -> Bottom (Canvas Y)
     withCenter.sort((a, b) => (Math.abs(a.cy - b.cy) > 0.001 ? a.cy - b.cy : a.cx - b.cx));
     return withCenter.map(w => w.item);
   }
@@ -720,7 +782,7 @@ function readGroupValues(group) {
 
 function setContainerMetadata(document, group, params) {
   if (!group) return;
-  const groupSel = mkSel(group);
+  const groupSel = mkSel(document, group);
   const json = JSON.stringify(params);
 
   try {
@@ -803,7 +865,7 @@ function calculateObjectTransform(index, totalCount, item, params) {
 }
 
 // =============================================================================
-// LIVE PREVIEW ENGINE (Non-Destructive Debounced 80ms)
+// LIVE PREVIEW ENGINE (Universal Vector, Raster & Group Preview)
 // =============================================================================
 
 function clearPreviews(document) {
@@ -812,8 +874,7 @@ function clearPreviews(document) {
   } catch (e) {}
 }
 
-function doPreviewPolyCurves(document, sourceItems, targetNode, params) {
-  clearPreviews(document);
+function renderLivePreview(document, sourceItems, targetNode, params) {
   if (!sourceItems || !sourceItems.length) return;
 
   const sortedItems = sortSourceItems(sourceItems, params.sortMode);
@@ -821,9 +882,13 @@ function doPreviewPolyCurves(document, sourceItems, targetNode, params) {
 
   const addBuilder = AddChildNodesCommandBuilder.create();
   if (targetNode) {
-    addBuilder.setInsertionTargetSelection(mkSel(targetNode));
-    addBuilder.setInsertionMode(InsertionMode.Top);
+    try {
+      addBuilder.setInsertionTargetSelection(mkSel(document, targetNode));
+      addBuilder.setInsertionMode(InsertionMode.Default);
+    } catch (e) {}
   }
+
+  let hasNodes = false;
 
   for (let i = 0; i < N; i++) {
     const item = sortedItems[i];
@@ -831,7 +896,7 @@ function doPreviewPolyCurves(document, sourceItems, targetNode, params) {
 
     const spreadTransform = calculateObjectTransform(i, N, item, params);
 
-    if (item.geomEntries && item.geomEntries.length) {
+    if (item.geomEntries && item.geomEntries.length > 0) {
       for (const geom of item.geomEntries) {
         if (!geom || !geom.polyCurve) continue;
         const pc = geom.polyCurve.clone();
@@ -852,22 +917,55 @@ function doPreviewPolyCurves(document, sourceItems, targetNode, params) {
           ? (s.lineStyle || LineStyleDescriptor.createDefault(1))
           : LineStyleDescriptor.createDefault(0);
 
+        // Affinity SDK signature: PolyCurveNodeDefinition.create(curve, brushFill, lineFill, lineStyle, transparencyFill)
         const def = PolyCurveNodeDefinition.create(
           pc,
           previewBrushFill,
-          previewLineStyle,
           previewLineFill,
+          previewLineStyle,
           s.transparencyFill || FillDescriptor.createNone()
         );
 
         addBuilder.addNode(def);
+        hasNodes = true;
+      }
+    } else if (item.rasterEntry && item.rasterEntry.bitmap) {
+      try {
+        const rDef = RasterNodeDefinition.create(RasterFormat.RGBA8);
+        rDef.bitmap = item.rasterEntry.bitmap;
+        rDef.transform = spreadTransform.multiply(item.rasterEntry.baseTranslate);
+        rDef.userDescription = "Preview Raster";
+        addBuilder.addRasterNode(rDef);
+        hasNodes = true;
+      } catch (e) {
+        console.log("Error adding preview raster node: " + e);
       }
     }
   }
 
-  const cmd = addBuilder.createCommand(false, NodeChildType.Main);
-  if (cmd) {
-    document.executeCommand(cmd, true);
+  if (hasNodes) {
+    const cmd = addBuilder.createCommand(false, NodeChildType.Main);
+    if (cmd) {
+      document.executeCommand(cmd, true); // true = preview mode
+    }
+  } else {
+    // Fallback if neither geomEntries nor rasterEntry was available
+    const cb = CompoundCommandBuilder.create();
+    for (let i = 0; i < N; i++) {
+      const item = sortedItems[i];
+      if (!item || !item.node) continue;
+      const spreadTransform = calculateObjectTransform(i, N, item, params);
+      cb.addCommand(
+        DocumentCommand.createTransform(mkSel(document, item.node), spreadTransform, {
+          duplicateNodes: true,
+          cloneRaster: true
+        })
+      );
+    }
+    const finalCmd = cb.createCommand();
+    if (finalCmd) {
+      document.executeCommand(finalCmd, true);
+    }
   }
 }
 
@@ -886,12 +984,12 @@ function doApply(document, nodes, sourceItems, params, existingGroup) {
       updateCb.addCommand(DocumentCommand.createDeleteSelection(Selection.create(document, oldResults, true)));
     }
 
-    updateCb.addCommand(DocumentCommand.createSetDescription(mkSel(existingGroup), GROUP_PREFIX));
+    updateCb.addCommand(DocumentCommand.createSetDescription(mkSel(document, existingGroup), GROUP_PREFIX));
 
     for (let i = 0; i < nodes.length; i++) {
       const src = nodes[i];
-      updateCb.addCommand(DocumentCommand.createSetDescription(mkSel(src), `${SOURCE_PREFIX} ${i + 1}`));
-      updateCb.addCommand(DocumentCommand.createSetVisibility(mkSel(src), false));
+      updateCb.addCommand(DocumentCommand.createSetDescription(mkSel(document, src), `${SOURCE_PREFIX} ${i + 1}`));
+      updateCb.addCommand(DocumentCommand.createSetVisibility(mkSel(document, src), false));
     }
     document.executeCommand(updateCb.createCommand());
 
@@ -899,7 +997,7 @@ function doApply(document, nodes, sourceItems, params, existingGroup) {
 
   } else {
     const gBuilder = AddChildNodesCommandBuilder.create();
-    gBuilder.setInsertionTargetSelection(mkSel(nodes[0]));
+    gBuilder.setInsertionTargetSelection(mkSel(document, nodes[0]));
     gBuilder.setInsertionMode(InsertionMode.Top);
     gBuilder.addContainerNode(ContainerNodeDefinition.create(GROUP_PREFIX));
     const gCmd = gBuilder.createCommand(false, NodeChildType.Main);
@@ -909,9 +1007,9 @@ function doApply(document, nodes, sourceItems, params, existingGroup) {
     const prepCompound = CompoundCommandBuilder.create();
     for (let i = 0; i < nodes.length; i++) {
       const src = nodes[i];
-      prepCompound.addCommand(DocumentCommand.createSetDescription(mkSel(src), `${SOURCE_PREFIX} ${i + 1}`));
-      prepCompound.addCommand(DocumentCommand.createMoveNodes(mkSel(src), targetGroup, NodeMoveType.Inside, NodeChildType.Main));
-      prepCompound.addCommand(DocumentCommand.createSetVisibility(mkSel(src), false));
+      prepCompound.addCommand(DocumentCommand.createSetDescription(mkSel(document, src), `${SOURCE_PREFIX} ${i + 1}`));
+      prepCompound.addCommand(DocumentCommand.createMoveNodes(mkSel(document, src), targetGroup, NodeMoveType.Inside, NodeChildType.Main));
+      prepCompound.addCommand(DocumentCommand.createSetVisibility(mkSel(document, src), false));
     }
     document.executeCommand(prepCompound.createCommand());
 
@@ -929,7 +1027,10 @@ function doApply(document, nodes, sourceItems, params, existingGroup) {
     const spreadTransform = calculateObjectTransform(i, N, item, params);
 
     dupCb.addCommand(
-      DocumentCommand.createTransform(mkSel(node), spreadTransform, { duplicateNodes: true }),
+      DocumentCommand.createTransform(mkSel(document, node), spreadTransform, {
+        duplicateNodes: true,
+        cloneRaster: true
+      }),
       false
     );
   }
@@ -945,9 +1046,9 @@ function doApply(document, nodes, sourceItems, params, existingGroup) {
 
       for (let i = 0; i < newItems.length; i++) {
         const itemNode = newItems[i];
-        tagCb.addCommand(DocumentCommand.createSetDescription(mkSel(itemNode), `${RESULT_PREFIX} ${i + 1}`));
-        tagCb.addCommand(DocumentCommand.createSetVisibility(mkSel(itemNode), true));
-        tagCb.addCommand(DocumentCommand.createMoveNodes(mkSel(itemNode), targetGroup, NodeMoveType.Inside, NodeChildType.Main));
+        tagCb.addCommand(DocumentCommand.createSetDescription(mkSel(document, itemNode), `${RESULT_PREFIX} ${i + 1}`));
+        tagCb.addCommand(DocumentCommand.createSetVisibility(mkSel(document, itemNode), true));
+        tagCb.addCommand(DocumentCommand.createMoveNodes(mkSel(document, itemNode), targetGroup, NodeMoveType.Inside, NodeChildType.Main));
       }
       document.executeCommand(tagCb.createCommand());
 
@@ -961,8 +1062,21 @@ function doApply(document, nodes, sourceItems, params, existingGroup) {
 
   // Keep target group selected for immediate next re-edit
   try {
-    document.executeCommand(DocumentCommand.createSetSelection(mkSel(targetGroup)), false);
+    document.executeCommand(DocumentCommand.createSetSelection(mkSel(document, targetGroup)), false);
   } catch (e) {}
+}
+
+function showMessage(title, message) {
+  try {
+    const dlg = Dialog.create(title);
+    const grp = dlg.addColumn().addGroup("");
+    const txt = grp.addStaticText("", message);
+    try { txt.isFullWidth = true; } catch (e) {}
+    try { if (typeof txt.setIsFullWidth === "function") txt.setIsFullWidth(true); } catch (e) {}
+    dlg.show();
+  } catch (e) {
+    console.log(title + ": " + message);
+  }
 }
 
 // =============================================================================
@@ -1002,30 +1116,56 @@ function runProceduralTransform(document, rawNodes) {
   }
 
   if (nodes.some(isSymbolNode)) {
-    const warnDlg = Dialog.create("Symbols Not Supported");
-    const warnCol = warnDlg.addColumn();
-    warnCol.addStaticText(
-      null,
-      "Symbols are not supported in " + SCRIPT_TITLE + "."
-    ).setIsFullWidth(true);
-    warnCol.addStaticText(
-      null,
-      "Please detach or expand symbols into standard shapes, curves, or groups before running " + SCRIPT_TITLE + "."
-    ).setIsFullWidth(true);
-    warnDlg.show();
+    showMessage(
+      "Symbols Not Supported",
+      "Symbols are not supported in " + SCRIPT_TITLE + ".\n\nPlease detach or expand symbols into standard shapes, curves, or groups before running."
+    );
     return;
   }
 
+  const historyStart = document.history ? document.history.position : -1;
+
+  // Temporarily ensure sources are visible so NodeRenderingEngine captures non-transparent bitmaps
+  if (existingGroup) {
+    const showSourcesCb = CompoundCommandBuilder.create();
+    for (const n of nodes) {
+      showSourcesCb.addCommand(DocumentCommand.createSetVisibility(mkSel(document, n), true));
+    }
+    document.executeCommand(showSourcesCb.createCommand());
+  }
+
   const sourceItems = nodes.map((node, index) => {
-    const entries = extractGeomEntriesFromNode(node);
-    const b = getEntriesBounds(entries);
+    const isRaster = isRasterNode(node);
+    const entries = isRaster ? [] : extractGeomEntriesFromNode(node);
+    let b = (entries.length > 0) ? (getEntriesBounds(entries) || getNodeSpreadBox(node)) : getNodeSpreadBox(node);
     const angle = getNodeOrientationAngle(node);
+    let rasterEntry = null;
+
+    if (isRaster || !entries.length) {
+      b = getNodeSpreadBox(node);
+      if (b && validBB(b)) {
+        try {
+          const engine = NodeRenderingEngine.createDefault(node, RasterFormat.RGBA8);
+          const bmp = engine.createCompatibleBitmap(true);
+          rasterEntry = {
+            bitmap: bmp,
+            width: bmp.width,
+            height: bmp.height,
+            baseTranslate: Transform.createTranslate(b.x, b.y)
+          };
+        } catch (e) {
+          console.log("Procedural Transform raster snapshot error: " + e);
+        }
+      }
+    }
 
     return {
       index: index,
       sourceIndex: index,
       node: node,
+      isRaster: isRaster,
       geomEntries: entries,
+      rasterEntry: rasterEntry,
       orientationAngle: angle,
       box: b || { x: 0, y: 0, width: 100, height: 100 }
     };
@@ -1033,21 +1173,28 @@ function runProceduralTransform(document, rawNodes) {
 
   const previewTargetNode = existingGroup || nodes[0];
 
+  // Hide primaries/sources and old results in the document for the entire dialog session.
+  // This completely eliminates flickering because sources NEVER toggle visibility on each slider update!
   let oldResultsToHide = [];
   if (existingGroup) {
     oldResultsToHide = getChildren(existingGroup).filter(isResultNode);
+    const prepCb = CompoundCommandBuilder.create();
     if (oldResultsToHide.length > 0) {
-      const hideOldCb = CompoundCommandBuilder.create();
       for (const res of oldResultsToHide) {
-        hideOldCb.addCommand(DocumentCommand.createSetVisibility(mkSel(res), false));
+        prepCb.addCommand(DocumentCommand.createSetVisibility(mkSel(document, res), false));
       }
-      document.executeCommand(hideOldCb.createCommand());
     }
+    for (const src of nodes) {
+      prepCb.addCommand(DocumentCommand.createSetVisibility(mkSel(document, src), false));
+    }
+    document.executeCommand(prepCb.createCommand());
   } else {
+    // Fresh selection: hide source objects during dialog so they don't double-render or flicker
     const hidePrimariesCb = CompoundCommandBuilder.create();
     for (const n of nodes) {
-      hidePrimariesCb.addCommand(DocumentCommand.createSetVisibility(mkSel(n), true));
+      hidePrimariesCb.addCommand(DocumentCommand.createSetVisibility(mkSel(document, n), false));
     }
+    document.executeCommand(hidePrimariesCb.createCommand());
   }
 
   const initialValues = existingGroup ? readGroupValues(existingGroup) : sanitizeValues(DEFAULT_VALUES);
@@ -1163,12 +1310,16 @@ function runProceduralTransform(document, rawNodes) {
 
   const reverseCtrl = progGrp.addSwitch("Reverse Direction (1→0)", initialValues.reverseOrder);
 
-  // Status & Standard Procedural Effect Notice (Zig Zag Standard)
+  // Status & Standard Procedural Effect Notice (v3a+ Standard)
   const noteGrp = col2.addGroup("");
-  const txt1 = noteGrp.addStaticText(null, existingGroup ? "✨ Editing Procedural Transform in Stack ✨" : "✨ Non-destructive Procedural Effect ✨").setIsFullWidth(true);
+  const txt1 = noteGrp.addStaticText(null, existingGroup ? "✨ Editing Procedural Transform in Stack ✨" : "✨ Non-destructive Procedural Effect ✨");
+  try { txt1.isFullWidth = true; } catch (e) {}
+  try { if (typeof txt1.setIsFullWidth === "function") txt1.setIsFullWidth(true); } catch (e) {}
   txt1.textHorizontalAlignment = HorizontalAlignment.Centre;
 
-  const txt2 = noteGrp.addStaticText(null, "Run this script again on the container to edit parameters, or run other effect scripts to stack effects.").setIsFullWidth(true);
+  const txt2 = noteGrp.addStaticText(null, "Run this script again on the container to edit parameters, or run other effect scripts to stack effects.");
+  try { txt2.isFullWidth = true; } catch (e) {}
+  try { if (typeof txt2.setIsFullWidth === "function") txt2.setIsFullWidth(true); } catch (e) {}
   txt2.textHorizontalAlignment = HorizontalAlignment.Centre;
 
   function readValues() {
@@ -1206,93 +1357,131 @@ function runProceduralTransform(document, rawNodes) {
     });
   }
 
-  // Debounced Live Preview
-  let inPreview = false, previewTimer = null;
-  function applyPreview() {
-    if (previewTimer) previewTimer.cancel();
-    previewTimer = setTimeout(80, (err) => {
-      if (err || inPreview) return;
-      inPreview = true;
-      try {
-        const params = readValues();
-        doPreviewPolyCurves(document, sourceItems, previewTargetNode, params);
-      } catch (e) {
-        console.log(SCRIPT_TITLE + " preview error: " + e);
-        clearPreviews(document);
-      } finally {
-        inPreview = false;
-      }
-    });
-  }
+  // Live Preview Concurrency Loop (100% Flicker-Free, zero dropped frames, zero timer lag)
+  let inPreview = false;
+  let pendingPreview = false;
+  let lastPreviewKey = "";
 
-  startScaleCtrl.onValueChangedHandler = applyPreview;
-  endScaleCtrl.onValueChangedHandler = applyPreview;
-  if (scaleCurveCtrl) scaleCurveCtrl.onValueChangedHandler = applyPreview;
-  scaleCurvCtrl.onValueChangedHandler = applyPreview;
-  scaleMidCtrl.onValueChangedHandler = applyPreview;
-
-  startWidthCtrl.onValueChangedHandler = applyPreview;
-  endWidthCtrl.onValueChangedHandler = applyPreview;
-  if (widthCurveCtrl) widthCurveCtrl.onValueChangedHandler = applyPreview;
-  widthCurvCtrl.onValueChangedHandler = applyPreview;
-  widthMidCtrl.onValueChangedHandler = applyPreview;
-
-  startHeightCtrl.onValueChangedHandler = applyPreview;
-  endHeightCtrl.onValueChangedHandler = applyPreview;
-  if (heightCurveCtrl) heightCurveCtrl.onValueChangedHandler = applyPreview;
-  heightCurvCtrl.onValueChangedHandler = applyPreview;
-  heightMidCtrl.onValueChangedHandler = applyPreview;
-
-  startRotCtrl.onValueChangedHandler = applyPreview;
-  endRotCtrl.onValueChangedHandler = applyPreview;
-  if (rotCurveCtrl) rotCurveCtrl.onValueChangedHandler = applyPreview;
-  rotCurvCtrl.onValueChangedHandler = applyPreview;
-  rotMidCtrl.onValueChangedHandler = applyPreview;
-
-  if (alignCtrl) alignCtrl.onValueChangedHandler = applyPreview;
-  if (sortCtrl) sortCtrl.onValueChangedHandler = applyPreview;
-  if (reverseCtrl) reverseCtrl.onValueChangedHandler = applyPreview;
-  dlg.onControlValueChangedHandler = applyPreview;
-
-  // Hide initial primary shapes while preview is active (if not existing group)
-  if (!existingGroup) {
-    const hidePrimariesCb = CompoundCommandBuilder.create();
-    for (const n of nodes) {
-      hidePrimariesCb.addCommand(DocumentCommand.createSetVisibility(mkSel(n), false));
+  function applyPreview(immediate = false) {
+    if (inPreview) {
+      pendingPreview = true;
+      return;
     }
-    document.executeCommand(hidePrimariesCb.createCommand());
+    inPreview = true;
+
+    try {
+      do {
+        pendingPreview = false;
+        const params = readValues();
+        const key = `${params.startScale.toFixed(3)}:${params.endScale.toFixed(3)}:${params.scaleCurveMode}:${params.scaleCurvature.toFixed(1)}:${params.scaleMidpoint.toFixed(1)}:${params.startWidth.toFixed(3)}:${params.endWidth.toFixed(3)}:${params.widthCurveMode}:${params.widthCurvature.toFixed(1)}:${params.widthMidpoint.toFixed(1)}:${params.startHeight.toFixed(3)}:${params.endHeight.toFixed(3)}:${params.heightCurveMode}:${params.heightCurvature.toFixed(1)}:${params.heightMidpoint.toFixed(1)}:${params.startRotation.toFixed(1)}:${params.endRotation.toFixed(1)}:${params.rotCurveMode}:${params.rotCurvature.toFixed(1)}:${params.rotMidpoint.toFixed(1)}:${params.vAlign}:${params.sortMode}:${params.reverseOrder ? 1 : 0}`;
+        if (immediate || key !== lastPreviewKey) {
+          lastPreviewKey = key;
+          renderLivePreview(document, sourceItems, previewTargetNode, params);
+        }
+      } while (pendingPreview);
+    } catch (e) {
+      console.log(SCRIPT_TITLE + " preview error: " + e);
+    } finally {
+      inPreview = false;
+    }
   }
 
-  applyPreview();
+  const onVal = () => applyPreview(false);
+  startScaleCtrl.onValueChangedHandler = onVal;
+  endScaleCtrl.onValueChangedHandler = onVal;
+  if (scaleCurveCtrl) scaleCurveCtrl.onValueChangedHandler = onVal;
+  scaleCurvCtrl.onValueChangedHandler = onVal;
+  scaleMidCtrl.onValueChangedHandler = onVal;
+
+  startWidthCtrl.onValueChangedHandler = onVal;
+  endWidthCtrl.onValueChangedHandler = onVal;
+  if (widthCurveCtrl) widthCurveCtrl.onValueChangedHandler = onVal;
+  widthCurvCtrl.onValueChangedHandler = onVal;
+  widthMidCtrl.onValueChangedHandler = onVal;
+
+  startHeightCtrl.onValueChangedHandler = onVal;
+  endHeightCtrl.onValueChangedHandler = onVal;
+  if (heightCurveCtrl) heightCurveCtrl.onValueChangedHandler = onVal;
+  heightCurvCtrl.onValueChangedHandler = onVal;
+  heightMidCtrl.onValueChangedHandler = onVal;
+
+  startRotCtrl.onValueChangedHandler = onVal;
+  endRotCtrl.onValueChangedHandler = onVal;
+  if (rotCurveCtrl) rotCurveCtrl.onValueChangedHandler = onVal;
+  rotCurvCtrl.onValueChangedHandler = onVal;
+  rotMidCtrl.onValueChangedHandler = onVal;
+
+  if (alignCtrl) alignCtrl.onValueChangedHandler = onVal;
+  if (sortCtrl) sortCtrl.onValueChangedHandler = onVal;
+  if (reverseCtrl) reverseCtrl.onValueChangedHandler = onVal;
+  dlg.onControlValueChangedHandler = onVal;
+
+  // Render initial preview immediately so canvas is fully updated when dialog appears
+  applyPreview(true);
 
   const result = dlg.show();
-  if (previewTimer) previewTimer.cancel();
   clearPreviews(document);
 
   if (result.value === DialogResult.Ok.value) {
     const finalParams = readValues();
+    if (historyStart >= 0 && document.history && document.history.position > historyStart) {
+      while (document.history.position > historyStart && document.canUndo) {
+        document.undo();
+      }
+    }
     try {
       doApply(document, nodes, sourceItems, finalParams, existingGroup);
     } catch (e) {
-      alert("Application failed:\n" + e.message);
+      showMessage(SCRIPT_TITLE, "Application failed:\n" + e.message);
     }
   } else {
-    // Restore visibility if cancelled
-    const restoreCb = CompoundCommandBuilder.create();
-    if (existingGroup) {
-      for (const src of nodes) {
-        restoreCb.addCommand(DocumentCommand.createSetVisibility(mkSel(src), false));
-      }
-      for (const res of oldResultsToHide) {
-        restoreCb.addCommand(DocumentCommand.createSetVisibility(mkSel(res), true));
+    // Dialog cancelled: rollback to historyStart so sources are 100% restored
+    if (historyStart >= 0 && document.history && document.history.position > historyStart) {
+      while (document.history.position > historyStart && document.canUndo) {
+        document.undo();
       }
     } else {
-      for (const n of nodes) {
-        restoreCb.addCommand(DocumentCommand.createSetVisibility(mkSel(n), true));
+      // Fallback restore visibility if history position unavailable
+      const restoreCb = CompoundCommandBuilder.create();
+      if (existingGroup) {
+        for (const src of nodes) {
+          restoreCb.addCommand(DocumentCommand.createSetVisibility(mkSel(document, src), false));
+        }
+        for (const res of oldResultsToHide) {
+          restoreCb.addCommand(DocumentCommand.createSetVisibility(mkSel(document, res), true));
+        }
+        document.executeCommand(restoreCb.createCommand());
+      } else {
+        for (const n of nodes) {
+          restoreCb.addCommand(DocumentCommand.createSetVisibility(mkSel(document, n), true));
+        }
+        document.executeCommand(restoreCb.createCommand());
       }
     }
-    document.executeCommand(restoreCb.createCommand());
   }
+}
+
+function getSelectionNodes(document) {
+  if (!document || !document.selection) return [];
+  try {
+    if (document.selection.nodes && typeof document.selection.nodes.toArray === "function") {
+      return document.selection.nodes.toArray().filter(Boolean);
+    }
+  } catch (e) {}
+  try {
+    if (document.selection.nodes) {
+      return Array.from(document.selection.nodes).filter(Boolean);
+    }
+  } catch (e) {}
+  try {
+    const nodes = [];
+    for (let i = 0; i < (document.selection.length || 0); i++) {
+      const item = document.selection.at(i);
+      if (item) nodes.push(item.node || item);
+    }
+    return nodes.filter(Boolean);
+  } catch (e) {}
+  return [];
 }
 
 // =============================================================================
@@ -1300,18 +1489,23 @@ function runProceduralTransform(document, rawNodes) {
 // =============================================================================
 
 function main() {
-  if (!doc) {
-    alert("Please open a document in Affinity.");
+  const document = getCurrentDocument();
+  if (!document) {
+    showMessage(SCRIPT_TITLE, "Please open a document in Affinity.");
     return;
   }
 
-  const rawNodes = doc.selection ? doc.selection.nodes.toArray().filter(Boolean) : [];
+  const rawNodes = getSelectionNodes(document);
   if (!rawNodes.length) {
-    alert("Please select at least one object (shape, curve, text, or group).");
+    showMessage(SCRIPT_TITLE, "Please select at least one object (shape, curve, pixel/image layer, or group).");
     return;
   }
 
-  runProceduralTransform(doc, rawNodes);
+  runProceduralTransform(document, rawNodes);
 }
 
-main();
+try {
+  main();
+} catch (err) {
+  showMessage(SCRIPT_TITLE, "Error: " + (err && (err.message || err.stack) ? (err.message || err.stack) : err));
+}

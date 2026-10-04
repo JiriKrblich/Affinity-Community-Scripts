@@ -1305,7 +1305,7 @@
       "name": "Procedural Transform",
       "description": "Applies a gradual transformation across multiple objects. For example, objects can progressively become larger, narrower, taller, or more rotated. It includes curve controls, so the transformation can be linear, smooth, accelerated, wave-like, or concentrated around a middle point.",
       "author": "BlackMortimer-13",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ProceduralTransform.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ProceduralTransform.js"
