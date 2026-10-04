@@ -1379,8 +1379,9 @@
       "name": "CMYK Black Preview",
       "description": "Shows CMYK blacks on screen the way Adobe apps do with Appearance of Black: Display All Blacks as Rich Black",
       "author": "JiriKrblich",
+      "contributors":"Erhard.otto",
       "url": "https://jirikrblich.netlify.app",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "category": "Color",
       "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/CMYK-Black-Preview.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/CMYK-Black-Preview.js"

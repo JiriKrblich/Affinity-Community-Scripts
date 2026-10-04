@@ -1,3 +1,35 @@
+/**
+ * name: CMYK Black Preview
+ * description: Shows CMYK blacks on screen the way Adobe apps do with Appearance of Black: Display All Blacks as Rich Black
+ * version: 1.0.1
+ * author: JiriKrblich
+ *
+ * 1.0.1 - checked against current Affinity SDK (3.3):
+ *  - The freshly-created Selective Colour adjustment layers were found
+ *    again via /selective/i.test(node.description) - but node.description
+ *    is Affinity's own localized UI string. Confirmed live on a German
+ *    install: it reads "Selektive Farbkorrektur", which the English-only
+ *    regex never matches. Result: BP.addPreview() always got an empty
+ *    "fresh" list and reported "Could not add the preview layers" even
+ *    though the adjustment layers WERE silently added to the document -
+ *    just never tagged, locked, or tracked, so the script could not find
+ *    or remove them again either. Same problem in BP.evaluate()'s search
+ *    for the layers to apply blend ranges to. Fixed by matching
+ *    node[Symbol.toStringTag] === 'SelectiveColourAdjustmentRasterNode'
+ *    instead, which is the node's internal type tag and stays in English
+ *    regardless of UI language - confirmed live.
+ *  - doc.undoDescription throws INVALID_OP when there is nothing yet to
+ *    undo (confirmed live on a brand-new, never-edited document) - every
+ *    read of it is now wrapped in a small helper that returns null
+ *    instead. Without this, running the script as the very first action
+ *    in a fresh document crashed before showing any dialog.
+ *  - Full calibration pipeline (SelectiveColourAdjustmentRasterNodeDefinition,
+ *    blendModeInterface.blendOptions + Spline blend ranges, CMYK swatch
+ *    rendering via NodeRenderingEngine/PixelBuffer/copyTo) re-run end to
+ *    end on a real CMYK document with both fixes applied and produced
+ *    sensible, correctly-darkened/neutralized swatch colours.
+ */
+
 // Black Preview
 // Shows CMYK blacks on screen the way Adobe apps do with
 // "Appearance of Black: Display All Blacks as Rich Black".
@@ -29,6 +61,11 @@ BP.layerDefinition = function (L) {
 };
 
 // blend range on the underlying composition: { pts } for master, { channel, pts } or { channels: { index: pts } }; pts = [[x, opacity], ...]
+// doc.undoDescription throws INVALID_OP when there is no undo history yet.
+BP.safeUndoDescription = function (doc) {
+    try { return doc.undoDescription; } catch (e) { return null; }
+};
+
 BP.rangeCommand = function (doc, node, range) {
     const { DocumentCommand } = require('/commands');
     const { Selection } = require('/selections');
@@ -55,7 +92,7 @@ BP.evaluate = function (doc, variants) {
     const R = require('/rasterobject');
     const spread = doc.currentSpread;
     const S = 12, X0 = -400000, Y0 = -400000;
-    const undoMark = doc.undoDescription;
+    const undoMark = BP.safeUndoDescription(doc);
     let executed = 0;
     const exec = (cmd) => { doc.executeCommand(cmd); executed++; };
 
@@ -104,7 +141,8 @@ BP.evaluate = function (doc, variants) {
     groups.forEach((g, i) => {
         const v = variants[i];
         const L = v ? (Array.isArray(v) ? v : [v]) : [];
-        const adj = [...g.children].filter(n => /selective/i.test(String(n.description)));
+        // Match by internal node type, not the localized description text.
+        const adj = [...g.children].filter(n => n[Symbol.toStringTag] === 'SelectiveColourAdjustmentRasterNode');
         L.forEach((layer, li) => { if (layer.range && adj[li]) { comp3.addCommand(BP.rangeCommand(doc, adj[li], layer.range)); nRanges++; } });
     });
     if (nRanges) exec(comp3.createCommand());
@@ -121,7 +159,7 @@ BP.evaluate = function (doc, variants) {
     // roll back exactly our own steps (history can also contain selection changes)
     for (let i = 0; i < executed + 6 && doc.canUndo; i++) {
         doc.undo();
-        if (i + 1 >= executed && doc.undoDescription === undoMark) break;
+        if (i + 1 >= executed && BP.safeUndoDescription(doc) === undoMark) break;
     }
     return results;
 };
@@ -244,7 +282,8 @@ BP.addPreview = function (doc, layers) {
     const ranges = CompoundCommandBuilder.create();
     let nRanges = 0;
     for (const c of containers) {
-        const fresh = [...c.node.children].filter(n => /selective/i.test(String(n.description)) && !String(n.userDescription || '')).slice(-layers.length);
+        // Match by internal node type, not the localized description text.
+        const fresh = [...c.node.children].filter(n => n[Symbol.toStringTag] === 'SelectiveColourAdjustmentRasterNode' && !String(n.userDescription || '')).slice(-layers.length);
         fresh.forEach((node, i) => {
             added.push(node);
             if (layers[i] && layers[i].range) { ranges.addCommand(BP.rangeCommand(doc, node, layers[i].range)); nRanges++; }
@@ -288,7 +327,7 @@ function main() {
     }
 
     // show the preview right away, then ask
-    const mark = doc.undoDescription;
+    const mark = BP.safeUndoDescription(doc);
     const cal = BP.calibrate(doc);
     const added = BP.addPreview(doc, cal.layers);
     if (!added.length) { BP.message('Could not add the preview layers.'); return; }
@@ -325,7 +364,7 @@ function main() {
         return;
     }
     // Cancel: roll back to the state before the script ran
-    for (let i = 0; i < 20 && doc.canUndo && doc.undoDescription !== mark; i++) doc.undo();
+    for (let i = 0; i < 20 && doc.canUndo && BP.safeUndoDescription(doc) !== mark; i++) doc.undo();
     if (BP.findPreviewNodes(doc).length) {
         doc.executeCommand(DocumentCommand.createDeleteSelection(Selection.create(doc, BP.findPreviewNodes(doc))));
     }
