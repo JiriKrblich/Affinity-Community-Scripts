@@ -1,10 +1,29 @@
 "use strict";
 
 // =============================================================================
-// PIVOT REPEAT v1daae (Procedural Pivot-Centric Array & Rotary/Floral Engine)
+// PIVOT REPEAT v1daaf (Procedural Pivot-Centric Array & Rotary/Floral Engine)
 // Affinity Designer / Photo / Publisher (v3c+ Pipeline & Multi-Effect Standard)
 //
-// Features & Fixes in v1daae:
+// Features & Fixes in v1daaf (Live Preview & Raster Re-run Fixed):
+// - Fixed Raster Live Preview on Container Re-run / Parameter Edit:
+//   When re-opening the script on an existing container, source nodes were hidden
+//   (visibility: false), causing NodeRenderingEngine to capture completely transparent
+//   (invisible) bitmaps. Now temporarily enables source visibility during bitmap snapshot
+//   generation and uses InsertionMode.Default to guarantee preview nodes remain in the
+//   active container/artboard context.
+// - Full Raster Layer & Photo Support (Live Preview + Native Duplicates):
+//   Full compatibility with pixel layers, photos, and images (RasterNode, ImageNode).
+//   Bounding boxes and spatial anchors are accurately calculated in spread space,
+//   snapshots are pre-rendered via NodeRenderingEngine at native resolution,
+//   and live preview renders real-time rotated raster instances via RasterNodeDefinition.
+//   On apply, native raster duplicates are generated cleanly within the procedural container.
+// - SDK 3.3 Compatibility & Live Preview Fix:
+//   Updated PolyCurveNodeDefinition.create argument order to (curve, brushFill, lineFill,
+//   lineStyle, transparencyFill) matching the breaking change in Affinity Scripting SDK 3.3.
+//   Restores real-time live preview rendering and slider responsiveness on canvas.
+// - Robust None/Empty Fill Descriptor Handling:
+//   Added isDescriptorNone validation across getNodeStyle, applyStyleToLeafNode,
+//   applyOpacityAndBlendToFillDescriptor, and doPreviewPolyCurves to avoid type mismatches.
 // - Fixed Layer Stacking / Z-Index Bug with Concentric Layers:
 //   Previously, enabling 'Reverse Stacking Order' reversed the entire placement
 //   array globally, causing Layer 0 (the large base repetition) to be placed on top
@@ -54,14 +73,15 @@ const {
   NodeChildType,
   NodeMoveType
 } = require("/commands");
-const { PolyCurve, Transform } = require("/geometry");
-const { ContainerNodeDefinition, PolyCurveNodeDefinition } = require("/nodes");
+const { PolyCurve, Transform, Point } = require("/geometry");
+const { ContainerNodeDefinition, PolyCurveNodeDefinition, RasterNodeDefinition } = require("/nodes");
 const { Dialog, DialogResult, HorizontalAlignment, SpatialAnchor } = require("/dialog");
 const { Selection } = require("/selections");
 const { UnitType } = require("/units");
 const { RGB8 } = require("/colours");
 const { FillDescriptor, BlendMode } = require("/fills");
 const { LineStyleDescriptor } = require("/linestyle");
+const { NodeRenderingEngine, RasterFormat } = require("/rasterobject");
 const { setTimeout } = require("/timers");
 
 // =============================================================================
@@ -496,6 +516,15 @@ function clonePolyCurveToSpread(node) {
   return null;
 }
 
+function isDescriptorNone(desc) {
+  if (!desc) return true;
+  if (desc.isNoFill) return true;
+  if (desc.type === "none") return true;
+  if (desc.fillType && String(desc.fillType).toLowerCase() === "none") return true;
+  if (desc.fill && desc.fill.fillType && String(desc.fill.fillType).toLowerCase() === "none") return true;
+  return false;
+}
+
 function getNodeStyle(node) {
   const defaultStyle = {
     brushFill: FillDescriptor.createNone(),
@@ -545,7 +574,7 @@ function getNodeStyle(node) {
         ? lsDesc.lineStyle.weight
         : (typeof lsi.lineWeight === "number" ? lsi.lineWeight : 0);
 
-      if (isVisible && !isNoFill && weight > 0 && penFill && !penFill.isNoFill) {
+      if (isVisible && !isNoFill && weight > 0 && penFill && !isDescriptorNone(penFill)) {
         hasStroke = true;
         lineFill = penFill.clone();
         lineStyle = lsDesc ? lsDesc.clone() : LineStyleDescriptor.createDefault(weight);
@@ -560,7 +589,7 @@ function getNodeStyle(node) {
   // 4. Brush Fill
   try {
     if (node.brushFillInterface) {
-      if (!node.brushFillInterface.isNoFill && node.brushFillInterface.currentDescriptor) {
+      if (!node.brushFillInterface.isNoFill && node.brushFillInterface.currentDescriptor && !isDescriptorNone(node.brushFillInterface.currentDescriptor)) {
         brushFill = node.brushFillInterface.currentDescriptor.clone();
       }
     }
@@ -591,19 +620,19 @@ function applyStyleToLeafNode(document, node, style) {
   const sel = Selection.create(document, node, true);
   const cb = CompoundCommandBuilder.create();
 
-  // 1. Brush Fill (only apply valid fills)
-  if (style.brushFill && !style.brushFill.isNoFill) {
+  // 1. Brush Fill (only apply valid fills on vector nodes)
+  if (node.brushFillInterface && style.brushFill && !style.brushFill.isNoFill) {
     cb.addCommand(DocumentCommand.createSetBrushFill(sel, style.brushFill), false);
   }
 
-  // 2. Stroke / Line Fill & Style
-  if (style.hasStroke && style.lineFill && !style.lineFill.isNoFill && style.lineStyle) {
+  // 2. Stroke / Line Fill & Style (only on vector nodes)
+  if (node.lineStyleInterface && style.hasStroke && style.lineFill && !style.lineFill.isNoFill && style.lineStyle) {
     cb.addCommand(DocumentCommand.createSetLineStyleDescriptor(sel, style.lineStyle), false);
     cb.addCommand(DocumentCommand.createSetPenFill(sel, style.lineFill), false);
   }
 
   // 3. Transparency
-  if (style.transparencyFill && !style.transparencyFill.isNoFill) {
+  if (node.transparencyInterface && style.transparencyFill && !style.transparencyFill.isNoFill) {
     cb.addCommand(DocumentCommand.createSetTransparencyFill(sel, style.transparencyFill), false);
   }
 
@@ -674,10 +703,10 @@ function syncSourceStylesFromResults(document, existingGroup, sourceNodes, resul
 }
 
 function applyOpacityAndBlendToFillDescriptor(fillDesc, opacity, targetBlendMode) {
-  if (!fillDesc || fillDesc.isNoFill) return FillDescriptor.createNone();
+  if (isDescriptorNone(fillDesc)) return FillDescriptor.createNone();
   try {
     const typedFill = fillDesc.fill;
-    if (typedFill) {
+    if (typedFill && (!typedFill.fillType || String(typedFill.fillType).toLowerCase() !== "none")) {
       const clonedFill = typedFill.clone();
       if (typeof opacity === "number" && opacity < 0.999 && opacity >= 0) {
         const currentAlpha = (typeof clonedFill.alpha === "number") ? clonedFill.alpha : 1.0;
@@ -694,6 +723,125 @@ function applyOpacityAndBlendToFillDescriptor(fillDesc, opacity, targetBlendMode
     }
   } catch (e) {}
   return fillDesc;
+}
+
+function getNodeBoundsBox(node, containerTransform) {
+  if (!node) return null;
+
+  // 1. If vector curves exist, get curve bounds
+  if (node.curvesInterface && node.curvesInterface.polyCurve) {
+    const pc = clonePolyCurveToSpread(node);
+    if (pc) {
+      if (containerTransform && containerTransform.inverted) {
+        try { pc.transform(containerTransform.inverted); } catch (e) {}
+      }
+      let pb = null;
+      try { pb = pc.exactBoundingBox || pc.boundingBox || pc.bounds; } catch (e) {}
+      if (!pb) {
+        try { pb = pc.getExactBoundingBox ? pc.getExactBoundingBox() : pc.getBoundingBox(); } catch (e) {}
+      }
+      if (validBB(pb)) {
+        return {
+          x: pb.x,
+          y: pb.y,
+          width: pb.width,
+          height: pb.height,
+          center: { x: pb.x + pb.width / 2, y: pb.y + pb.height / 2 }
+        };
+      }
+    }
+  }
+
+  // 2. Base box transformed to spread / container (RasterNode, ImageNode, Groups)
+  let baseBox = null;
+  try {
+    if (node.baseBoxInterface && node.baseBoxInterface.baseBox) {
+      baseBox = node.baseBoxInterface.baseBox;
+    } else if (node.baseBox) {
+      baseBox = node.baseBox;
+    }
+  } catch (e) {}
+
+  if (baseBox && validBB(baseBox)) {
+    let b2s = null;
+    try {
+      b2s = node.baseToSpreadTransform || (node.transformInterface ? node.transformInterface.transform : null);
+    } catch (e) {}
+
+    const corners = [
+      new Point(baseBox.x, baseBox.y),
+      new Point(baseBox.x + baseBox.width, baseBox.y),
+      new Point(baseBox.x + baseBox.width, baseBox.y + baseBox.height),
+      new Point(baseBox.x, baseBox.y + baseBox.height)
+    ];
+
+    const containerInv = (containerTransform && containerTransform.inverted) ? containerTransform.inverted : null;
+
+    const mappedCorners = corners.map(pt => {
+      let p = pt;
+      if (b2s) {
+        try { p = b2s.applyToPoint(p); } catch (e) {}
+      }
+      if (containerInv) {
+        try { p = containerInv.applyToPoint(p); } catch (e) {}
+      }
+      return p;
+    });
+
+    const xs = mappedCorners.map(p => p.x);
+    const ys = mappedCorners.map(p => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+      center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+    };
+  }
+
+  // 3. Fallback: getSpreadBaseBox
+  try {
+    if (typeof node.getSpreadBaseBox === "function") {
+      const sb = node.getSpreadBaseBox(false);
+      if (validBB(sb)) {
+        if (containerTransform && containerTransform.inverted) {
+          const corners = [
+            new Point(sb.x, sb.y),
+            new Point(sb.x + sb.width, sb.y),
+            new Point(sb.x + sb.width, sb.y + sb.height),
+            new Point(sb.x, sb.y + sb.height)
+          ];
+          const mapped = corners.map(pt => containerTransform.inverted.applyToPoint(pt));
+          const xs = mapped.map(p => p.x);
+          const ys = mapped.map(p => p.y);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+          return {
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY,
+            center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+          };
+        }
+        return {
+          x: sb.x,
+          y: sb.y,
+          width: sb.width,
+          height: sb.height,
+          center: { x: sb.x + sb.width / 2, y: sb.y + sb.height / 2 }
+        };
+      }
+    }
+  } catch (e) {}
+
+  return null;
 }
 
 function extractGeomEntriesFromNode(node, containerTransform) {
@@ -1023,8 +1171,10 @@ function doPreviewPolyCurves(document, sourceItems, targetNode, params, containe
 
   const addBuilder = AddChildNodesCommandBuilder.create();
   if (targetNode) {
-    addBuilder.setInsertionTargetSelection(mkSel(targetNode));
-    addBuilder.setInsertionMode(InsertionMode.Top);
+    try {
+      addBuilder.setInsertionTargetSelection(mkSel(targetNode));
+      addBuilder.setInsertionMode(InsertionMode.Default);
+    } catch (e) {}
   }
 
   const orderedIndices = getOrderedPlacementIndices(placements, params.reverseZIndex, params.outerLayersOnTop);
@@ -1048,11 +1198,11 @@ function doPreviewPolyCurves(document, sourceItems, targetNode, params, containe
         const op = (typeof s.opacity === "number") ? s.opacity : 1.0;
         const bm = s.blendMode || null;
 
-        const previewBrushFill = (s.brushFill && !s.brushFill.isNoFill)
+        const previewBrushFill = (s.brushFill && !isDescriptorNone(s.brushFill))
           ? applyOpacityAndBlendToFillDescriptor(s.brushFill, op, bm)
           : FillDescriptor.createNone();
 
-        const previewLineFill = (s.hasStroke && s.lineFill && !s.lineFill.isNoFill)
+        const previewLineFill = (s.hasStroke && s.lineFill && !isDescriptorNone(s.lineFill))
           ? applyOpacityAndBlendToFillDescriptor(s.lineFill, op, bm)
           : FillDescriptor.createNone();
 
@@ -1060,15 +1210,29 @@ function doPreviewPolyCurves(document, sourceItems, targetNode, params, containe
           ? (s.lineStyle || LineStyleDescriptor.createDefault(1))
           : LineStyleDescriptor.createDefault(0);
 
+        const previewTransFill = (s.transparencyFill && !isDescriptorNone(s.transparencyFill))
+          ? s.transparencyFill
+          : FillDescriptor.createNone();
+
         const def = PolyCurveNodeDefinition.create(
           pc,
           previewBrushFill,
-          previewLineStyle,
           previewLineFill,
-          s.transparencyFill || FillDescriptor.createNone()
+          previewLineStyle,
+          previewTransFill
         );
 
         addBuilder.addNode(def);
+      }
+    } else if (item.rasterEntry && item.rasterEntry.bitmap) {
+      try {
+        const rDef = RasterNodeDefinition.create();
+        rDef.bitmap = item.rasterEntry.bitmap;
+        rDef.transform = previewTransform.multiply(item.rasterEntry.baseTranslate);
+        rDef.userDescription = "Preview Raster";
+        addBuilder.addRasterNode(rDef);
+      } catch (e) {
+        console.log("Error adding preview raster node: " + e);
       }
     }
   }
@@ -1269,17 +1433,57 @@ function runPivotRepeat(document, rawNodes) {
 
   const containerTransform = existingGroup ? getContainerTransform(existingGroup) : null;
 
+  // Ensure source nodes are visible during bounds and raster snapshot generation
+  if (existingGroup) {
+    const showSourcesCb = CompoundCommandBuilder.create();
+    for (const n of nodes) {
+      showSourcesCb.addCommand(DocumentCommand.createSetVisibility(mkSel(n), true));
+    }
+    document.executeCommand(showSourcesCb.createCommand());
+  }
+
   const sourceItems = nodes.map((node, index) => {
     const entries = extractGeomEntriesFromNode(node, containerTransform);
-    const b = getEntriesBounds(entries);
+    let b = getEntriesBounds(entries);
+    let rasterEntry = null;
+
+    if (!b || !entries.length) {
+      b = getNodeBoundsBox(node, containerTransform);
+      if (b && validBB(b)) {
+        try {
+          const engine = NodeRenderingEngine.createDefault(node, RasterFormat.RGBA8);
+          const bmp = engine.createCompatibleBitmap(true);
+          rasterEntry = {
+            bitmap: bmp,
+            width: bmp.width,
+            height: bmp.height,
+            baseTranslate: Transform.createTranslate(b.x, b.y)
+          };
+        } catch (e) {
+          console.log("Pivot Repeat raster snapshot error: " + e);
+        }
+      }
+    }
+
+    const fallbackBox = b || { x: 0, y: 0, width: 100, height: 100 };
     return {
       index: index,
       node: node,
       geomEntries: entries,
-      box: b || { x: 0, y: 0, width: 100, height: 100 },
-      localCenter: b ? b.center : { x: 0, y: 0 }
+      rasterEntry: rasterEntry,
+      box: fallbackBox,
+      localCenter: fallbackBox.center || { x: fallbackBox.x + fallbackBox.width / 2, y: fallbackBox.y + fallbackBox.height / 2 }
     };
   });
+
+  // Re-hide source nodes inside existing container so they don't double-render
+  if (existingGroup) {
+    const hideSourcesCb = CompoundCommandBuilder.create();
+    for (const n of nodes) {
+      hideSourcesCb.addCommand(DocumentCommand.createSetVisibility(mkSel(n), false));
+    }
+    document.executeCommand(hideSourcesCb.createCommand());
+  }
 
   const previewTargetNode = existingGroup || nodes[0];
 
@@ -1595,7 +1799,7 @@ function main() {
 
   const rawNodes = doc.selection ? doc.selection.nodes.toArray().filter(Boolean) : [];
   if (!rawNodes.length) {
-    alert("Please select at least one object (curve, shape, or group).");
+    alert("Please select at least one object (curve, shape, raster layer, image, or group).");
     return;
   }
 

@@ -1285,7 +1285,7 @@
       "name": "Pivot Repeat",
       "description": "Repeats one or more objects around a central pivot point. Use it to create flowers, mandalas, rosettes, radial patterns, circular ornaments, and gear-like designs. You can control copy count, rotation, distance from the center, scale, concentric rings, and layer order.",
       "author": "BlackMortimer-13",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/PivotRepeat.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/PivotRepeat.js"
