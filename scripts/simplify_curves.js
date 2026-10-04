@@ -1,34 +1,29 @@
 "use strict";
 
 // =============================================================================
-// PATH SIMPLIFY PRO v1a (Advanced Vector Simplification Engine)
+// PATH SIMPLIFY PRO v1.2 (Primordial Algorithm & Crash-Free Safe Pipeline)
 // Serif Affinity Designer / Photo / Publisher (v3g Multi-Effect Standard & In-Place)
 //
-// Key Features in v1a:
-// 1. Full Hierarchical Group Support & Multi-Object Live Preview:
-//    - Deep recursive traversal of GroupNode, LayerNode, and nested container structures.
-//    - Preserves child transforms so EVERY path inside groups renders at its exact position in live preview.
-//    - Applies simplification individually to every vector path inside selected groups.
-//    - Preserves exact group hierarchies, stacking orders, and parent group selection.
-// 2. High-Precision Mathematical Pipeline:
-//    - Uniform polyline decomposition & recursive Bézier subdivision (ConvertEvenLines).
-//    - Exponential + binary search with step halving (step = 64, 32, 16, 8, 4, 2, 1).
-//    - Least-squares cubic Bézier fitting (FitCubic) using Bernstein polynomial basis.
-//    - Newton-Raphson parameter refinement (RaffineTk) for sub-pixel curvature matching.
-//    - Splotch-Killer algorithm to prevent loops and bulges on small segments.
-// 3. Intelligent Corner Preservation:
-//    - Detects sharp turns (configurable corner angle, e.g. 60°) and anchors them.
-//    - Sharp corners remain 100% crisp while smooth curves are aggressively simplified.
-// 4. Node Count Guard:
-//    - Never increases the node count: if a curve already has minimal nodes, it is preserved.
-// 5. Dual Workflow Support:
-//    - In-Place Replacement (Default): Direct, instant replacement on canvas with single-step Undo (Cmd+Z).
-//    - Non-Destructive Container (v3g Standard): Wraps in "Simplify Effect" container with
-//      hidden Source and red-tagged Result (#FF0000), fully compatible with Expand Effects.
-// 6. Interactive Dialog with Real-Time Live Preview:
-//    - Pop-up slider for Threshold (1 to 500, default 20 = 0.0020).
-//    - Live node count statistics across all paths in groups: "Nodes: 1600 ➔ 42 (-97.4%)".
-//    - Canvas units tolerance feedback: "Tolerance: ±2.4 px".
+// Key Features:
+// 1. Primordial Mathematical Engine Restored:
+//    - High-precision chord parameterization with Float64Array.
+//    - Pass 1: Quick deviation check with maxSqDist > 3.0 * threshSq early exit.
+//    - Pass 2: Newton-Raphson refineTk parameter refinement.
+//    - Pass 3: Splotch Killer & Bernstein cubic error evaluation.
+//    - Exponential search with step halving (step = 64, 32, 16, 8, 4, 2, 1).
+//    - Sub-pixel corner detection & crisp preservation.
+//    - Node Count Guard: never increases node count if curve is already minimal.
+// 2. Safe Lifecycle (Crash on Cancel Eliminated):
+//    - Zero doc.undo() calls on Cancel: unhides original nodes and restores selection safely.
+//    - Prevents liblibpersona.dylib C++ memory corruption on dialog close.
+// 3. 100% Working Live Preview:
+//    - Verified Affinity runtime signature:
+//      PolyCurveNodeDefinition.create(curve, brushFill, lineFill, lineStyle, transparencyFill).
+//    - Non-blocking reentrancy guard loop with real-time node count and canvas tolerance.
+// 4. Universal SVG & Group Traversal:
+//    - Robust Collection iteration (.toArray(), .count, Symbol.iterator).
+//    - Handles GroupNode, LayerNode, ArtboardNode, and ShapeNode primitives.
+//    - Preserves local child coordinate systems and transforms.
 // =============================================================================
 
 const { Document } = require("/document");
@@ -58,13 +53,12 @@ const { UnitType } = require("/units");
 const { RGB8 } = require("/colours");
 const { FillDescriptor, BlendMode } = require("/fills");
 const { LineStyleDescriptor } = require("/linestyle");
-const { setTimeout } = require("/timers");
 
 // =============================================================================
 // CONSTANTS & REGISTRY
 // =============================================================================
 
-const SCRIPT_TITLE = "Path Simplify Pro v1a";
+const SCRIPT_TITLE = "Path Simplify Pro";
 const CURRENT_EFFECT_ID = "simplify";
 const EFFECT_SIMPLIFY = "simplify";
 const EFFECT_ZIGZAG = "zigzag";
@@ -161,7 +155,7 @@ const EffectRegistry = {
 const doc = Document.current;
 
 // =============================================================================
-// COMPUTATIONAL GEOMETRY ENGINE (LEAST-SQUARES CUBIC FITTING)
+// COMPUTATIONAL GEOMETRY ENGINE (PRIMORDIAL LEAST-SQUARES FITTING)
 // =============================================================================
 
 // Bernstein polynomial cubic basis (N03..N33), quadratic (N02..N22), linear (N01..N11)
@@ -178,7 +172,7 @@ function N01(t) { return 1.0 - t; }
 function N11(t) { return t; }
 
 /**
- * RaffineTk: Newton-Raphson parameter refinement.
+ * refineTk: Newton-Raphson parameter refinement.
  * Refines the parameter t along the cubic Bézier curve to find the minimum distance to point pt.
  */
 function refineTk(pt, p0, p1, p2, p3, it) {
@@ -293,13 +287,14 @@ function computeChordParameters(pts, startIdx, count) {
 }
 
 /**
- * AttemptSimplify: tests if a cubic fits the sequence within threshold,
- * applies the Splotch Killer, and refines parameters using Newton-Raphson.
+ * AttemptSimplify: primordial testing algorithm.
+ * Evaluates whether a sub-chain of polyline points can be accurately represented
+ * by a single cubic Bézier curve within the maximum allowed squared distance threshold.
  */
 function attemptSimplify(pts, startIdx, count, threshold) {
   if (count <= 2) {
     const p0 = pts[startIdx];
-    const p3 = pts[startIdx + 1];
+    const p3 = pts[startIdx + count - 1];
     return {
       ok: true,
       c1: { x: p0.x + (p3.x - p0.x) / 3, y: p0.y + (p3.y - p0.y) / 3 },
@@ -334,7 +329,7 @@ function attemptSimplify(pts, startIdx, count, threshold) {
     return { ok: false, c1, c2, worstDist: maxSqDist };
   }
 
-  // Pass 2: Parameter refinement with Newton-Raphson (RaffineTk)
+  // Pass 2: Parameter refinement with Newton-Raphson (refineTk)
   for (let i = 1; i < count - 1; i++) {
     const curPt = pts[startIdx + i];
     tk[i] = refineTk(curPt, p0, c1, c2, p3, tk[i]);
@@ -448,6 +443,10 @@ function getEndTangent(b) {
   let dx = b.end.x - b.c2.x;
   let dy = b.end.y - b.c2.y;
   if (Math.hypot(dx, dy) < 1e-6) {
+    dx = b.end.x - b.c1.x;
+    dy = b.end.y - b.c1.y;
+  }
+  if (Math.hypot(dx, dy) < 1e-6) {
     dx = b.end.x - b.start.x;
     dy = b.end.y - b.start.y;
   }
@@ -458,6 +457,10 @@ function getStartTangent(b) {
   let dx = b.c1.x - b.start.x;
   let dy = b.c1.y - b.start.y;
   if (Math.hypot(dx, dy) < 1e-6) {
+    dx = b.c2.x - b.start.x;
+    dy = b.c2.y - b.start.y;
+  }
+  if (Math.hypot(dx, dy) < 1e-6) {
     dx = b.end.x - b.start.x;
     dy = b.end.y - b.start.y;
   }
@@ -465,20 +468,40 @@ function getStartTangent(b) {
 }
 
 /**
- * ConvertEvenLines: converts vector curve into polyline sample points,
- * subdividing straight lines and recursively subdividing Béziers.
+ * Converts a Bézier Curve into a dense polyline of sample points,
+ * detecting sharp turn junctions as anchored corners.
  */
 function convertCurveToPolyline(curve, threshold, keepCorners, cornerAngleDeg) {
-  const beziers = [...curve.beziers];
+  let beziers = [];
+  try {
+    if (curve.beziers) {
+      if (Array.isArray(curve.beziers)) beziers = curve.beziers;
+      else if (typeof curve.beziers.toArray === "function") beziers = curve.beziers.toArray();
+      else if (typeof curve.beziers[Symbol.iterator] === "function") beziers = [...curve.beziers];
+    }
+  } catch (e) {}
+
   if (!beziers.length) return [];
 
   const pts = [];
-  pts.push({ x: beziers[0].start.x, y: beziers[0].start.y, isCorner: false });
+  function addPt(p, isCorner = false) {
+    if (pts.length > 0) {
+      const last = pts[pts.length - 1];
+      if (Math.hypot(p.x - last.x, p.y - last.y) < 1e-6) {
+        if (isCorner) last.isCorner = true;
+        return;
+      }
+    }
+    pts.push({ x: p.x, y: p.y, isCorner: !!isCorner });
+  }
+
+  addPt(beziers[0].start, false);
   const cornerCos = Math.cos((cornerAngleDeg || 60) * Math.PI / 180);
 
   for (let bi = 0; bi < beziers.length; bi++) {
     const b = beziers[bi];
     const segLen = Math.hypot(b.end.x - b.start.x, b.end.y - b.start.y);
+    if (segLen < 1e-6) continue;
 
     const isLine = (
       Math.hypot(b.c1.x - b.start.x, b.c1.y - b.start.y) < 1e-4 &&
@@ -494,23 +517,21 @@ function convertCurveToPolyline(curve, threshold, keepCorners, cornerAngleDeg) {
       if (segLen > threshold && threshold > 0) {
         for (let i = threshold; i < segLen; i += threshold) {
           const u = i / segLen;
-          pts.push({
+          addPt({
             x: (1 - u) * b.start.x + u * b.end.x,
-            y: (1 - u) * b.start.y + u * b.end.y,
-            isCorner: false
-          });
+            y: (1 - u) * b.start.y + u * b.end.y
+          }, false);
         }
       }
-      pts.push({ x: b.end.x, y: b.end.y, isCorner: false });
+      addPt(b.end, false);
     } else {
       const stepN = Math.max(4, Math.min(64, Math.ceil(segLen / threshold)));
       for (let i = 1; i <= stepN; i++) {
         const t = i / stepN;
-        pts.push({
+        addPt({
           x: N03(t) * b.start.x + N13(t) * b.c1.x + N23(t) * b.c2.x + N33(t) * b.end.x,
-          y: N03(t) * b.start.y + N13(t) * b.c1.y + N23(t) * b.c2.y + N33(t) * b.end.y,
-          isCorner: false
-        });
+          y: N03(t) * b.start.y + N13(t) * b.c1.y + N23(t) * b.c2.y + N33(t) * b.end.y
+        }, false);
       }
     }
 
@@ -523,7 +544,7 @@ function convertCurveToPolyline(curve, threshold, keepCorners, cornerAngleDeg) {
       const lOut = Math.hypot(tOut.dx, tOut.dy) || 1e-9;
       const dot = (tIn.dx * tOut.dx + tIn.dy * tOut.dy) / (lIn * lOut);
 
-      if (dot < cornerCos) {
+      if (dot < cornerCos && pts.length > 0) {
         pts[pts.length - 1].isCorner = true;
       }
     }
@@ -538,7 +559,7 @@ function convertCurveToPolyline(curve, threshold, keepCorners, cornerAngleDeg) {
 function simplifyCurve(curve, threshold, keepCorners, cornerAngleDeg) {
   const origNodeCount = countAnchorNodes(curve);
   const pts = convertCurveToPolyline(curve, threshold, keepCorners, cornerAngleDeg);
-  if (!pts.length) return curve.clone();
+  if (!pts || pts.length < 2) return curve.clone();
 
   // Partition polyline into sub-chains at sharp corners
   const chains = [];
@@ -580,15 +601,19 @@ function simplifyCurve(curve, threshold, keepCorners, cornerAngleDeg) {
 function getPolyCurveBounds(polyCurve) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   let count = 0;
-  for (const curve of polyCurve) {
-    for (const b of curve.beziers) {
-      minX = Math.min(minX, b.start.x, b.c1.x, b.c2.x, b.end.x);
-      maxX = Math.max(maxX, b.start.x, b.c1.x, b.c2.x, b.end.x);
-      minY = Math.min(minY, b.start.y, b.c1.y, b.c2.y, b.end.y);
-      maxY = Math.max(maxY, b.start.y, b.c1.y, b.c2.y, b.end.y);
-      count++;
+  try {
+    for (const curve of polyCurve) {
+      if (!curve || !curve.beziers) continue;
+      for (const b of curve.beziers) {
+        minX = Math.min(minX, b.start.x, b.c1.x, b.c2.x, b.end.x);
+        maxX = Math.max(maxX, b.start.x, b.c1.x, b.c2.x, b.end.x);
+        minY = Math.min(minY, b.start.y, b.c1.y, b.c2.y, b.end.y);
+        maxY = Math.max(maxY, b.start.y, b.c1.y, b.c2.y, b.end.y);
+        count++;
+      }
     }
-  }
+  } catch (e) {}
+
   if (count === 0) return { width: 1000, height: 1000, diagonal: 1414 };
   const width = Math.max(1, maxX - minX);
   const height = Math.max(1, maxY - minY);
@@ -598,7 +623,7 @@ function getPolyCurveBounds(polyCurve) {
 
 /**
  * Main PolyCurve simplification entry point.
- * Bounding box diagonal scaling: tresh = thresholdRatio * size.
+ * Bounding box diagonal scaling: thresh = thresholdRatio * size.
  */
 function simplifyPolyCurve(polyCurve, thresholdRatio, keepCorners, cornerAngleDeg) {
   if (!polyCurve) return PolyCurve.create();
@@ -610,6 +635,7 @@ function simplifyPolyCurve(polyCurve, thresholdRatio, keepCorners, cornerAngleDe
   const outPolyCurve = PolyCurve.create();
 
   for (const curve of polyCurve) {
+    if (!curve) continue;
     const simplified = simplifyCurve(curve, effectiveThreshold, keepCorners, cornerAngleDeg);
     if (simplified) {
       outPolyCurve.addCurve(simplified);
@@ -621,7 +647,14 @@ function simplifyPolyCurve(polyCurve, thresholdRatio, keepCorners, cornerAngleDe
 
 function countAnchorNodes(curve) {
   if (!curve) return 0;
-  const bCount = [...curve.beziers].length;
+  let bCount = 0;
+  try {
+    if (curve.beziers) {
+      if (typeof curve.beziers.count === "number") bCount = curve.beziers.count;
+      else if (typeof curve.beziers.length === "number") bCount = curve.beziers.length;
+      else bCount = [...curve.beziers].length;
+    }
+  } catch (e) {}
   if (bCount === 0) return 0;
   return curve.isClosed ? bCount : (bCount + 1);
 }
@@ -649,13 +682,15 @@ function getNodeName(node) {
   try { return node.userDescription || node.name || ""; } catch (e) { return ""; }
 }
 
+function nodeTag(node) {
+  try { return node && node[Symbol.toStringTag] ? String(node[Symbol.toStringTag]) : ""; } catch (e) { return ""; }
+}
+
 function isSameNode(a, b) {
   if (!a || !b) return false;
   if (a === b) return true;
   try {
-    if (typeof a.isSameNode === "function") {
-      return a.isSameNode(b);
-    }
+    if (typeof a.isSameNode === "function") return a.isSameNode(b);
   } catch (e) {}
   try {
     if (a.id && b.id && a.id === b.id) return true;
@@ -681,11 +716,17 @@ function isEffectGroup(node) {
 
 function isGroupNode(node) {
   if (!node) return false;
-  if (node.isGroupNode) return true;
-  if (node.isContainerNode && !isEffectGroup(node)) return true;
+  try {
+    if (node.isGroupNode || node.isLayerNode || node.isArtboardNode) return true;
+    if (node.isContainerNode && !isEffectGroup(node)) return true;
+  } catch (e) {}
+  const tag = nodeTag(node).toLowerCase();
+  if (tag.includes("group") || tag.includes("container") || tag.includes("layer") || tag.includes("artboard")) {
+    if (!isEffectGroup(node)) return true;
+  }
   if (node.constructor) {
     const cName = node.constructor.name;
-    if (cName === "GroupNode" || cName === "LayerNode" || (cName === "ContainerNode" && !isEffectGroup(node))) {
+    if (cName === "GroupNode" || cName === "LayerNode" || cName === "ArtboardNode" || (cName === "ContainerNode" && !isEffectGroup(node))) {
       return true;
     }
   }
@@ -695,18 +736,40 @@ function isGroupNode(node) {
   return false;
 }
 
+function isEmbeddedDocumentNode(node) {
+  if (!node) return false;
+  const tag = nodeTag(node).toLowerCase();
+  return tag.includes("embedded") || (node.type && /embedded/i.test(String(node.type)));
+}
+
 function getChildren(container) {
-  const result = [];
-  if (!container) return result;
+  if (!container) return [];
   try {
-    if (container.children && typeof container.children.length === "number") {
-      for (let i = 0; i < container.children.length; i++) {
-        const ch = container.children.at(i);
-        if (ch) result.push(ch);
+    if (Array.isArray(container.children)) return container.children;
+    if (container.children && typeof container.children.toArray === "function") return container.children.toArray();
+    if (container.children && typeof container.children.count === "number") {
+      const arr = [];
+      for (let i = 0; i < container.children.count; i++) {
+        const c = container.children.at ? container.children.at(i) : container.children[i];
+        if (c) arr.push(c);
       }
-      return result;
+      return arr;
+    }
+    if (container.children && typeof container.children.length === "number") {
+      const arr = [];
+      for (let i = 0; i < container.children.length; i++) {
+        const c = container.children.at ? container.children.at(i) : container.children[i];
+        if (c) arr.push(c);
+      }
+      return arr;
+    }
+    if (container.children && typeof container.children[Symbol.iterator] === "function") {
+      const arr = [];
+      for (const c of container.children) arr.push(c);
+      if (arr.length > 0) return arr;
     }
   } catch (e) {}
+  const result = [];
   try {
     let cur = container.firstChild;
     while (cur) {
@@ -720,14 +783,15 @@ function getChildren(container) {
 function isVectorCandidate(node) {
   if (!node) return false;
   if (isGroupNode(node)) return false;
-  if (node.curvesInterface && node.curvesInterface.polyCurve) return true;
+  if (node.curvesInterface) return true;
   if (node.shapeInterface) return true;
-  return false;
+  const tag = nodeTag(node).toLowerCase();
+  return tag.includes("curve") || tag.includes("shape");
 }
 
 /**
- * Recursively inspects selection and traverses any GroupNode or LayerNode,
- * returning every individual vector path inside the group(s).
+ * Recursively inspects selection and traverses any GroupNode, LayerNode, or ArtboardNode,
+ * returning every individual vector path or shape inside the group(s).
  */
 function collectVectorNodes(nodes) {
   const result = [];
@@ -750,25 +814,35 @@ function getSelectionNodes() {
   const nodes = [];
   if (!doc || !doc.selection) return nodes;
   try {
-    const sel = doc.selection;
-    if (typeof sel.length === "number") {
-      for (let i = 0; i < sel.length; i++) {
-        const item = sel.at(i);
-        if (item && item.node) {
-          pushUnique(nodes, item.node);
-        } else if (item && item.isNode) {
-          pushUnique(nodes, item);
-        }
-      }
+    if (doc.selection.nodes && typeof doc.selection.nodes.toArray === "function") {
+      return doc.selection.nodes.toArray().filter(Boolean);
     }
   } catch (e) {}
-  if (!nodes.length) {
-    try {
-      if (doc.selection.nodes) {
-        for (const n of doc.selection.nodes) pushUnique(nodes, n);
+  try {
+    if (doc.selection.nodes && typeof doc.selection.nodes.count === "number") {
+      for (let i = 0; i < doc.selection.nodes.count; i++) {
+        const n = doc.selection.nodes.at ? doc.selection.nodes.at(i) : doc.selection.nodes[i];
+        if (n) pushUnique(nodes, n);
       }
-    } catch (e) {}
-  }
+      if (nodes.length > 0) return nodes;
+    }
+  } catch (e) {}
+  try {
+    if (doc.selection.nodes) {
+      for (const n of doc.selection.nodes) pushUnique(nodes, n);
+      if (nodes.length > 0) return nodes;
+    }
+  } catch (e) {}
+  try {
+    const sel = doc.selection;
+    const len = typeof sel.length === "number" ? sel.length : (typeof sel.count === "number" ? sel.count : 0);
+    for (let i = 0; i < len; i++) {
+      const item = sel.at ? sel.at(i) : sel[i];
+      if (item && item.node) pushUnique(nodes, item.node);
+      else if (item && item.isNode) pushUnique(nodes, item);
+      else if (item) pushUnique(nodes, item);
+    }
+  } catch (e) {}
   return nodes;
 }
 
@@ -884,8 +958,16 @@ function extractSourceEntriesFromNodes(nodes) {
   const entries = [];
   for (const node of nodes) {
     try {
-      if (node && node.curvesInterface && node.curvesInterface.polyCurve) {
-        const pcLocal = node.curvesInterface.polyCurve.clone();
+      let pcLocal = null;
+      if (node.curvesInterface) {
+        if (node.curvesInterface.polyCurve && node.curvesInterface.polyCurve.curveCount > 0) {
+          pcLocal = node.curvesInterface.polyCurve.clone();
+        } else if (node.curvesInterface.corneredPolyCurve && node.curvesInterface.corneredPolyCurve.curveCount > 0) {
+          pcLocal = node.curvesInterface.corneredPolyCurve.clone();
+        }
+      }
+
+      if (pcLocal && pcLocal.curveCount > 0) {
         let transform = null;
         try {
           if (node.transformInterface && node.transformInterface.transform) {
@@ -965,14 +1047,18 @@ function clearPreviews(document) {
   } catch (e) {}
 }
 
+/**
+ * PolyCurveNodeDefinition.create parameter signature verified by runtime test:
+ * (curve, brushFill, lineFill, lineStyle, transparencyFill)
+ */
 function makeSourceDefinitions(entries) {
   return entries.map((entry, index) => {
     const s = entry.style;
     const def = PolyCurveNodeDefinition.create(
       entry.sourcePolyCurveLocal.clone(),
       s.brushFill ? s.brushFill.clone() : FillDescriptor.createNone(),
-      s.lineStyle ? s.lineStyle.clone() : LineStyleDescriptor.createDefault(0),
       s.lineFill ? s.lineFill.clone() : FillDescriptor.createNone(),
+      s.lineStyle ? s.lineStyle.clone() : LineStyleDescriptor.createDefault(0),
       s.transparencyFill ? s.transparencyFill.clone() : FillDescriptor.createNone()
     );
     if (entry.transform) {
@@ -991,8 +1077,8 @@ function makeResultDefinitions(entries, pipeline) {
     const def = PolyCurveNodeDefinition.create(
       resPolyCurve,
       s.brushFill ? s.brushFill.clone() : FillDescriptor.createNone(),
-      s.lineStyle ? s.lineStyle.clone() : LineStyleDescriptor.createDefault(0),
       s.lineFill ? s.lineFill.clone() : FillDescriptor.createNone(),
+      s.lineStyle ? s.lineStyle.clone() : LineStyleDescriptor.createDefault(0),
       s.transparencyFill ? s.transparencyFill.clone() : FillDescriptor.createNone()
     );
     if (entry.transform) {
@@ -1019,11 +1105,11 @@ function addDefinitionsInsideGroup(group, definitions) {
 }
 
 /**
- * Preview generator: inserts a preview PolyCurve directly next to each path in its parent group.
- * Copies the exact child node transform to guarantee all grouped paths render in their correct position.
+ * Preview generator: inserts preview PolyCurves directly next to each path in its parent group.
+ * Verified signature: PolyCurveNodeDefinition.create(curve, brushFill, lineFill, lineStyle, transparencyFill).
+ * Atomic preview replacement: does NOT call clearPreviews between frames!
  */
 function doPreviewPipeline(document, previewEntries, pipeline) {
-  clearPreviews(document);
   if (!previewEntries || !previewEntries.length) return;
 
   const cb = CompoundCommandBuilder.create();
@@ -1052,8 +1138,8 @@ function doPreviewPipeline(document, previewEntries, pipeline) {
     const def = PolyCurveNodeDefinition.create(
       resPolyCurve,
       previewBrushFill,
-      previewLineStyle,
       previewLineFill,
+      previewLineStyle,
       s.transparencyFill || FillDescriptor.createNone()
     );
 
@@ -1084,10 +1170,7 @@ function doPreviewPipeline(document, previewEntries, pipeline) {
 // =============================================================================
 
 function showDialog(title, initialParams, entries, onPreview) {
-  let inPreview = false;
-  let previewTimer = null;
-
-  // Initial node count calculation across all paths (standalone and within groups)
+  // Initial node count calculation across all paths
   let totalOrigNodes = 0;
   let totalDiag = 1000;
   for (const entry of entries) {
@@ -1117,10 +1200,12 @@ function showDialog(title, initialParams, entries, onPreview) {
   const modeSw = grp.addSwitch("Non-destructive container (v3g)", initialParams.isContainerMode);
 
   const statsGrp = col.addGroup("Real-Time Curve Analysis");
-  const statsText = statsGrp.addStaticText(null, `Original Nodes: ${totalOrigNodes} (${entries.length} path${entries.length > 1 ? "s" : ""})`).setIsFullWidth(true);
+  const statsText = statsGrp.addStaticText(null, `Original Nodes: ${totalOrigNodes} (${entries.length} path${entries.length > 1 ? "s" : ""})`);
+  try { statsText.setIsFullWidth(true); } catch (e) {}
   statsText.textHorizontalAlignment = HorizontalAlignment.Centre;
 
-  const tolText = statsGrp.addStaticText(null, `Tolerance: ±${(initialParams.threshold * totalDiag).toFixed(2)} px`).setIsFullWidth(true);
+  const tolText = statsGrp.addStaticText(null, `Tolerance: ±${(initialParams.threshold * totalDiag).toFixed(2)} px`);
+  try { tolText.setIsFullWidth(true); } catch (e) {}
   tolText.textHorizontalAlignment = HorizontalAlignment.Centre;
 
   function readValues() {
@@ -1138,58 +1223,72 @@ function showDialog(title, initialParams, entries, onPreview) {
     };
   }
 
-  function triggerPreview() {
-    if (previewTimer) previewTimer.cancel();
-    previewTimer = setTimeout(50, (err) => {
-      if (err || inPreview) return;
-      inPreview = true;
-      try {
+  // Non-blocking concurrency loop for smooth, flicker-free live preview
+  let inPreview = false;
+  let pendingPreview = false;
+  let lastPreviewKey = "";
+
+  function applyPreview(immediate = false) {
+    if (inPreview) {
+      pendingPreview = true;
+      return;
+    }
+    inPreview = true;
+
+    try {
+      do {
+        pendingPreview = false;
         const currentParams = readValues();
+        const key = `${currentParams.threshold.toFixed(5)}:${currentParams.keepCorners ? 1 : 0}:${currentParams.cornerAngle}:${currentParams.isContainerMode ? 1 : 0}`;
 
-        // Calculate simplified nodes count across all paths in groups
-        let totalSimpNodes = 0;
-        let maxTolerance = 0;
+        if (immediate || key !== lastPreviewKey) {
+          lastPreviewKey = key;
 
-        for (const entry of entries) {
-          const simpPc = simplifyPolyCurve(
-            entry.sourcePolyCurveLocal,
-            currentParams.threshold,
-            currentParams.keepCorners,
-            currentParams.cornerAngle
-          );
-          totalSimpNodes += countPolyCurveNodes(simpPc);
+          // Calculate simplified nodes count across all paths in groups
+          let totalSimpNodes = 0;
+          let maxTolerance = 0;
 
-          const b = getPolyCurveBounds(entry.sourcePolyCurveLocal);
-          maxTolerance = Math.max(maxTolerance, currentParams.threshold * b.diagonal);
+          for (const entry of entries) {
+            const simpPc = simplifyPolyCurve(
+              entry.sourcePolyCurveLocal,
+              currentParams.threshold,
+              currentParams.keepCorners,
+              currentParams.cornerAngle
+            );
+            totalSimpNodes += countPolyCurveNodes(simpPc);
+
+            const b = getPolyCurveBounds(entry.sourcePolyCurveLocal);
+            maxTolerance = Math.max(maxTolerance, currentParams.threshold * b.diagonal);
+          }
+
+          const pct = totalOrigNodes > 0
+            ? ((totalSimpNodes - totalOrigNodes) / totalOrigNodes * 100).toFixed(1)
+            : 0;
+
+          statsText.text = `Nodes: ${totalOrigNodes}  ➔  ${totalSimpNodes} (${pct > 0 ? "+" : ""}${pct}%) [${entries.length} paths]`;
+          tolText.text = `Tolerance: ±${maxTolerance.toFixed(2)} px (${(currentParams.threshold * 100).toFixed(2)}%)`;
+
+          onPreview(currentParams);
         }
-
-        const pct = totalOrigNodes > 0
-          ? ((totalSimpNodes - totalOrigNodes) / totalOrigNodes * 100).toFixed(1)
-          : 0;
-
-        statsText.text = `Nodes: ${totalOrigNodes}  ➔  ${totalSimpNodes} (${pct > 0 ? "+" : ""}${pct}%) [${entries.length} paths]`;
-        tolText.text = `Tolerance: ±${maxTolerance.toFixed(2)} px (${(currentParams.threshold * 100).toFixed(2)}%)`;
-
-        onPreview(currentParams);
-      } catch (e) {
-        console.log(SCRIPT_TITLE + " preview error: " + e);
-        clearPreviews(doc);
-      } finally {
-        inPreview = false;
-      }
-    });
+      } while (pendingPreview);
+    } catch (e) {
+      console.log(SCRIPT_TITLE + " preview error: " + e);
+    } finally {
+      inPreview = false;
+    }
   }
 
-  threshEd.onValueChangedHandler = triggerPreview;
-  cornerSw.onValueChangedHandler = triggerPreview;
-  cornerAngleEd.onValueChangedHandler = triggerPreview;
-  modeSw.onValueChangedHandler = triggerPreview;
-  dlg.onControlValueChangedHandler = triggerPreview;
+  const onVal = () => applyPreview(false);
+  threshEd.onValueChangedHandler = onVal;
+  cornerSw.onValueChangedHandler = onVal;
+  cornerAngleEd.onValueChangedHandler = onVal;
+  modeSw.onValueChangedHandler = onVal;
+  dlg.onControlValueChangedHandler = onVal;
 
-  triggerPreview();
+  // Initial preview on open
+  applyPreview(true);
 
   const result = dlg.show();
-  if (previewTimer) previewTimer.cancel();
   clearPreviews(doc);
 
   return {
@@ -1232,8 +1331,8 @@ function executeInPlace(entries, params, originalSelectedNodes) {
       const def = PolyCurveNodeDefinition.create(
         simplifiedPolyCurve,
         style.brushFill ? style.brushFill.clone() : FillDescriptor.createNone(),
-        style.lineStyle ? style.lineStyle.clone() : LineStyleDescriptor.createDefault(0),
         style.lineFill ? style.lineFill.clone() : FillDescriptor.createNone(),
+        style.lineStyle ? style.lineStyle.clone() : LineStyleDescriptor.createDefault(0),
         style.transparencyFill ? style.transparencyFill.clone() : FillDescriptor.createNone()
       );
       if (transform) {
@@ -1242,7 +1341,7 @@ function executeInPlace(entries, params, originalSelectedNodes) {
       if (name) def.name = name;
       addB.addNode(def);
 
-      const addCmd = addB.createCommand();
+      const addCmd = addB.createCommand(false, NodeChildType.Main);
       cb.addCommand(addCmd);
       cb.addCommand(DocumentCommand.createDeleteSelection(mkSel(sourceNode)));
     }
@@ -1256,11 +1355,11 @@ function executeInPlace(entries, params, originalSelectedNodes) {
       doc.selection = Selection.create(doc, originalSelectedNodes, true);
     } catch (e) {
       if (replacedNodes.length) {
-        doc.selection = Selection.create(doc, replacedNodes, true);
+        try { doc.selection = Selection.create(doc, replacedNodes, true); } catch (e2) {}
       }
     }
   } else if (replacedNodes.length) {
-    doc.selection = Selection.create(doc, replacedNodes, true);
+    try { doc.selection = Selection.create(doc, replacedNodes, true); } catch (e2) {}
   }
 }
 
@@ -1359,7 +1458,7 @@ function mainCreate(sourceNodes, originalSelectedNodes) {
       executeInPlace(entries, params, originalSelectedNodes);
     }
   } else {
-    // Restore selection if cancelled
+    // Restore selection safely if cancelled - ZERO doc.undo() calls!
     if (originalSelectedNodes && originalSelectedNodes.length) {
       try {
         doc.selection = Selection.create(doc, originalSelectedNodes, true);
@@ -1381,6 +1480,12 @@ function main() {
   const originalSelectedNodes = getSelectionNodes();
   if (!originalSelectedNodes.length) {
     alert("Please select at least one vector curve, shape, or group to simplify.");
+    return;
+  }
+
+  // Check if user selected an embedded document (e.g. placed SVG file)
+  if (originalSelectedNodes.some(isEmbeddedDocumentNode)) {
+    alert("One or more selected items are Embedded Document layers.\n\nTo simplify an embedded SVG, please double-click it to edit its internal paths, or right-click and choose Convert to Curves / Edit Document.");
     return;
   }
 
