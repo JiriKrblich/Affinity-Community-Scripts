@@ -1,9 +1,8 @@
 /**
  * name: Insert Key-object to Elements
- * description: Inserts the original Key Object into one target and duplicates it into every other selected target element.
- * version: 1.1.0
- * author: WaveF
- * email: wavef@live.com
+ * description: Inserts the Key Object into target elements (clipping/nesting). Fully supports Raster (Pixel/Image) layers, Vector shapes, and Groups.
+ * version: 1.2.0
+ * author: WaveF (Enhanced for Raster & Robust Key-Object)
  * website: https://minicg.com
 */
 'use strict';
@@ -26,55 +25,82 @@ if (doc.selection.length < 2) {
   return;
 }
 
-if (!doc.hasKeyObject) {
-  app.alert('Please mark one selected element as the Key Object first.', APP_NAME);
+// Intelligent Key Object resolution:
+// If doc.hasKeyObject is true (user Alt-clicked on canvas): use doc.selection.firstNode.
+// If false (e.g. layers selected in Layers panel or transparent raster canvas):
+// gracefully take the first node in selection as keyObject so raster workflows are never blocked.
+const keyObject = doc.selection.firstNode;
+
+if (!keyObject) {
+  app.alert('No valid Key Object found in current selection.', APP_NAME);
   return;
 }
 
-// The SDK represents the Key Object as the first node in a keyed selection.
-const keyObject = doc.selection.firstNode;
 const targets = Array.from(doc.selection.nodes).filter(node => !node.isSameNode(keyObject));
 
-if (!keyObject || targets.length === 0) {
+if (targets.length === 0) {
   app.alert('No target elements were found.', APP_NAME);
   return;
 }
 
 const insertedTargets = [];
 const failures = [];
-let originalInserted = false;
 
-for (const target of targets) {
+// To ensure maximum transform and bitmap pixel integrity:
+// 1. Process targets 1 to targets.length - 1 using pristine duplicates of keyObject
+// 2. Process target 0 using the original keyObject at the very end
+// This ensures no duplicate inherits local coordinate offsets or distortions from earlier targets.
+
+// Duplicates for targets 1 .. n-1
+for (let i = 1; i < targets.length; i++) {
+  const target = targets[i];
   const historyPosition = doc.history.position;
   try {
-    let nodeToInsert = keyObject;
+    // Duplicate with cloneRaster: true to ensure full raster bitmap copying
+    const dupCmd = DocumentCommand.createTransform(
+      keyObject.selfSelection,
+      null,
+      { duplicateNodes: true, cloneRaster: true }
+    );
+    doc.executeCommand(dupCmd);
 
-    if (originalInserted) {
-      // Each remaining target receives a new copy of the original Key Object.
-      doc.executeCommand(DocumentCommand.createTransform(
-        keyObject.selfSelection,
-        null,
-        { duplicateNodes: true }
+    const nodeToInsert = (dupCmd.newNodes && dupCmd.newNodes[0]) ? dupCmd.newNodes[0] : doc.selection.firstNode;
+    if (!nodeToInsert || nodeToInsert.isSameNode(keyObject)) {
+      throw new Error('Could not duplicate the Key Object.');
+    }
+
+    // Attempt insertion into Main with fallback to Enclosure
+    let moveSuccess = false;
+    try {
+      doc.executeCommand(DocumentCommand.createMoveNodes(
+        nodeToInsert.selfSelection,
+        target,
+        NodeMoveType.Inside,
+        NodeChildType.Main
       ));
-
-      nodeToInsert = doc.selection.firstNode;
-      if (!nodeToInsert || nodeToInsert.isSameNode(keyObject)) {
-        throw new Error('Could not duplicate the Key Object.');
+      if (nodeToInsert.parent && nodeToInsert.parent.isSameNode(target)) {
+        moveSuccess = true;
+      }
+    } catch (errMain) {
+      try {
+        doc.executeCommand(DocumentCommand.createMoveNodes(
+          nodeToInsert.selfSelection,
+          target,
+          NodeMoveType.Inside,
+          NodeChildType.Enclosure
+        ));
+        if (nodeToInsert.parent && nodeToInsert.parent.isSameNode(target)) {
+          moveSuccess = true;
+        }
+      } catch (errEnc) {
+        throw errMain;
       }
     }
 
-    doc.executeCommand(DocumentCommand.createMoveNodes(
-      nodeToInsert.selfSelection,
-      target,
-      NodeMoveType.Inside,
-      NodeChildType.Main
-    ));
-
-    if (!nodeToInsert.parent || !nodeToInsert.parent.isSameNode(target)) {
-      throw new Error('Could not insert the Key Object into this element.');
+    if (!moveSuccess) {
+      throw new Error('Could not insert duplicate into this element.');
     }
 
-    originalInserted = originalInserted || nodeToInsert.isSameNode(keyObject);
     insertedTargets.push(target);
   } catch (error) {
     if (doc.history.position !== historyPosition) {
@@ -85,13 +111,58 @@ for (const target of targets) {
   }
 }
 
+// Original keyObject into target 0
+if (targets.length > 0) {
+  const target0 = targets[0];
+  const historyPosition = doc.history.position;
+  try {
+    let moveSuccess = false;
+    try {
+      doc.executeCommand(DocumentCommand.createMoveNodes(
+        keyObject.selfSelection,
+        target0,
+        NodeMoveType.Inside,
+        NodeChildType.Main
+      ));
+      if (keyObject.parent && keyObject.parent.isSameNode(target0)) {
+        moveSuccess = true;
+      }
+    } catch (errMain) {
+      try {
+        doc.executeCommand(DocumentCommand.createMoveNodes(
+          keyObject.selfSelection,
+          target0,
+          NodeMoveType.Inside,
+          NodeChildType.Enclosure
+        ));
+        if (keyObject.parent && keyObject.parent.isSameNode(target0)) {
+          moveSuccess = true;
+        }
+      } catch (errEnc) {
+        throw errMain;
+      }
+    }
+
+    if (!moveSuccess) {
+      throw new Error('Could not insert the Key Object into this element.');
+    }
+
+    insertedTargets.unshift(target0);
+  } catch (error) {
+    if (doc.history.position !== historyPosition) {
+      doc.history.position = historyPosition;
+    }
+    const name = target0.userDescription || target0.defaultDescription || 'Element';
+    failures.push(`${name}: ${String(error.message || error)}`);
+  }
+}
+
 doc.selection = Selection.create(doc, insertedTargets, true);
 
-let resultMessage = `Processed ${insertedTargets.length} element(s).`;
-if (originalInserted) {
-  resultMessage += '\nThe original Key Object was inserted into the first successful target.';
-}
+const keyName = keyObject.userDescription || keyObject.defaultDescription || (keyObject.isRasterNode ? 'Pixel Layer' : 'Key Object');
+let resultMessage = `Processed ${insertedTargets.length} of ${targets.length} target element(s).`;
+resultMessage += `\nKey Object: "${keyName}"`;
 if (failures.length) {
-  resultMessage += `\n\n${failures.join('\n')}`;
+  resultMessage += `\n\nFailures:\n${failures.join('\n')}`;
 }
 app.alert(resultMessage, APP_NAME);

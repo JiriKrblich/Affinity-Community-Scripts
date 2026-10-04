@@ -1458,7 +1458,7 @@
       "description": "Inserts a selected Key Object into every other selected element. How to use: 1)Select one Key Object and one or more target elements. 2) Mark the intended source as the Key Object. 3) Run the script.",
       "author": "WaveF",
       "email": "wavef@live.com",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "category": "Object",
       "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/insertkeyobjecttoelements.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/insertkeyobjecttoelements.js"
