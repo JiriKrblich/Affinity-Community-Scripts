@@ -1472,6 +1472,16 @@
       "version": "1.1.0",
       "category": "Object",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ortonglow.js"
+    },
+    {
+      "id": "SeparatePixelIslands",
+      "name": "Separate Pixel Islands",
+      "description": "Automatically detects isolated connected components (islands) in a pixel or raster layer and separates each asset into its own neatly cropped layer directly on canvas.",
+      "author": "BlackMortimer-13",
+      "version": "1.0.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/SeparatePixelIslands.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/SeparatePixelIslands.js"
     }
   ]
 }
