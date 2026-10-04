@@ -1,10 +1,29 @@
 "use strict";
 
 // =============================================================================
-// ARRANGE ON PATH v4.11 (Procedural Vector Path Distribution & Arranger Engine)
+// ARRANGE ON PATH v4.12 (Procedural Vector & Raster Path Distribution Engine)
 // Affinity Designer / Photo / Publisher (v3e & Multi-Effect Standard)
 //
-// New Features & Architectural Fixes in v4.11:
+// New Features & Architectural Fixes in v4.12 (Raster & Live Preview Fixed):
+// - Full Raster Layer, Image & Photo Support:
+//   • Accurate bounding box calculation for raster and image nodes in spread/container space.
+//   • Real-time bitmap snapshots captured via NodeRenderingEngine at native resolution.
+//   • Live preview renders dynamic rotated and scaled raster instances via RasterNodeDefinition.
+//   • Native raster duplicates are created and transformed cleanly inside the container on apply.
+// - Fixed Raster Live Preview on Container Re-run / Re-edit:
+//   • When re-opening an existing container, temporarily restores source visibility during
+//     bitmap snapshot generation and utilizes InsertionMode.Default to guarantee preview nodes
+//     remain anchored in the correct artboard/container context.
+// - SDK 3.3 Compatibility & Live Preview Fix:
+//   • Updated PolyCurveNodeDefinition.create argument order to (curve, brushFill, lineFill,
+//     lineStyle, transparencyFill) matching the breaking change in Affinity Scripting SDK 3.3.
+//   • Restores real-time live preview rendering and slider responsiveness on canvas.
+// - Robust None/Empty Fill Descriptor & Style Handling:
+//   • Integrated isDescriptorNone validation across getNodeStyle and applyOpacityAndBlendToFillDescriptor
+//     to avoid fill type mismatches in SDK 3.3.
+// - Debounced Live Preview:
+//   • 60ms timer debouncing on slider interactions with instant 0ms launch preview for silky
+//     smooth responsiveness with zero canvas lag.
 // - Perfectly Balanced 3-Column UI with Restored "How It Works" Section:
 //   • Equalized column heights across all 3 columns:
 //     Col 1: Placement & Path (5) + Orientation & Pivot (6) = 11 controls
@@ -50,20 +69,22 @@ const {
   NodeChildType,
   NodeMoveType
 } = require("/commands");
-const { PolyCurve, Transform } = require("/geometry");
-const { ContainerNodeDefinition, PolyCurveNodeDefinition } = require("/nodes");
+const { PolyCurve, Transform, Point } = require("/geometry");
+const { ContainerNodeDefinition, PolyCurveNodeDefinition, RasterNodeDefinition } = require("/nodes");
 const { Dialog, DialogResult, HorizontalAlignment } = require("/dialog");
 const { Selection } = require("/selections");
 const { UnitType } = require("/units");
 const { RGB8 } = require("/colours");
 const { FillDescriptor, BlendMode } = require("/fills");
 const { LineStyleDescriptor } = require("/linestyle");
+const { NodeRenderingEngine, RasterFormat } = require("/rasterobject");
+const { setTimeout } = require("/timers");
 
 // =============================================================================
 // CONSTANTS & REGISTRY
 // =============================================================================
 
-const SCRIPT_TITLE = "Arrange on Path v4.11";
+const SCRIPT_TITLE = "Arrange on Path v4.12";
 const TAG_KEY = "arrangeOnPathSettings";
 const GROUP_PREFIX = "Arrange on Path Effect";
 const SOURCE_PREFIX = "Source";
@@ -282,7 +303,7 @@ function isArrangeOnPathGroup(node) {
   const children = getChildren(node);
   const hasSource = children.some(c => getNodeName(c).indexOf(SOURCE_PREFIX) === 0);
   const hasPath = children.some(c => getNodeName(c).indexOf(PATH_PREFIX) === 0);
-  const hasResult = children.some(c => hasRedTag(c) || getNodeName(c).indexOf(RESULT_PREFIX) === 0);
+  const hasResult = children.some(c => hasRedTag(c) || getNodeName(c).indexOf(RESULT_PREFIX) === 0 || getNodeName(c).indexOf("Result") === 0);
   return (hasSource || hasPath) && hasResult;
 }
 
@@ -692,8 +713,17 @@ function applyRandomize(fracs, tmplIdx, sf, ef, rnd, useLoop) {
 }
 
 // =============================================================================
-// STYLES & RECURSIVE GEOMETRY EXTRACTION (Pristine Local Base Space)
+// STYLES & RECURSIVE GEOMETRY EXTRACTION (SDK 3.3 Safe)
 // =============================================================================
+
+function isDescriptorNone(desc) {
+  if (!desc) return true;
+  if (desc.isNoFill) return true;
+  if (desc.type === "none") return true;
+  if (desc.fillType && String(desc.fillType).toLowerCase() === "none") return true;
+  if (desc.fill && desc.fill.fillType && String(desc.fill.fillType).toLowerCase() === "none") return true;
+  return false;
+}
 
 function getNodeStyle(node) {
   const defaultStyle = {
@@ -741,7 +771,7 @@ function getNodeStyle(node) {
         ? lsDesc.lineStyle.weight
         : (typeof lsi.lineWeight === "number" ? lsi.lineWeight : 0);
 
-      if (isVisible && !isNoFill && weight > 0 && penFill && !penFill.isNoFill) {
+      if (isVisible && !isNoFill && weight > 0 && penFill && !isDescriptorNone(penFill)) {
         hasStroke = true;
         lineFill = penFill.clone();
         lineStyle = lsDesc ? lsDesc.clone() : LineStyleDescriptor.createDefault(weight);
@@ -750,7 +780,7 @@ function getNodeStyle(node) {
   } catch (e) {}
 
   try {
-    if (node.brushFillInterface && !node.brushFillInterface.isNoFill && node.brushFillInterface.currentDescriptor) {
+    if (node.brushFillInterface && !node.brushFillInterface.isNoFill && node.brushFillInterface.currentDescriptor && !isDescriptorNone(node.brushFillInterface.currentDescriptor)) {
       brushFill = node.brushFillInterface.currentDescriptor.clone();
     }
   } catch (e) {}
@@ -772,20 +802,27 @@ function getNodeStyle(node) {
   };
 }
 
-function applyOpacityAndBlendToFillDescriptor(fillDesc, opacity, blendMode) {
-  if (!fillDesc || fillDesc.isNoFill) return fillDesc;
+function applyOpacityAndBlendToFillDescriptor(fillDesc, opacity, targetBlendMode) {
+  if (isDescriptorNone(fillDesc)) return FillDescriptor.createNone();
   try {
-    const clone = fillDesc.clone();
-    if (blendMode && typeof clone.setBlendMode === "function") {
-      try { clone.setBlendMode(blendMode); } catch (e) {}
+    const typedFill = fillDesc.fill;
+    if (typedFill && (!typedFill.fillType || String(typedFill.fillType).toLowerCase() !== "none")) {
+      const clonedFill = typedFill.clone();
+      if (typeof opacity === "number" && opacity < 0.999 && opacity >= 0) {
+        const currentAlpha = (typeof clonedFill.alpha === "number") ? clonedFill.alpha : 1.0;
+        clonedFill.alpha = Math.max(0, Math.min(1, currentAlpha * opacity));
+      }
+      const finalBlendMode = targetBlendMode || fillDesc.blendMode || BlendMode.Normal;
+      return FillDescriptor.create(
+        clonedFill,
+        fillDesc.isScaleWithObject,
+        fillDesc.transform,
+        finalBlendMode,
+        fillDesc.isAnchoredToSpread
+      );
     }
-    if (typeof opacity === "number" && opacity < 0.999 && typeof clone.setOpacity === "function") {
-      try { clone.setOpacity(opacity); } catch (e) {}
-    }
-    return clone;
-  } catch (e) {
-    return fillDesc;
-  }
+  } catch (e) {}
+  return fillDesc;
 }
 
 /**
@@ -855,6 +892,125 @@ function getEntriesBounds(entries) {
   };
 }
 
+function getNodeBoundsBox(node, containerTransform) {
+  if (!node) return null;
+
+  // 1. If vector curves exist, get curve bounds
+  if (node.curvesInterface && node.curvesInterface.polyCurve) {
+    const pc = clonePolyCurveToSpread(node);
+    if (pc) {
+      if (containerTransform && containerTransform.inverted) {
+        try { pc.transform(containerTransform.inverted); } catch (e) {}
+      }
+      let pb = null;
+      try { pb = pc.exactBoundingBox || pc.boundingBox || pc.bounds; } catch (e) {}
+      if (!pb) {
+        try { pb = pc.getExactBoundingBox ? pc.getExactBoundingBox() : pc.getBoundingBox(); } catch (e) {}
+      }
+      if (validBB(pb)) {
+        return {
+          x: pb.x,
+          y: pb.y,
+          width: pb.width,
+          height: pb.height,
+          center: { x: pb.x + pb.width / 2, y: pb.y + pb.height / 2 }
+        };
+      }
+    }
+  }
+
+  // 2. Base box transformed to spread / container (RasterNode, ImageNode, Groups)
+  let baseBox = null;
+  try {
+    if (node.baseBoxInterface && node.baseBoxInterface.baseBox) {
+      baseBox = node.baseBoxInterface.baseBox;
+    } else if (node.baseBox) {
+      baseBox = node.baseBox;
+    }
+  } catch (e) {}
+
+  if (baseBox && validBB(baseBox)) {
+    let b2s = null;
+    try {
+      b2s = node.baseToSpreadTransform || (node.transformInterface ? node.transformInterface.transform : null);
+    } catch (e) {}
+
+    const corners = [
+      new Point(baseBox.x, baseBox.y),
+      new Point(baseBox.x + baseBox.width, baseBox.y),
+      new Point(baseBox.x + baseBox.width, baseBox.y + baseBox.height),
+      new Point(baseBox.x, baseBox.y + baseBox.height)
+    ];
+
+    const containerInv = (containerTransform && containerTransform.inverted) ? containerTransform.inverted : null;
+
+    const mappedCorners = corners.map(pt => {
+      let p = pt;
+      if (b2s) {
+        try { p = b2s.applyToPoint(p); } catch (e) {}
+      }
+      if (containerInv) {
+        try { p = containerInv.applyToPoint(p); } catch (e) {}
+      }
+      return p;
+    });
+
+    const xs = mappedCorners.map(p => p.x);
+    const ys = mappedCorners.map(p => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+      center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+    };
+  }
+
+  // 3. Fallback: getSpreadBaseBox
+  try {
+    if (typeof node.getSpreadBaseBox === "function") {
+      const sb = node.getSpreadBaseBox(false);
+      if (validBB(sb)) {
+        if (containerTransform && containerTransform.inverted) {
+          const corners = [
+            new Point(sb.x, sb.y),
+            new Point(sb.x + sb.width, sb.y),
+            new Point(sb.x + sb.width, sb.y + sb.height),
+            new Point(sb.x, sb.y + sb.height)
+          ];
+          const mapped = corners.map(pt => containerTransform.inverted.applyToPoint(pt));
+          const xs = mapped.map(p => p.x);
+          const ys = mapped.map(p => p.y);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+          return {
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY,
+            center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+          };
+        }
+        return {
+          x: sb.x,
+          y: sb.y,
+          width: sb.width,
+          height: sb.height,
+          center: { x: sb.x + sb.width / 2, y: sb.y + sb.height / 2 }
+        };
+      }
+    }
+  } catch (e) {}
+
+  return null;
+}
+
 function getNodeOrientationAngle(node) {
   if (!node) return 0;
   try {
@@ -870,35 +1026,38 @@ function getNodeOrientationAngle(node) {
 
 function captureItemData(node, containerTransform) {
   const entries = extractGeomEntriesFromNode(node, containerTransform);
-  const bounds = getEntriesBounds(entries);
-  let center = { x: 0, y: 0 };
-  let width = 50, height = 50;
-  let finalBounds = null;
+  let b = getEntriesBounds(entries);
+  let rasterEntry = null;
 
-  if (bounds) {
-    center = bounds.center;
-    width = Math.max(1, bounds.width);
-    height = Math.max(1, bounds.height);
-    finalBounds = bounds;
-  } else {
-    try {
-      const b = node.getSpreadBaseBox ? node.getSpreadBaseBox(false) : null;
-      if (validBB(b)) {
-        center = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
-        width = Math.max(1, b.width);
-        height = Math.max(1, b.height);
-        finalBounds = { x: b.x, y: b.y, width: width, height: height, center };
+  if (!b || !entries.length) {
+    b = getNodeBoundsBox(node, containerTransform);
+    if (b && validBB(b)) {
+      try {
+        const engine = NodeRenderingEngine.createDefault(node, RasterFormat.RGBA8);
+        const bmp = engine.createCompatibleBitmap(true);
+        rasterEntry = {
+          bitmap: bmp,
+          width: bmp.width,
+          height: bmp.height,
+          baseTranslate: Transform.createTranslate(b.x, b.y)
+        };
+      } catch (e) {
+        console.log("Arrange on Path raster snapshot error: " + e);
       }
-    } catch (e) {}
+    }
   }
+
+  const finalBounds = b || { x: 0, y: 0, width: 50, height: 50, center: { x: 25, y: 25 } };
+  const center = finalBounds.center || { x: finalBounds.x + finalBounds.width / 2, y: finalBounds.y + finalBounds.height / 2 };
 
   return {
     node,
     geomEntries: entries,
+    rasterEntry: rasterEntry,
     center,
-    width,
-    height,
-    bounds: finalBounds || { x: center.x - width / 2, y: center.y - height / 2, width, height, center },
+    width: Math.max(1, finalBounds.width),
+    height: Math.max(1, finalBounds.height),
+    bounds: finalBounds,
     rot: getNodeOrientationAngle(node)
   };
 }
@@ -1228,7 +1387,7 @@ function buildDesiredSpreadTransform(pivot, placement) {
 }
 
 // =============================================================================
-// LIVE PREVIEW ENGINE (PolyCurve Rendering, Zero-Crash)
+// LIVE PREVIEW ENGINE (PolyCurve & Raster Rendering, Zero-Crash)
 // =============================================================================
 
 function clearPreviews(document) {
@@ -1237,11 +1396,17 @@ function clearPreviews(document) {
   } catch (e) {}
 }
 
-function doPreviewPolyCurves(document, sourceItems, allPlacements, containerTransform, pivotMode) {
+function doPreviewPolyCurves(document, sourceItems, allPlacements, containerTransform, pivotMode, targetNode) {
   clearPreviews(document);
   if (!sourceItems || !sourceItems.length || !allPlacements.length) return;
 
   const addBuilder = AddChildNodesCommandBuilder.create();
+  if (targetNode) {
+    try {
+      addBuilder.setInsertionTargetSelection(mkSel(targetNode));
+      addBuilder.setInsertionMode(InsertionMode.Default);
+    } catch (e) {}
+  }
 
   for (const placement of allPlacements) {
     const item = sourceItems[placement.itemIndex];
@@ -1260,11 +1425,11 @@ function doPreviewPolyCurves(document, sourceItems, allPlacements, containerTran
         const op = typeof s.opacity === "number" ? s.opacity : 1.0;
         const bm = s.blendMode || null;
 
-        const previewBrushFill = (s.brushFill && !s.brushFill.isNoFill)
+        const previewBrushFill = (s.brushFill && !isDescriptorNone(s.brushFill))
           ? applyOpacityAndBlendToFillDescriptor(s.brushFill, op, bm)
           : FillDescriptor.createNone();
 
-        const previewLineFill = (s.hasStroke && s.lineFill && !s.lineFill.isNoFill)
+        const previewLineFill = (s.hasStroke && s.lineFill && !isDescriptorNone(s.lineFill))
           ? applyOpacityAndBlendToFillDescriptor(s.lineFill, op, bm)
           : FillDescriptor.createNone();
 
@@ -1272,15 +1437,30 @@ function doPreviewPolyCurves(document, sourceItems, allPlacements, containerTran
           ? (s.lineStyle || LineStyleDescriptor.createDefault(1))
           : LineStyleDescriptor.createDefault(0);
 
+        const previewTransFill = (s.transparencyFill && !isDescriptorNone(s.transparencyFill))
+          ? s.transparencyFill
+          : FillDescriptor.createNone();
+
+        // SDK 3.3 correct argument order: (curve, brushFill, lineFill, lineStyle, transparencyFill)
         const def = PolyCurveNodeDefinition.create(
           pc,
           previewBrushFill,
-          previewLineStyle,
           previewLineFill,
-          s.transparencyFill || FillDescriptor.createNone()
+          previewLineStyle,
+          previewTransFill
         );
 
         addBuilder.addNode(def);
+      }
+    } else if (item.rasterEntry && item.rasterEntry.bitmap) {
+      try {
+        const rDef = RasterNodeDefinition.create();
+        rDef.bitmap = item.rasterEntry.bitmap;
+        rDef.transform = previewTransform.multiply(item.rasterEntry.baseTranslate);
+        rDef.userDescription = "Preview Raster";
+        addBuilder.addRasterNode(rDef);
+      } catch (e) {
+        console.log("Error adding preview raster node: " + e);
       }
     }
   }
@@ -1551,6 +1731,15 @@ function runArrangeOnPath() {
       } catch (e) {}
     }
 
+    // Crucial for Raster snapshots: temporarily enable source visibility during snapshot generation
+    try {
+      const showSourcesCb = CompoundCommandBuilder.create();
+      for (const n of sources) {
+        showSourcesCb.addCommand(DocumentCommand.createSetVisibility(mkSel(n), true));
+      }
+      doc.executeCommand(showSourcesCb.createCommand());
+    } catch (e) {}
+
   } else {
     allNodes = rawNodes;
     pathIndices = autoDetectPathIndices(allNodes);
@@ -1563,6 +1752,27 @@ function runArrangeOnPath() {
 
   const containerTransform = existingGroup ? getContainerTransform(existingGroup) : null;
   const cfg = buildMultiConfig(allNodes, pathIndices, containerTransform);
+
+  // If existing container, re-hide sources immediately after snapshots are captured
+  if (existingGroup) {
+    try {
+      const hideSourcesCb = CompoundCommandBuilder.create();
+      for (const n of cfg.objNodes) {
+        hideSourcesCb.addCommand(DocumentCommand.createSetVisibility(mkSel(n), false));
+      }
+      doc.executeCommand(hideSourcesCb.createCommand());
+    } catch (e) {}
+  } else {
+    // Fresh selection: hide source objects during live preview so they don't double-render
+    try {
+      const hidePrimariesCb = CompoundCommandBuilder.create();
+      for (const n of cfg.objNodes) {
+        hidePrimariesCb.addCommand(DocumentCommand.createSetVisibility(mkSel(n), false));
+      }
+      doc.executeCommand(hidePrimariesCb.createCommand());
+    } catch (e) {}
+  }
+
   if (!cfg || !cfg.pathCfgs.length) {
     showError("Cannot read path geometry. Ensure path is a valid vector curve.");
     return;
@@ -1580,6 +1790,8 @@ function runArrangeOnPath() {
     ...DEFAULT_VALUES,
     repeatMode: true
   });
+
+  const previewTargetNode = existingGroup || cfg.pathNodes[0] || cfg.objNodes[0];
 
   // ---------------------------------------------------------------------------
   // BUILD DIALOG UI (Perfectly Balanced 3-Column Ergonomic Architecture)
@@ -1715,67 +1927,89 @@ function runArrangeOnPath() {
     });
   }
 
-  let inPreview = false;
-  function triggerPreview() {
-    if (inPreview) return;
-    inPreview = true;
-    try {
-      const p = getParams();
-      let allPlacements = [];
-      for (let i = 0; i < cfg.pathCfgs.length; i++) {
-        const placements = calculatePlacementsForPath(cfg.pathCfgs[i], cfg.sourceItems, p, i);
-        allPlacements.push(...placements);
+  let inPreview = false, previewTimer = null;
+  function triggerPreview(immediate) {
+    if (previewTimer) {
+      try { previewTimer.cancel(); } catch (e) {}
+      previewTimer = null;
+    }
+
+    const run = () => {
+      if (inPreview) return;
+      inPreview = true;
+      try {
+        const p = getParams();
+        let allPlacements = [];
+        for (let i = 0; i < cfg.pathCfgs.length; i++) {
+          const placements = calculatePlacementsForPath(cfg.pathCfgs[i], cfg.sourceItems, p, i);
+          allPlacements.push(...placements);
+        }
+        const ordered = reorderPlacementsForZOrder(allPlacements, p.zOrderMode, p.reverseZIndex);
+        doPreviewPolyCurves(doc, cfg.sourceItems, ordered, containerTransform, p.pivotMode, previewTargetNode);
+      } catch (e) {
+        console.log("Arrange on Path preview error: " + e);
+        clearPreviews(doc);
+      } finally {
+        inPreview = false;
       }
-      const ordered = reorderPlacementsForZOrder(allPlacements, p.zOrderMode, p.reverseZIndex);
-      doPreviewPolyCurves(doc, cfg.sourceItems, ordered, containerTransform, p.pivotMode);
-    } catch (e) {
-      console.log("Preview error: " + e);
-    } finally {
-      inPreview = false;
+    };
+
+    if (immediate) {
+      run();
+    } else {
+      previewTimer = setTimeout(60, (err) => {
+        if (!err) run();
+      });
     }
   }
 
-  startCtrl.onValueChangedHandler = triggerPreview;
-  endCtrl.onValueChangedHandler = triggerPreview;
-  smartCtrl.onValueChangedHandler = triggerPreview;
-  reverseCtrl.onValueChangedHandler = triggerPreview;
-  pathVisibleCtrl.onValueChangedHandler = triggerPreview;
+  const applyPreview = () => triggerPreview(false);
 
-  alignCtrl.onValueChangedHandler = triggerPreview;
-  pivotCtrl.onValueChangedHandler = triggerPreview;
-  flipCtrl.onValueChangedHandler = triggerPreview;
-  baseRotCtrl.onValueChangedHandler = triggerPreview;
-  rotStartCtrl.onValueChangedHandler = triggerPreview;
-  rotEndCtrl.onValueChangedHandler = triggerPreview;
+  startCtrl.onValueChangedHandler = applyPreview;
+  endCtrl.onValueChangedHandler = applyPreview;
+  smartCtrl.onValueChangedHandler = applyPreview;
+  reverseCtrl.onValueChangedHandler = applyPreview;
+  pathVisibleCtrl.onValueChangedHandler = applyPreview;
 
-  repeatCtrl.onValueChangedHandler = triggerPreview;
-  repeatCountCtrl.onValueChangedHandler = triggerPreview;
+  alignCtrl.onValueChangedHandler = applyPreview;
+  pivotCtrl.onValueChangedHandler = applyPreview;
+  flipCtrl.onValueChangedHandler = applyPreview;
+  baseRotCtrl.onValueChangedHandler = applyPreview;
+  rotStartCtrl.onValueChangedHandler = applyPreview;
+  rotEndCtrl.onValueChangedHandler = applyPreview;
 
-  matchSizeCtrl.onValueChangedHandler = triggerPreview;
-  sizeScaleCtrl.onValueChangedHandler = triggerPreview;
-  scaleWCtrl.onValueChangedHandler = triggerPreview;
-  scaleHCtrl.onValueChangedHandler = triggerPreview;
-  scaleStartCtrl.onValueChangedHandler = triggerPreview;
-  scaleEndCtrl.onValueChangedHandler = triggerPreview;
-  fitToPathCtrl.onValueChangedHandler = triggerPreview;
+  repeatCtrl.onValueChangedHandler = applyPreview;
+  repeatCountCtrl.onValueChangedHandler = applyPreview;
 
-  zOrderCtrl.onValueChangedHandler = triggerPreview;
-  reverseZCtrl.onValueChangedHandler = triggerPreview;
+  matchSizeCtrl.onValueChangedHandler = applyPreview;
+  sizeScaleCtrl.onValueChangedHandler = applyPreview;
+  scaleWCtrl.onValueChangedHandler = applyPreview;
+  scaleHCtrl.onValueChangedHandler = applyPreview;
+  scaleStartCtrl.onValueChangedHandler = applyPreview;
+  scaleEndCtrl.onValueChangedHandler = applyPreview;
+  fitToPathCtrl.onValueChangedHandler = applyPreview;
 
-  randCtrl.onValueChangedHandler = triggerPreview;
-  shuffleSeedCtrl.onValueChangedHandler = triggerPreview;
-  jitterSeedCtrl.onValueChangedHandler = triggerPreview;
-  jitterAmtCtrl.onValueChangedHandler = triggerPreview;
-  rotSeedCtrl.onValueChangedHandler = triggerPreview;
-  rotMaxCtrl.onValueChangedHandler = triggerPreview;
-  sizeSeedCtrl.onValueChangedHandler = triggerPreview;
-  sizeAmtCtrl.onValueChangedHandler = triggerPreview;
+  zOrderCtrl.onValueChangedHandler = applyPreview;
+  reverseZCtrl.onValueChangedHandler = applyPreview;
 
-  // Initial preview on launch
-  triggerPreview();
+  randCtrl.onValueChangedHandler = applyPreview;
+  shuffleSeedCtrl.onValueChangedHandler = applyPreview;
+  jitterSeedCtrl.onValueChangedHandler = applyPreview;
+  jitterAmtCtrl.onValueChangedHandler = applyPreview;
+  rotSeedCtrl.onValueChangedHandler = applyPreview;
+  rotMaxCtrl.onValueChangedHandler = applyPreview;
+  sizeSeedCtrl.onValueChangedHandler = applyPreview;
+  sizeAmtCtrl.onValueChangedHandler = applyPreview;
+
+  // Initial preview on launch (immediate)
+  triggerPreview(true);
 
   // Show Modal Dialog
   const result = dlg.show();
+  if (previewTimer) {
+    try { previewTimer.cancel(); } catch (e) {}
+    previewTimer = null;
+  }
   const finalParams = getParams();
 
   // Clear Previews & Clean Canvas
@@ -1788,16 +2022,20 @@ function runArrangeOnPath() {
       showError("Apply failed:\n" + e.message);
     }
   } else {
-    // Cancel: Restore previous results visibility if editing existing container
-    if (existingGroup && oldResultsToHide.length > 0) {
-      try {
-        const restoreCb = CompoundCommandBuilder.create();
+    // Cancel: Restore visibility
+    try {
+      const restoreCb = CompoundCommandBuilder.create();
+      if (existingGroup) {
         for (const res of oldResultsToHide) {
           restoreCb.addCommand(DocumentCommand.createSetVisibility(mkSel(res), true));
         }
-        doc.executeCommand(restoreCb.createCommand());
-      } catch (e) {}
-    }
+      } else {
+        for (const n of cfg.objNodes) {
+          restoreCb.addCommand(DocumentCommand.createSetVisibility(mkSel(n), true));
+        }
+      }
+      doc.executeCommand(restoreCb.createCommand());
+    } catch (e) {}
   }
 }
 

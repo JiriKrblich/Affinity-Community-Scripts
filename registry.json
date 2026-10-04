@@ -259,7 +259,7 @@
       "name": "Arrange on Path",
       "description": "Distributes selected objects evenly along auto-detected vector paths, with support for multiple paths, randomization, interpolation, smart sorting, open/closed paths, and repeat mode for tiling objects along the path.",
       "author": "BlackMortimer-13",
-      "version": "2.0.0",
+      "version": "4.0.0",
       "category": "Path",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ArrangeObjectsOnPath.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/arrange-on-path-v1.js"
