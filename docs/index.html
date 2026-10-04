@@ -612,10 +612,22 @@
             }
         }
 
+        // Only allow assets/links served from trusted GitHub-controlled hosts.
+        // This prevents a compromised/mis-scoped registry entry (or a MITM
+        // against an untrusted host) from injecting arbitrary third-party
+        // content into <img>/<a> elements (CWE-830).
+        const ALLOWED_ASSET_HOSTS = [
+            'raw.githubusercontent.com',
+            'github.com',
+            'user-images.githubusercontent.com',
+            'camo.githubusercontent.com',
+            'objects.githubusercontent.com'
+        ];
+
         function isSafeUrl(url) {
             try {
-                const protocol = new URL(url, REGISTRY_URL).protocol;
-                return protocol === 'https:' || protocol === 'http:';
+                const parsed = new URL(url, REGISTRY_URL);
+                return parsed.protocol === 'https:' && ALLOWED_ASSET_HOSTS.includes(parsed.hostname);
             } catch {
                 return false;
             }
