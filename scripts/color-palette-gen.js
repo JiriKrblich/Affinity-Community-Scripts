@@ -1,8 +1,23 @@
 /**
  * name: Color Palette Generator
  * description: Extracts all fill, stroke, and gradient colors from selected nodes or entire spread. Displays swatches with RGB, CMYK, HSL, and HEX values, plus gradient stops. Groups outputs by fills, strokes, and gradients.
- * version: 9.1.1
+ * version: 9.1.2
  * author: nodeus
+ *
+ * 9.1.2 - checked against current Affinity SDK (3.3):
+ *  - The SDK calls this script relies on (Shape.create, mutable Transform,
+ *    FillDescriptor.cloneWithNewTransform, gradient stops via
+ *    new Colour(stop.colour), gradientFillType as a plain number,
+ *    getCMYKA8, StoryBuilder/GlyphAtts labels, addNode for shapes/text/
+ *    containers, moving items into groups) were all verified live and work
+ *    unchanged.
+ *  - Re-run bug fixed: the script scans the whole spread, including the
+ *    palette groups (FILLS / STROKES / GRADIENTS) it created on an earlier
+ *    run. Their swatch rectangles are filled shapes, so a second run listed
+ *    every stroke colour again as a fill (confirmed live: 2 fills became 3).
+ *    The palette groups are now tagged when created, and the collector
+ *    skips tagged groups (and, for palettes made by 9.1.1 or earlier, plain
+ *    containers named exactly FILLS / STROKES / GRADIENTS).
  */
 
 "use strict";
@@ -67,7 +82,20 @@ function makeGradientSwatchDesc(fillDesc, x, y, w, h, gft) {
   return fillDesc.cloneWithNewTransform(t);
 }
 
+const OUTPUT_TAG = "colorPaletteOutput";
+function isOwnOutput(node) {
+  try { if (node.tagInterface && node.tagInterface.hasKey(OUTPUT_TAG)) return true; } catch (_) {}
+  try {
+    if (node.isContainerNode) {
+      const n = node.userDescription;
+      if (n === "FILLS" || n === "STROKES" || n === "GRADIENTS") return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
 function collectFromNode(node, fills, strokes, gradients) {
+  if (isOwnOutput(node)) return;
   try {
     if (node.hasBrushFill) {
       const d = node.brushFillDescriptor;
@@ -176,6 +204,7 @@ function groupSection(doc, nodes, name) {
   const gCmd = gBuilder.createCommand(true, NodeChildType.Main);
   doc.executeCommand(gCmd);
   const groupNode = [...gCmd.newNodes][0];
+  try { doc.executeCommand(DocumentCommand.createSetTagValueForKey(groupNode.selfSelection, OUTPUT_TAG, "1")); } catch (_) {}
   const sel = Selection.create(doc, nodes[0]);
   for (let i = 1; i < nodes.length; i++) sel.add(nodes[i]);
   doc.executeCommand(DocumentCommand.createMoveNodes(sel, groupNode, NodeMoveType.Inside));
