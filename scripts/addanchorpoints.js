@@ -1,3 +1,10 @@
+/**
+ * name: add_anchor_points 1.1
+ * description: Add Anchor Points — insert 1-5 evenly-spaced anchor points into every segment of the selected curve(s), like Illustrator's Object > Path > Add Anchor Points. Uses an exact De Casteljau split so curves keep their shape (no flattening). Fills Affinity's gap: adding nodes one click at a time.
+ * version: 1.1
+ * author: olliollio
+ */
+
 'use strict';
 
 /**
@@ -186,7 +193,11 @@ function main() {
   const grp = col.addGroup('Anchor points to add per segment');
   const combo = grp.addComboBox('Per segment', ['1', '2', '3', '4', '5'], 0);
 
-  if (dlg.runModal() !== DialogResult.Ok) return;
+  // runModal() returns a (native) DialogResult enum object that is not guaranteed
+  // to be the identical instance as DialogResult.Ok -> compare by value.
+  // (Identity comparison made the script exit even when OK was pressed.)
+  const result = dlg.runModal();
+  if (!result || result.value !== DialogResult.Ok.value) return;
 
   const perSegment = combo.selectedIndex + 1; // 1..5
   const count = perSegment + 1; // resulting pieces per original segment
