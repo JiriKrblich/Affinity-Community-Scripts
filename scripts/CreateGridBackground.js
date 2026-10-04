@@ -1,14 +1,14 @@
 'use strict';
 
-const { Dialog, DialogResult } = require('/dialog');
-const { Document } = require('/document');
-const { AddChildNodesCommandBuilder } = require('/commands');
-const { ContainerNodeDefinition, NodeChildType, PolyCurveNodeDefinition } = require('/nodes');
-const { CurveBuilder, PolyCurve, Rectangle } = require('/geometry');
-const { FillDescriptor } = require('/fills');
-const { LineStyleDescriptor } = require('/linestyle');
-const { RGBA8 } = require('/colours');
-const { UnitType } = require('/units');
+const { Dialog, DialogResult } = require('/dialog.js');
+const { Document } = require('/document.js');
+const { AddChildNodesCommandBuilder } = require('/commands.js');
+const { ContainerNodeDefinition, NodeChildType, PolyCurveNodeDefinition } = require('/nodes.js');
+const { CurveBuilder, PolyCurve, Rectangle } = require('/geometry.js');
+const { FillDescriptor } = require('/fills.js');
+const { LineStyleDescriptor } = require('/linestyle.js');
+const { RGBA8 } = require('/colours.js');
+const { UnitType } = require('/units.js');
 
 const MAX_GRID_LINES = 2000;
 
@@ -78,7 +78,7 @@ function createFilledPolyCurveDefinition(polyCurve, fillColour, name) {
     const fill = FillDescriptor.createSolid(fillColour);
     const noFill = FillDescriptor.createNone();
     const noLine = LineStyleDescriptor.createDefault(0.1);
-    const def = PolyCurveNodeDefinition.create(polyCurve, fill, noLine, noFill, noFill);
+    const def = PolyCurveNodeDefinition.create(polyCurve, fill, noFill, noLine, noFill);
     def.userDescription = name;
     return def;
 }
@@ -87,7 +87,7 @@ function createStrokedPolyCurveDefinition(polyCurve, strokeColour, lineWeight, n
     const noFill = FillDescriptor.createNone();
     const lineFill = FillDescriptor.createSolid(strokeColour);
     const lineStyle = LineStyleDescriptor.createDefault(lineWeight);
-    const def = PolyCurveNodeDefinition.create(polyCurve, noFill, lineStyle, lineFill, noFill);
+    const def = PolyCurveNodeDefinition.create(polyCurve, noFill, lineFill, lineStyle, noFill);
     def.userDescription = name;
     return def;
 }
@@ -278,6 +278,7 @@ function main() {
 
     try {
         addGridToDocument(doc, spread, options);
+        console.log('Created grid background.');
     } catch (err) {
         alert(err.message || String(err));
     }
