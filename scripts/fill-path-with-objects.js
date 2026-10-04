@@ -1,37 +1,31 @@
 /**
- * name: Fill Path with Objects v3aaf
+ * name: Fill Path with Objects v3.2
  */
 'use strict';
 
 // =============================================================================
-// FILL PATH WITH OBJECTS v3aaf (Rock-Solid Container Resize Detection & Group Stretch)
+// FILL PATH WITH OBJECTS v3.2 (Transform W & H Controls, Raster & Live Preview Fixed)
 // Affinity Designer / Photo / Publisher (v3e & Multi-Effect Standard)
 //
-// Key Features & Fixes in v3aaf:
-// 1. Updated workflow notice in dialog UI to standard procedural effect text:
-//    - "✨ Non-destructive Procedural Effect ✨"
-//    - "Run this script again on the container to edit parameters, or run other effect scripts to stack effects."
-// 2. Fixed Critical Dialog Undefined Property & Transform Point Bug:
-//    - Corrected initialValues.xfm.* bindings in UI dialog.
-//    - Replaced all non-existent transformPoint calls with applyToPoint / data
-//      access via robust transformPt() helper to prevent runtime exceptions.
-// 3. Automatic Container Resize Detection & Auto-Stretch:
-//    - Robustly extracts scaling from container transform matrix baseToSpreadTransform.
-//    - When the container has been resized or stretched on canvas, automatically
-//      sets the default scaling mode to "Stretch (Fit W & H)" (dimensionMode = 1).
-// 4. Full Group Support in Stretch & Proportional Modes:
-//    - getNodeLocalCenterAndDim accurately computes the geometric centroid and
-//      bounding box across all child curves/shapes within Groups in Local Container space.
-//    - Group templates are stretched, scaled, and placed with 100% mathematical precision
-//      in both Live Preview and final Apply.
-// 5. Permanent Source Dimension Compensation on Replace:
-//    - Replaced external sources (single curves or Groups) are permanently scaled
-//      before moving into the container as Source 1..N, ensuring 3rd and subsequent
-//      runs maintain the exact same size.
-// 6. Unconditional Deterministic Sequential Z-Order:
-//    - Duplicate nodes sequenced using NodeMoveType.After matching Live Preview 1:1.
-// 7. Expand Effects Compatibility:
-//    - Generated duplicate objects are tagged Red (#FF0000).
+// Key Features & Fixes in v3.2:
+// 1. New Transform Controls in Grid & Placement:
+//    - Added independent 'Scale width (W)' and 'Scale height (H)' controls.
+//    - Allows non-uniform horizontal and vertical scaling of placed template objects.
+//    - Fully synchronized across real-time Live Preview and final Apply.
+// 2. SDK 3.3 Compatibility in PolyCurveNodeDefinition.create:
+//    - Verified argument order: (curve, brushFill, lineFill, lineStyle, transparencyFill).
+// 3. Full Raster Object & Bitmap Snapshot Engine:
+//    - Full procedural support for raster objects (pixel layers, images, photos,
+//      and groups containing raster objects) in both Live Preview and final Apply.
+//    - Real-time live preview rendering via RasterNodeDefinition.
+//    - High-fidelity container-space projection and alignment with exact centroid.
+// 4. Container Re-Run Visibility Bug Fix:
+//    - Temporarily unhides source templates during snapshot capture on container re-run,
+//      ensuring NodeRenderingEngine never produces blank/transparent bitmaps.
+// 5. Zero-Crash & Artboard Jumping Fix:
+//    - Uses InsertionMode.Default in AddChildNodesCommandBuilder for live preview.
+// 6. FillDescriptor & LineStyle Safety:
+//    - Uses isDescriptorNone helper across all fill and stroke handlers.
 // =============================================================================
 
 const { Document } = require('/document');
@@ -44,20 +38,21 @@ const {
   NodeChildType,
   NodeMoveType
 } = require('/commands');
-const { PolyCurveNodeDefinition, ContainerNodeDefinition } = require('/nodes');
-const { Transform, PolyCurve } = require('/geometry');
+const { PolyCurveNodeDefinition, ContainerNodeDefinition, RasterNodeDefinition } = require('/nodes');
+const { Transform, PolyCurve, Point } = require('/geometry');
 const { UnitType } = require('/units');
 const { RGB8 } = require('/colours');
 const { FillDescriptor, BlendMode } = require('/fills');
 const { LineStyleDescriptor } = require('/linestyle');
 const { Selection } = require('/selections');
+const { NodeRenderingEngine, RasterFormat } = require('/rasterobject');
 const { setTimeout } = require('/timers');
 
 // =============================================================================
 // CONSTANTS & REGISTRY
 // =============================================================================
 
-const SCRIPT_TITLE = 'Fill Path with Objects v3aaf';
+const SCRIPT_TITLE = 'Fill Path with Objects v3.2';
 const TAG_KEY = 'fillPathSettings';
 const GROUP_PREFIX = 'Fill Path Effect';
 const PATH_PREFIX = 'Source Path';
@@ -70,6 +65,8 @@ const DEFAULT_VALUES = {
   gridType: 0, // 0: Rectangular, 1: Hexagonal, 2: Circular, 3: Diamond, 4: Sunflower, 5: Radial
   margin: 5,
   scaleBase: 100,
+  scaleW: 100, // Scale width (%)
+  scaleH: 100, // Scale height (%)
   globalRot: 0,
   adoptDimensions: true,
   dimensionMode: 0, // 0: Proportional (Keep Aspect), 1: Stretch (Fit W & H)
@@ -314,7 +311,136 @@ function polyCentroid(pts) {
   return { x: sx / pts.length, y: sy / pts.length };
 }
 
-// Universal extractor for single curves, shapes, groups, and nested groups
+function validBB(b) {
+  return b && Number.isFinite(b.x) && Number.isFinite(b.y) && Number.isFinite(b.width) && Number.isFinite(b.height) && b.width > 0 && b.height > 0;
+}
+
+function isDescriptorNone(desc) {
+  if (!desc) return true;
+  if (desc.isNoFill) return true;
+  if (desc.type === 'none') return true;
+  if (desc.fillType && String(desc.fillType).toLowerCase() === 'none') return true;
+  if (desc.fill && desc.fill.fillType && String(desc.fill.fillType).toLowerCase() === 'none') return true;
+  return false;
+}
+
+function getNodeBoundsBox(node, containerTransform) {
+  if (!node) return null;
+
+  // 1. If vector curves exist, get curve bounds
+  if (node.curvesInterface && node.curvesInterface.polyCurve) {
+    const pc = getLocalPolyCurve(node, containerTransform);
+    if (pc) {
+      let pb = null;
+      try { pb = pc.exactBoundingBox || pc.boundingBox || pc.bounds; } catch (e) {}
+      if (!pb) {
+        try { pb = pc.getExactBoundingBox ? pc.getExactBoundingBox() : pc.getBoundingBox(); } catch (e) {}
+      }
+      if (validBB(pb)) {
+        return {
+          x: pb.x,
+          y: pb.y,
+          width: pb.width,
+          height: pb.height,
+          center: { x: pb.x + pb.width / 2, y: pb.y + pb.height / 2 }
+        };
+      }
+    }
+  }
+
+  // 2. Base box transformed to spread / container (RasterNode, ImageNode, Groups)
+  let baseBox = null;
+  try {
+    if (node.baseBoxInterface && node.baseBoxInterface.baseBox) {
+      baseBox = node.baseBoxInterface.baseBox;
+    } else if (node.baseBox) {
+      baseBox = node.baseBox;
+    }
+  } catch (e) {}
+
+  if (baseBox && validBB(baseBox)) {
+    let b2s = null;
+    try {
+      b2s = node.baseToSpreadTransform || (node.transformInterface ? node.transformInterface.transform : null);
+    } catch (e) {}
+
+    const corners = [
+      new Point(baseBox.x, baseBox.y),
+      new Point(baseBox.x + baseBox.width, baseBox.y),
+      new Point(baseBox.x + baseBox.width, baseBox.y + baseBox.height),
+      new Point(baseBox.x, baseBox.y + baseBox.height)
+    ];
+
+    const containerInv = (containerTransform && containerTransform.inverted) ? containerTransform.inverted : null;
+
+    const mappedCorners = corners.map(pt => {
+      let p = pt;
+      if (b2s) {
+        try { p = b2s.applyToPoint(p); } catch (e) {}
+      }
+      if (containerInv) {
+        try { p = containerInv.applyToPoint(p); } catch (e) {}
+      }
+      return p;
+    });
+
+    const xs = mappedCorners.map(p => p.x);
+    const ys = mappedCorners.map(p => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+      center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+    };
+  }
+
+  // 3. Fallback: getSpreadBaseBox
+  try {
+    if (typeof node.getSpreadBaseBox === 'function') {
+      const sb = node.getSpreadBaseBox(false);
+      if (validBB(sb)) {
+        if (containerTransform && containerTransform.inverted) {
+          const corners = [
+            new Point(sb.x, sb.y),
+            new Point(sb.x + sb.width, sb.y),
+            new Point(sb.x + sb.width, sb.y + sb.height),
+            new Point(sb.x, sb.y + sb.height)
+          ];
+          const mapped = corners.map(pt => containerTransform.inverted.applyToPoint(pt));
+          const xs = mapped.map(p => p.x);
+          const ys = mapped.map(p => p.y);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+          return {
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY,
+            center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+          };
+        }
+        return {
+          x: sb.x,
+          y: sb.y,
+          width: sb.width,
+          height: sb.height,
+          center: { x: sb.x + sb.width / 2, y: sb.y + sb.height / 2 }
+        };
+      }
+    }
+  } catch (e) {}
+
+  return null;
+}
+
+// Universal extractor for single curves, shapes, groups, and raster objects
 function getNodeLocalCenterAndDim(node, containerTransform) {
   if (!node) return { center: { x: 0, y: 0 }, dim: { w: 0, h: 0, maxDim: 0 } };
 
@@ -364,33 +490,14 @@ function getNodeLocalCenterAndDim(node, containerTransform) {
     }
   } catch (e) {}
 
-  // 3. Fallback: BaseBox transformed to local container space
-  try {
-    const b = node.getSpreadBaseBox(false);
-    if (b && Number.isFinite(b.width) && b.width > 0 && Number.isFinite(b.height) && b.height > 0) {
-      const inv = (containerTransform && containerTransform.inverted) ? containerTransform.inverted : null;
-      if (inv) {
-        const p1 = transformPt(inv, b.x, b.y);
-        const p2 = transformPt(inv, b.x + b.width, b.y);
-        const p3 = transformPt(inv, b.x, b.y + b.height);
-        const p4 = transformPt(inv, b.x + b.width, b.y + b.height);
-        const minX = Math.min(p1.x, p2.x, p3.x, p4.x);
-        const maxX = Math.max(p1.x, p2.x, p3.x, p4.x);
-        const minY = Math.min(p1.y, p2.y, p3.y, p4.y);
-        const maxY = Math.max(p1.y, p2.y, p3.y, p4.y);
-        const lw = Math.max(1, maxX - minX);
-        const lh = Math.max(1, maxY - minY);
-        return {
-          center: { x: minX + lw / 2, y: minY + lh / 2 },
-          dim: { w: lw, h: lh, maxDim: Math.max(lw, lh) }
-        };
-      }
-      return {
-        center: { x: b.x + b.width / 2, y: b.y + b.height / 2 },
-        dim: { w: b.width, h: b.height, maxDim: Math.max(b.width, b.height) }
-      };
-    }
-  } catch (e) {}
+  // 3. Fallback: BaseBox transformed to local container space (handles Raster, Pixel, Image, and non-curve groups)
+  const box = getNodeBoundsBox(node, containerTransform);
+  if (box && validBB(box)) {
+    return {
+      center: box.center,
+      dim: { w: box.width, h: box.height, maxDim: Math.max(box.width, box.height) }
+    };
+  }
 
   return { center: { x: 0, y: 0 }, dim: { w: 0, h: 0, maxDim: 0 } };
 }
@@ -623,6 +730,8 @@ function calculatePlacements(pathPolygon, templateItems, params, adoptDimensions
 
   const gR = ((params.globalRot || 0) * Math.PI) / 180;
   const bS = (params.scaleBase || 100) / 100;
+  const sW = (params.scaleW !== undefined ? params.scaleW : 100) / 100;
+  const sH = (params.scaleH !== undefined ? params.scaleH : 100) / 100;
 
   const placements = [];
   for (let i = 0; i < n; i++) {
@@ -643,8 +752,8 @@ function calculatePlacements(pathPolygon, templateItems, params, adoptDimensions
       templateIndex: tmplIdx,
       rotation: tRot,
       scale: tSc,
-      scaleX: tSc * dimScale.sx,
-      scaleY: tSc * dimScale.sy
+      scaleX: Math.max(0.001, tSc * sW * dimScale.sx),
+      scaleY: Math.max(0.001, tSc * sH * dimScale.sy)
     });
   }
 
@@ -834,6 +943,8 @@ function sanitizeValues(v) {
     gridType: clamp(typeof v.gridType === 'number' ? v.gridType : DEFAULT_VALUES.gridType, 0, 5),
     margin: clamp(typeof v.margin === 'number' ? v.margin : DEFAULT_VALUES.margin, -1000, 2000),
     scaleBase: clamp(typeof v.scaleBase === 'number' ? v.scaleBase : DEFAULT_VALUES.scaleBase, 1, 1000),
+    scaleW: clamp(typeof v.scaleW === 'number' ? v.scaleW : DEFAULT_VALUES.scaleW, 1, 1000),
+    scaleH: clamp(typeof v.scaleH === 'number' ? v.scaleH : DEFAULT_VALUES.scaleH, 1, 1000),
     globalRot: clamp(typeof v.globalRot === 'number' ? v.globalRot : DEFAULT_VALUES.globalRot, -3600, 3600),
     adoptDimensions: v.adoptDimensions !== undefined ? !!v.adoptDimensions : DEFAULT_VALUES.adoptDimensions,
     dimensionMode: clamp(typeof v.dimensionMode === 'number' ? v.dimensionMode : DEFAULT_VALUES.dimensionMode, 0, 1),
@@ -918,7 +1029,7 @@ function getNodeStyle(node) {
         lineStyle = LineStyleDescriptor.createDefault(weight);
       }
 
-      if (penFill && !penFill.isNoFill) {
+      if (penFill && !penFill.isNoFill && !isDescriptorNone(penFill)) {
         lineFill = penFill.clone();
       }
     }
@@ -927,8 +1038,8 @@ function getNodeStyle(node) {
   try {
     if (node.brushFillInterface && node.brushFillInterface.currentDescriptor) {
       const bf = node.brushFillInterface.currentDescriptor;
-      if (bf && !bf.isNoFill) brushFill = bf.clone();
-    } else if (node.brushFillDescriptor && !node.brushFillDescriptor.isNoFill) {
+      if (bf && !bf.isNoFill && !isDescriptorNone(bf)) brushFill = bf.clone();
+    } else if (node.brushFillDescriptor && !node.brushFillDescriptor.isNoFill && !isDescriptorNone(node.brushFillDescriptor)) {
       brushFill = node.brushFillDescriptor.clone();
     }
   } catch (e) {}
@@ -936,7 +1047,7 @@ function getNodeStyle(node) {
   try {
     if (node.transparencyInterface && node.transparencyInterface.fillDescriptor) {
       const tf = node.transparencyInterface.fillDescriptor;
-      if (tf && !tf.isNoFill) transparencyFill = tf.clone();
+      if (tf && !tf.isNoFill && !isDescriptorNone(tf)) transparencyFill = tf.clone();
     }
   } catch (e) {}
 
@@ -986,8 +1097,10 @@ function doPreviewPolyCurves(document, targetNode, localPathPolygon, templateIte
 
   const addBuilder = AddChildNodesCommandBuilder.create();
   if (targetNode) {
-    addBuilder.setInsertionTargetSelection(mkSel(targetNode));
-    addBuilder.setInsertionMode(InsertionMode.Top);
+    try {
+      addBuilder.setInsertionTargetSelection(mkSel(targetNode));
+      addBuilder.setInsertionMode(InsertionMode.Default);
+    } catch (e) {}
   }
 
   for (let orderIdx = 0; orderIdx < renderOrder.length; orderIdx++) {
@@ -999,20 +1112,38 @@ function doPreviewPolyCurves(document, targetNode, localPathPolygon, templateIte
     const localXform = buildPlacementTransform(item.localCenter, pl);
     const previewXform = containerTransform ? containerTransform.multiply(localXform) : localXform;
 
-    for (const geom of item.localGeomEntries) {
-      if (!geom || !geom.polyCurve) continue;
-      const pc = geom.polyCurve.clone();
-      try { pc.transform(previewXform); } catch (e) {}
+    if (item.localGeomEntries && item.localGeomEntries.length) {
+      for (const geom of item.localGeomEntries) {
+        if (!geom || !geom.polyCurve) continue;
+        const pc = geom.polyCurve.clone();
+        try { pc.transform(previewXform); } catch (e) {}
 
-      const s = geom.style;
-      const def = PolyCurveNodeDefinition.create(
-        pc,
-        s.brushFill || FillDescriptor.createNone(),
-        s.lineStyle || LineStyleDescriptor.createDefault(0),
-        s.lineFill || FillDescriptor.createNone(),
-        s.transparencyFill || FillDescriptor.createNone()
-      );
-      addBuilder.addNode(def);
+        const s = geom.style || {};
+        const previewBrushFill = (s.brushFill && !isDescriptorNone(s.brushFill)) ? s.brushFill.clone() : FillDescriptor.createNone();
+        const previewLineFill = (s.lineFill && !isDescriptorNone(s.lineFill)) ? s.lineFill.clone() : FillDescriptor.createNone();
+        const previewLineStyle = s.lineStyle || LineStyleDescriptor.createDefault(0);
+        const previewTransFill = (s.transparencyFill && !isDescriptorNone(s.transparencyFill)) ? s.transparencyFill.clone() : FillDescriptor.createNone();
+
+        // SDK 3.3 signature: PolyCurveNodeDefinition.create(curve, brushFill, lineFill, lineStyle, transparencyFill)
+        const def = PolyCurveNodeDefinition.create(
+          pc,
+          previewBrushFill,
+          previewLineFill,
+          previewLineStyle,
+          previewTransFill
+        );
+        addBuilder.addNode(def);
+      }
+    } else if (item.rasterEntry && item.rasterEntry.bitmap) {
+      try {
+        const rDef = RasterNodeDefinition.create();
+        rDef.bitmap = item.rasterEntry.bitmap;
+        rDef.transform = previewXform.multiply(item.rasterEntry.baseTranslate);
+        rDef.userDescription = 'Preview Raster';
+        addBuilder.addRasterNode(rDef);
+      } catch (e) {
+        console.log('Error adding preview raster node: ' + e);
+      }
     }
   }
 
@@ -1297,15 +1428,71 @@ function runFillPath(document, rawSelection) {
     initialValues.dimensionMode = 1; // Stretch (Fit W & H)
   }
 
-  // Pre-calculate local centers and dimension scaling in local container space (universal for curves and groups)
+  // Ensure source nodes are visible during bounds and raster snapshot generation
+  if (existingGroup && activeTemplates.length > 0) {
+    const showSourcesCb = CompoundCommandBuilder.create();
+    for (const n of activeTemplates) {
+      showSourcesCb.addCommand(DocumentCommand.createSetVisibility(mkSel(n), true));
+    }
+    document.executeCommand(showSourcesCb.createCommand());
+  }
+
+  // Pre-calculate template items once at startup while sources are visible (universal for vector and raster)
+  const baseTemplateData = activeTemplates.map((node, i) => {
+    const extracted = getNodeLocalCenterAndDim(node, containerTransform);
+    const localGeoms = extractLocalGeomEntriesFromNode(node, containerTransform);
+    let rasterEntry = null;
+
+    if (!localGeoms || !localGeoms.length) {
+      const b = getNodeBoundsBox(node, containerTransform);
+      if (b && validBB(b)) {
+        try {
+          const engine = NodeRenderingEngine.createDefault(node, RasterFormat.RGBA8);
+          const bmp = engine.createCompatibleBitmap(true);
+          rasterEntry = {
+            bitmap: bmp,
+            width: bmp.width,
+            height: bmp.height,
+            baseTranslate: Transform.createTranslate(b.x, b.y)
+          };
+        } catch (e) {
+          console.log('Fill Path raster snapshot error: ' + e);
+        }
+      }
+    }
+
+    let oldExtracted = null;
+    if (isReplacingSources && oldContainerSources.length > 0) {
+      const targetOldSrc = oldContainerSources[i % oldContainerSources.length];
+      oldExtracted = getNodeLocalCenterAndDim(targetOldSrc, containerTransform);
+    }
+
+    return {
+      node,
+      extracted,
+      localGeomEntries: localGeoms,
+      rasterEntry,
+      oldExtracted
+    };
+  });
+
+  // Re-hide source nodes inside existing container so they don't double-render
+  if (existingGroup && activeTemplates.length > 0) {
+    const hideSourcesCb = CompoundCommandBuilder.create();
+    for (const n of activeTemplates) {
+      hideSourcesCb.addCommand(DocumentCommand.createSetVisibility(mkSel(n), false));
+    }
+    document.executeCommand(hideSourcesCb.createCommand());
+  }
+
+  // Build live template items with dynamically applied dimension scaling
   function buildTemplateItems(dimMode) {
-    return activeTemplates.map((node, i) => {
-      const extracted = getNodeLocalCenterAndDim(node, containerTransform);
+    return baseTemplateData.map((data, i) => {
       let dimScale = { sx: 1.0, sy: 1.0 };
 
-      if (isReplacingSources && oldContainerSources.length > 0) {
-        const targetOldSrc = oldContainerSources[i % oldContainerSources.length];
-        const oldExtracted = getNodeLocalCenterAndDim(targetOldSrc, containerTransform);
+      if (isReplacingSources && data.oldExtracted) {
+        const oldExtracted = data.oldExtracted;
+        const extracted = data.extracted;
 
         if (oldExtracted.dim.w > 0.001 && oldExtracted.dim.h > 0.001 && extracted.dim.w > 0.001 && extracted.dim.h > 0.001) {
           if (dimMode === 1) {
@@ -1323,11 +1510,12 @@ function runFillPath(document, rawSelection) {
       }
 
       return {
-        node,
-        localCenter: extracted.center,
-        localDim: extracted.dim,
+        node: data.node,
+        localCenter: data.extracted.center,
+        localDim: data.extracted.dim,
         dimScale,
-        localGeomEntries: extractLocalGeomEntriesFromNode(node, containerTransform)
+        localGeomEntries: data.localGeomEntries,
+        rasterEntry: data.rasterEntry
       };
     });
   }
@@ -1390,6 +1578,12 @@ function runFillPath(document, rawSelection) {
   const scC = gG.addUnitValueEditor('Object scale', UnitType.Percentage, UnitType.Percentage, initialValues.scaleBase, 5, 500);
   scC.precision = 1;
   scC.showPopupSlider = true;
+  const scwC = gG.addUnitValueEditor('Scale width (W)', UnitType.Percentage, UnitType.Percentage, initialValues.scaleW, 1, 500);
+  scwC.precision = 1;
+  scwC.showPopupSlider = true;
+  const scHC = gG.addUnitValueEditor('Scale height (H)', UnitType.Percentage, UnitType.Percentage, initialValues.scaleH, 1, 500);
+  scHC.precision = 1;
+  scHC.showPopupSlider = true;
   const grC = gG.addUnitValueEditor('Object rotation', UnitType.Degree, UnitType.Degree, initialValues.globalRot, -360, 360);
   grC.precision = 1;
   grC.showPopupSlider = true;
@@ -1463,6 +1657,8 @@ function runFillPath(document, rawSelection) {
       gridType: gtC.selectedIndex,
       margin: mgC.value,
       scaleBase: scC.value,
+      scaleW: scwC.value,
+      scaleH: scHC.value,
       globalRot: grC.value,
       adoptDimensions: adoptDimSwitch ? adoptDimSwitch.value : true,
       dimensionMode: dimModeCombo ? dimModeCombo.selectedIndex : initialValues.dimensionMode,
@@ -1532,7 +1728,7 @@ function runFillPath(document, rawSelection) {
   }
 
   const previewControls = [
-    gtC, spC, mgC, scC, grC,
+    gtC, spC, mgC, scC, scwC, scHC, grC,
     xmC, xssC, xseC, xscvC, xrsC, xreC, xscsC, xsceC,
     shC, jkC, jaC, ssC, saC, rsC, rmC, szC, smC, zC
   ];
@@ -1590,7 +1786,7 @@ function runFillPath(document, rawSelection) {
       }
     } else if (!existingGroup) {
       for (const t of activeTemplates) {
-        restoreCb.addCommand(DocumentCommand.createSetVisibility(mkSel(t), true));
+        restoreCb.addCommand(DocumentCommand.createSetVisibility(mkSel(t), false));
       }
     }
     document.executeCommand(restoreCb.createCommand());
