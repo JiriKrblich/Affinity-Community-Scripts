@@ -787,7 +787,7 @@
       "name": "Join Paths",
       "description": "Joins selected open paths within specified radius. Make one path from multiple open paths",
       "author": "EricP",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "category": "Path",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/joinpaths.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/joinpaths.js"
@@ -1550,7 +1550,7 @@
     },
     {
       "id": "Book-cover-template-maker",
-      "name": "Book-cover-template-maker",
+      "name": "Book cover template maker",
       "description": "A script for Affinity 3 that adds native, non-printing guides for a one-piece book cover with standard book cover dimensions with following layout: BACK COVER | SPINE | FRONT COVER",
       "author": "veeroo18 / claude",
       "email": "veerendratikhe@gmail.com",

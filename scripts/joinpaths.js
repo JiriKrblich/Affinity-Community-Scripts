@@ -1,697 +1,751 @@
+/**
+ * name: Join Curves Pro
+ * description: Connects open curves with smooth G1/C1 Bézier bridges (default) or welds nodes without drawing lines (CorelDRAW standard), with single-curve support and plotter precision.
+ * version: 1.2.2
+ * author: Antigravity
+ */
+
 'use strict';
 
-// Join paths: grows chains from each open path in order. Starting from the first
-// path, finds the nearest extremity on another path within radius, joins, then
-// continues from the merged path's two free ends only. Joined endpoints are never
-// reused. Never connects two extremities on the same path.
-
-const { app } = require('/application');
-const { Dialog, DialogResult } = require('/dialog');
-const { Document } = require('/document');
-const { DocumentCommand, CompoundCommandBuilder } = require('/commands');
-const { CurveBuilder, PolyCurve } = require('/geometry');
-const { Selection } = require('/selections');
+const { app } = require('/application.js');
+const { Document } = require('/document.js');
+const { Dialog, DialogResult } = require('/dialog.js');
+const { DocumentCommand, CompoundCommandBuilder } = require('/commands.js');
+const { CurveBuilder, PolyCurve, Point, Transform } = require('/geometry.js');
+const { Selection } = require('/selections.js');
 const { UnitType } = require('affinity:common');
 
-const APP_NAME = 'Join paths';
-const EPS = 0.05;
+// =============================================================================
+// GEOMETRY & VECTOR MATHEMATICS
+// =============================================================================
 
-const DEFAULTS = {
-    radius: 10,
-};
+const PT_TO_MM = 25.4 / 72.0;
+const MM_TO_PT = 72.0 / 25.4;
 
-function formatStatsLine(stats) {
-    return 'Open paths: ' + stats.openCount
-        + '  ·  Joins: ' + stats.joinCount
-        + '  ·  Remaining: ' + stats.remainingOpen;
+function dist(p1, p2) {
+    return Math.hypot(p2.x - p1.x, p2.y - p1.y);
 }
 
-function getResultValue(result) {
-    return result && result.value != null ? result.value : result;
-}
-
-function parseNumber(value, fallback, min, max) {
-    const parsed = Number(String(value == null ? '' : value).trim());
-    if (!Number.isFinite(parsed)) {
-        return fallback;
+function normalize(v) {
+    const len = Math.hypot(v.x, v.y);
+    if (len > 1e-9) {
+        return { x: v.x / len, y: v.y / len };
     }
-    let result = parsed;
-    if (min != null) {
-        result = Math.max(min, result);
-    }
-    if (max != null) {
-        result = Math.min(max, result);
-    }
-    return result;
+    return { x: 1, y: 0 };
 }
 
-function executeDocumentCommand(doc, command, preview) {
-    doc.executeCommand(command, preview === true);
-}
-
-function copyPoint(point) {
-    return { x: point.x, y: point.y };
-}
-
-function distanceBetween(a, b) {
-    return Math.hypot(b.x - a.x, b.y - a.y);
-}
-
-function pointsAreClose(a, b, epsilon) {
-    return distanceBetween(a, b) <= (epsilon == null ? EPS : epsilon);
-}
-
-function getTransformMatrix(transform) {
-    if (!transform) {
-        return null;
-    }
-    const text = String(transform);
-    const match = text.match(/\[\[([^,\]]+),([^,\]]+),([^\]]+)\]\s*\[([^,\]]+),([^,\]]+),([^\]]+)\]\]/);
-    if (!match) {
-        return null;
-    }
-    const matrix = {
-        a: Number(match[1]),
-        b: Number(match[2]),
-        c: Number(match[3]),
-        d: Number(match[4]),
-        e: Number(match[5]),
-        f: Number(match[6]),
-    };
-    if (![matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f].every(Number.isFinite)) {
-        return null;
-    }
-    return matrix;
-}
-
-function invertAffineMatrix(matrix) {
-    const det = matrix.a * matrix.e - matrix.b * matrix.d;
-    if (Math.abs(det) < 0.0000001) {
-        return null;
-    }
-    const a = matrix.a;
-    const b = matrix.b;
-    const c = matrix.c;
-    const d = matrix.d;
-    const e = matrix.e;
-    const f = matrix.f;
+function cloneBezier(b) {
     return {
-        a: e / det,
-        b: -b / det,
-        c: (b * f - e * c) / det,
-        d: -d / det,
-        e: a / det,
-        f: (d * c - a * f) / det,
+        start: { x: b.start.x, y: b.start.y },
+        c1: { x: b.c1.x, y: b.c1.y },
+        c2: { x: b.c2.x, y: b.c2.y },
+        end: { x: b.end.x, y: b.end.y }
     };
 }
 
-function transformPoint(point, matrix) {
-    return {
-        x: matrix.a * point.x + matrix.b * point.y + matrix.c,
-        y: matrix.d * point.x + matrix.e * point.y + matrix.f,
+function approxBezierLength(b) {
+    const chord = dist(b.start, b.end);
+    const poly = dist(b.start, b.c1) + dist(b.c1, b.c2) + dist(b.c2, b.end);
+    return (chord + poly) * 0.5;
+}
+
+function reverseChain(chain) {
+    return chain.map(b => ({
+        start: { x: b.end.x, y: b.end.y },
+        c1: { x: b.c2.x, y: b.c2.y },
+        c2: { x: b.c1.x, y: b.c1.y },
+        end: { x: b.start.x, y: b.start.y }
+    })).reverse();
+}
+
+function getExitTangent(chain) {
+    const last = chain[chain.length - 1];
+    let v = { x: last.end.x - last.c2.x, y: last.end.y - last.c2.y };
+    if (Math.hypot(v.x, v.y) < 1e-6) {
+        v = { x: last.end.x - last.start.x, y: last.end.y - last.start.y };
+    }
+    return normalize(v);
+}
+
+function getEntryTangent(chain) {
+    const first = chain[0];
+    let v = { x: first.c1.x - first.start.x, y: first.c1.y - first.start.y };
+    if (Math.hypot(v.x, v.y) < 1e-6) {
+        v = { x: first.end.x - first.start.x, y: first.end.y - first.start.y };
+    }
+    return normalize(v);
+}
+
+// =============================================================================
+// BRIDGING & NODE WELDING ENGINES
+// =============================================================================
+
+function buildSmoothBezierBridge(chainA, chainB, tension) {
+    const lastA = chainA[chainA.length - 1];
+    const firstB = chainB[0];
+    const E1 = lastA.end;
+    const S2 = firstB.start;
+    const gap = dist(E1, S2);
+
+    if (gap < 1e-4) {
+        return [...chainA, ...chainB];
+    }
+
+    const t1 = getExitTangent(chainA);
+    const t2 = getEntryTangent(chainB);
+    const h = (gap / 3.0) * tension;
+
+    const bridge = {
+        start: { x: E1.x, y: E1.y },
+        c1: { x: E1.x + t1.x * h, y: E1.y + t1.y * h },
+        c2: { x: S2.x - t2.x * h, y: S2.y - t2.y * h },
+        end: { x: S2.x, y: S2.y }
     };
+
+    return [...chainA, bridge, ...chainB];
 }
 
-function listBeziers(curve) {
-    const beziers = [];
-    for (const bezier of curve.beziers) {
-        beziers.push(bezier);
+function alignHandlesAtJunction(prevSeg, nextSeg, J, smoothMode) {
+    let tIn = { x: J.x - prevSeg.c2.x, y: J.y - prevSeg.c2.y };
+    let lenIn = Math.hypot(tIn.x, tIn.y);
+    if (lenIn < 1e-6) {
+        tIn = { x: J.x - prevSeg.start.x, y: J.y - prevSeg.start.y };
+        lenIn = Math.hypot(tIn.x, tIn.y) / 3.0;
     }
-    return beziers;
-}
+    tIn = normalize(tIn);
 
-function getEndpoints(curve) {
-    const beziers = listBeziers(curve);
-    if (beziers.length === 0) {
-        return null;
+    let tOut = { x: nextSeg.c1.x - J.x, y: nextSeg.c1.y - J.y };
+    let lenOut = Math.hypot(tOut.x, tOut.y);
+    if (lenOut < 1e-6) {
+        tOut = { x: nextSeg.end.x - J.x, y: nextSeg.end.y - J.y };
+        lenOut = Math.hypot(tOut.x, tOut.y) / 3.0;
     }
-    return {
-        start: copyPoint(beziers[0].start),
-        end: copyPoint(beziers[beziers.length - 1].end),
-    };
-}
+    tOut = normalize(tOut);
 
-function transformCurve(curve, matrix) {
-    if (!matrix) {
-        return curve.clone();
-    }
-    const beziers = listBeziers(curve);
-    if (beziers.length === 0) {
-        return curve.clone();
-    }
-    const builder = CurveBuilder.create();
-    const first = beziers[0].start;
-    const tFirst = transformPoint(first, matrix);
-    builder.beginXY(tFirst.x, tFirst.y);
-    for (const bez of beziers) {
-        const c1 = transformPoint(bez.c1, matrix);
-        const c2 = transformPoint(bez.c2, matrix);
-        const end = transformPoint(bez.end, matrix);
-        builder.addBezierXY(c1.x, c1.y, c2.x, c2.y, end.x, end.y);
-    }
-    return builder.createCurve();
-}
+    const dotVal = Math.max(-1.0, Math.min(1.0, tIn.x * tOut.x + tIn.y * tOut.y));
+    const angleDeg = Math.acos(dotVal) * (180.0 / Math.PI);
 
-function reverseCurve(curve) {
-    const beziers = listBeziers(curve);
-    if (beziers.length === 0) {
-        return curve.clone();
-    }
-    const builder = CurveBuilder.create();
-    const last = beziers[beziers.length - 1].end;
-    builder.beginXY(last.x, last.y);
-    for (let i = beziers.length - 1; i >= 0; i--) {
-        const bez = beziers[i];
-        builder.addBezierXY(bez.c2.x, bez.c2.y, bez.c1.x, bez.c1.y, bez.start.x, bez.start.y);
-    }
-    return builder.createCurve();
-}
-
-function appendCurveBeziers(builder, curve, beginPath) {
-    const beziers = listBeziers(curve);
-    if (beziers.length === 0) {
-        return null;
-    }
-    if (beginPath) {
-        builder.beginXY(beziers[0].start.x, beziers[0].start.y);
-    }
-    for (const bez of beziers) {
-        builder.addBezierXY(bez.c1.x, bez.c1.y, bez.c2.x, bez.c2.y, bez.end.x, bez.end.y);
-    }
-    return getEndpoints(curve);
-}
-
-function mergeTwoPaths(pathA, endA, pathB, endB) {
-    let curveA = pathA.curve.clone();
-    let curveB = pathB.curve.clone();
-    if (endA === 'start') {
-        curveA = reverseCurve(curveA);
-    }
-    if (endB === 'end') {
-        curveB = reverseCurve(curveB);
-    }
-
-    const endPtA = getEndpoints(curveA).end;
-    const startPtB = getEndpoints(curveB).start;
-
-    const builder = CurveBuilder.create();
-    appendCurveBeziers(builder, curveA, true);
-    if (!pointsAreClose(endPtA, startPtB)) {
-        builder.lineToXY(startPtB.x, startPtB.y);
-    }
-    appendCurveBeziers(builder, curveB, false);
-
-    const merged = builder.createCurve();
-    const endpoints = getEndpoints(merged);
-    return {
-        id: pathA.id,
-        node: pathA.node,
-        curve: merged,
-        start: endpoints.start,
-        end: endpoints.end,
-        active: true,
-    };
-}
-
-function hasCurveGeometry(node) {
-    if (!node || !node.curvesInterface) {
-        return false;
-    }
-    try {
-        if (node.curvesInterface.polyPolyCurves && node.curvesInterface.polyPolyCurves.hasCurves) {
-            return true;
+    const shouldSmooth = (smoothMode === 1) || (smoothMode === 0 && angleDeg <= 60.0);
+    if (shouldSmooth) {
+        let tBlend = { x: tIn.x + tOut.x, y: tIn.y + tOut.y };
+        if (Math.hypot(tBlend.x, tBlend.y) < 1e-4) {
+            tBlend = { x: nextSeg.end.x - prevSeg.start.x, y: nextSeg.end.y - prevSeg.start.y };
         }
-    } catch (_) {}
-    try {
-        return node.curvesInterface.polyCurve && node.curvesInterface.polyCurve.curveCount > 0;
-    } catch (_) {
-        return false;
+        const T = normalize(tBlend);
+        prevSeg.c2 = { x: J.x - T.x * lenIn, y: J.y - T.y * lenIn };
+        nextSeg.c1 = { x: J.x + T.x * lenOut, y: J.y + T.y * lenOut };
     }
 }
 
-function isVectorLikeNode(node) {
-    if (!node) {
-        return false;
-    }
-    if (node.isContainerNode) {
-        return false;
-    }
-    return hasCurveGeometry(node) || node.isVectorNode || node.isShapeNode || node.isPolyCurveNode;
+function weldTwoChainsIntoOne(chainA, chainB, smoothMode) {
+    const copyA = chainA.map(cloneBezier);
+    const copyB = chainB.map(cloneBezier);
+
+    const lastA = copyA[copyA.length - 1];
+    const firstB = copyB[0];
+    const E1 = lastA.end;
+    const S2 = firstB.start;
+
+    const J = { x: (E1.x + S2.x) * 0.5, y: (E1.y + S2.y) * 0.5 };
+
+    const deltaA = { x: J.x - E1.x, y: J.y - E1.y };
+    const deltaB = { x: J.x - S2.x, y: J.y - S2.y };
+
+    lastA.end = { x: J.x, y: J.y };
+    lastA.c2 = { x: lastA.c2.x + deltaA.x, y: lastA.c2.y + deltaA.y };
+
+    firstB.start = { x: J.x, y: J.y };
+    firstB.c1 = { x: firstB.c1.x + deltaB.x, y: firstB.c1.y + deltaB.y };
+
+    alignHandlesAtJunction(lastA, firstB, J, smoothMode);
+
+    return [...copyA, ...copyB];
 }
 
-function getSelectedVectorNodes(doc) {
-    const nodes = doc.selection.nodes.toArray
-        ? doc.selection.nodes.toArray()
-        : Array.from(doc.selection.nodes);
-    return nodes.filter(isVectorLikeNode);
+function weldSingleOpenCurveEndpoints(chain, smoothMode) {
+    if (chain.length === 0) return chain;
+    const copy = chain.map(cloneBezier);
+    const first = copy[0];
+    const last = copy[copy.length - 1];
+
+    const S = first.start;
+    const E = last.end;
+    const J = { x: (S.x + E.x) * 0.5, y: (S.y + E.y) * 0.5 };
+
+    const deltaS = { x: J.x - S.x, y: J.y - S.y };
+    const deltaE = { x: J.x - E.x, y: J.y - E.y };
+
+    first.start = { x: J.x, y: J.y };
+    first.c1 = { x: first.c1.x + deltaS.x, y: first.c1.y + deltaS.y };
+
+    last.end = { x: J.x, y: J.y };
+    last.c2 = { x: last.c2.x + deltaE.x, y: last.c2.y + deltaE.y };
+
+    alignHandlesAtJunction(last, first, J, smoothMode);
+
+    return copy;
 }
 
-function getLocalCurves(node) {
-    const ci = node.curvesInterface;
-    const curves = [];
-    try {
-        const pc = ci.polyCurve;
-        for (let i = 0; i < pc.curveCount; i++) {
-            curves.push(pc.at(i).clone());
-        }
-        if (curves.length > 0) {
-            return curves;
-        }
-    } catch (_) {}
-    try {
-        const ppc = ci.polyPolyCurves;
-        for (let i = 0; i < ppc.polyCurveCount; i++) {
-            const sub = ppc.getPolyCurve(i);
-            for (let j = 0; j < sub.curveCount; j++) {
-                curves.push(sub.at(j).clone());
-            }
-        }
-    } catch (_) {}
-    return curves;
-}
+function collapseMicroSegmentsInChain(chain, microTolPt, isClosed, smoothMode) {
+    if (chain.length <= 1) return chain;
 
-function ensureCurves(doc, nodes) {
-    const converted = [];
-    for (const node of nodes) {
-        if (hasCurveGeometry(node)) {
-            converted.push(node);
-            continue;
-        }
-        try {
-            const selection = Selection.create(doc, node, true);
-            const command = DocumentCommand.createConvertToCurves(selection);
-            executeDocumentCommand(doc, command, false);
-            const next = command.newNodes && command.newNodes.length > 0
-                ? command.newNodes[0]
-                : doc.selection.firstNode;
-            if (next && hasCurveGeometry(next)) {
-                converted.push(next);
-            }
-        } catch (_) {}
-    }
-    return converted;
-}
+    let modified = true;
+    let current = chain.map(cloneBezier);
 
-function analyzeNodes(nodes) {
-    const closedByNode = new Map();
-    const openPaths = [];
-    let nextId = 0;
+    while (modified && current.length > 1) {
+        modified = false;
+        for (let i = 0; i < current.length; i++) {
+            const seg = current[i];
+            const len = approxBezierLength(seg);
 
-    for (const node of nodes) {
-        const ci = node.curvesInterface;
-        const matrix = getTransformMatrix(ci.domainTransform);
-        const localCurves = getLocalCurves(node);
-        const closed = [];
+            if (len < microTolPt && current.length > 1) {
+                const mid = { x: (seg.start.x + seg.end.x) * 0.5, y: (seg.start.y + seg.end.y) * 0.5 };
+                const deltaPrev = { x: mid.x - seg.start.x, y: mid.y - seg.start.y };
+                const deltaNext = { x: mid.x - seg.end.x, y: mid.y - seg.end.y };
 
-        for (const localCurve of localCurves) {
-            if (localCurve.isEmpty) {
-                continue;
-            }
-            if (localCurve.isClosed) {
-                closed.push(localCurve.clone());
-                continue;
-            }
-            const spreadCurve = matrix ? transformCurve(localCurve, matrix) : localCurve.clone();
-            const endpoints = getEndpoints(spreadCurve);
-            if (!endpoints) {
-                continue;
-            }
-            openPaths.push({
-                id: nextId,
-                node,
-                matrix,
-                curve: spreadCurve,
-                start: endpoints.start,
-                end: endpoints.end,
-                active: true,
-            });
-            nextId += 1;
-        }
+                const prevIdx = (i === 0) ? (isClosed ? current.length - 1 : -1) : i - 1;
+                const nextIdx = (i === current.length - 1) ? (isClosed ? 0 : -1) : i + 1;
 
-        closedByNode.set(node, closed);
-    }
-
-    return { openPaths, closedByNode };
-}
-
-function findBestJoinForPath(seed, openPaths, radius) {
-    let best = null;
-
-    for (const other of openPaths) {
-        if (!other.active || other.id === seed.id) {
-            continue;
-        }
-        for (const seedKind of ['start', 'end']) {
-            const seedPoint = seed[seedKind];
-            for (const otherKind of ['start', 'end']) {
-                const distance = distanceBetween(seedPoint, other[otherKind]);
-                if (distance <= radius && (!best || distance < best.distance)) {
-                    best = {
-                        seedKind,
-                        other,
-                        otherKind,
-                        distance,
+                if (prevIdx >= 0) {
+                    current[prevIdx].end = { x: mid.x, y: mid.y };
+                    current[prevIdx].c2 = {
+                        x: current[prevIdx].c2.x + deltaPrev.x,
+                        y: current[prevIdx].c2.y + deltaPrev.y
                     };
                 }
+                if (nextIdx >= 0) {
+                    current[nextIdx].start = { x: mid.x, y: mid.y };
+                    current[nextIdx].c1 = {
+                        x: current[nextIdx].c1.x + deltaNext.x,
+                        y: current[nextIdx].c1.y + deltaNext.y
+                    };
+                }
+
+                if (prevIdx >= 0 && nextIdx >= 0) {
+                    alignHandlesAtJunction(current[prevIdx], current[nextIdx], mid, smoothMode);
+                }
+
+                current.splice(i, 1);
+                modified = true;
+                break;
             }
         }
     }
 
-    return best;
+    return current;
 }
 
-function joinOpenPaths(openPaths, radius) {
-    let joinCount = 0;
-    const seeds = openPaths.slice().sort((left, right) => left.id - right.id);
+function buildChamferBridge(chainA, chainB) {
+    const lastA = chainA[chainA.length - 1];
+    const firstB = chainB[0];
+    const E1 = lastA.end;
+    const S2 = firstB.start;
+    const gap = dist(E1, S2);
 
-    for (const seed of seeds) {
-        if (!seed.active) {
+    if (gap < 1e-4) {
+        return [...chainA, ...chainB];
+    }
+
+    const bridge = {
+        start: { x: E1.x, y: E1.y },
+        c1: { x: E1.x, y: E1.y },
+        c2: { x: S2.x, y: S2.y },
+        end: { x: S2.x, y: S2.y }
+    };
+
+    return [...chainA, bridge, ...chainB];
+}
+
+// =============================================================================
+// SUBPATH EXTRACTION & PARSING
+// =============================================================================
+
+function extractAllSubpaths(doc) {
+    const items = [];
+    if (doc.selection.length === 0) return items;
+
+    const primaryNode = doc.selection.at(0).node || doc.selection.at(0);
+    const xfPrimary = primaryNode.transformInterface ? primaryNode.transformInterface.transform : null;
+    const invPrimary = xfPrimary ? xfPrimary.inverted : null;
+
+    for (let i = 0; i < doc.selection.length; i++) {
+        const selItem = doc.selection.at(i);
+        const node = selItem.node || selItem;
+        if (!node || !node.curvesInterface) continue;
+
+        let pc = null;
+        try {
+            pc = node.curvesInterface.polyCurve;
+        } catch (e) {
             continue;
         }
+        if (!pc || pc.curves.length === 0) continue;
 
-        while (true) {
-            const match = findBestJoinForPath(seed, openPaths, radius);
-            if (!match || !match.other.active) {
+        let xfToPrimary = null;
+        if (node !== primaryNode && invPrimary) {
+            const xfNode = node.transformInterface ? node.transformInterface.transform : null;
+            if (xfNode) {
+                xfToPrimary = invPrimary.multiply(xfNode);
+            }
+        }
+
+        for (let cIdx = 0; cIdx < pc.curves.length; cIdx++) {
+            const curve = pc.curves.at(cIdx);
+            if (curve.pointCount < 2) continue;
+
+            const beziers = [];
+            for (const b of curve.beziers) {
+                const bLocal = xfToPrimary ? b.transformed(xfToPrimary) : b.clone();
+                beziers.push({
+                    start: { x: bLocal.start.x, y: bLocal.start.y },
+                    c1: { x: bLocal.c1.x, y: bLocal.c1.y },
+                    c2: { x: bLocal.c2.x, y: bLocal.c2.y },
+                    end: { x: bLocal.end.x, y: bLocal.end.y }
+                });
+            }
+
+            if (beziers.length === 0) continue;
+
+            const startPt = beziers[0].start;
+            const endPt = beziers[beziers.length - 1].end;
+            const isClosed = curve.isClosed || dist(startPt, endPt) < 1e-4;
+
+            items.push({
+                node,
+                subpathIndex: cIdx,
+                beziers,
+                startPt,
+                endPt,
+                isClosed
+            });
+        }
+    }
+    return items;
+}
+
+// =============================================================================
+// MASTER JOIN EXECUTION ENGINE (v1.2.1 Architecture)
+// =============================================================================
+
+function executeMasterJoin(allPaths, mode, smoothMode, gapTolerancePt, tension, autoClose) {
+    const openPaths = allPaths.filter(p => !p.isClosed);
+    const closedPaths = allPaths.filter(p => p.isClosed);
+
+    const result = [];
+    let operationsPerformed = 0;
+
+    if (openPaths.length === 1 && closedPaths.length === 0) {
+        const path = openPaths[0];
+        let chain = path.beziers.map(cloneBezier);
+        const endpointGap = dist(path.startPt, path.endPt);
+        let closedFlag = false;
+
+        if (mode === 0) {
+            if (endpointGap <= gapTolerancePt && endpointGap > 1e-4) {
+                const tExit = getExitTangent(chain);
+                const tEntry = getEntryTangent(chain);
+                const h = (endpointGap / 3.0) * tension;
+                chain.push({
+                    start: { x: chain[chain.length - 1].end.x, y: chain[chain.length - 1].end.y },
+                    c1: { x: chain[chain.length - 1].end.x + tExit.x * h, y: chain[chain.length - 1].end.y + tExit.y * h },
+                    c2: { x: chain[0].start.x - tEntry.x * h, y: chain[0].start.y - tEntry.y * h },
+                    end: { x: chain[0].start.x, y: chain[0].start.y }
+                });
+                closedFlag = true;
+                operationsPerformed++;
+            }
+        } else if (mode === 1 || mode === 2) {
+            if (endpointGap <= gapTolerancePt) {
+                chain = weldSingleOpenCurveEndpoints(chain, smoothMode);
+                closedFlag = true;
+                operationsPerformed++;
+            }
+            if (mode === 2) {
+                const beforeCount = chain.length;
+                chain = collapseMicroSegmentsInChain(chain, gapTolerancePt, closedFlag, smoothMode);
+                if (chain.length < beforeCount) operationsPerformed++;
+            }
+        } else if (mode === 3) {
+            const beforeCount = chain.length;
+            chain = collapseMicroSegmentsInChain(chain, gapTolerancePt, false, smoothMode);
+            if (chain.length < beforeCount) operationsPerformed++;
+        } else if (mode === 4) {
+            if (endpointGap <= gapTolerancePt && endpointGap > 1e-4) {
+                chain.push({
+                    start: { x: chain[chain.length - 1].end.x, y: chain[chain.length - 1].end.y },
+                    c1: { x: chain[chain.length - 1].end.x, y: chain[chain.length - 1].end.y },
+                    c2: { x: chain[0].start.x, y: chain[0].start.y },
+                    end: { x: chain[0].start.x, y: chain[0].start.y }
+                });
+                closedFlag = true;
+                operationsPerformed++;
+            }
+        }
+
+        result.push({ beziers: chain, isClosed: closedFlag });
+        return {
+            success: operationsPerformed > 0,
+            operationsCount: operationsPerformed,
+            chains: result
+        };
+    }
+
+    if (openPaths.length >= 2) {
+        let activeChains = openPaths.map(p => p.beziers.map(cloneBezier));
+
+        while (activeChains.length > 1) {
+            let bestDist = Infinity;
+            let bestI = -1;
+            let bestJ = -1;
+            let bestCase = -1;
+
+            for (let i = 0; i < activeChains.length; i++) {
+                const chainA = activeChains[i];
+                const sA = chainA[0].start;
+                const eA = chainA[chainA.length - 1].end;
+
+                for (let j = i + 1; j < activeChains.length; j++) {
+                    const chainB = activeChains[j];
+                    const sB = chainB[0].start;
+                    const eB = chainB[chainB.length - 1].end;
+
+                    const d_EA_SB = dist(eA, sB);
+                    const d_EA_EB = dist(eA, eB);
+                    const d_SA_SB = dist(sA, sB);
+                    const d_SA_EB = dist(sA, eB);
+
+                    if (d_EA_SB < bestDist) { bestDist = d_EA_SB; bestI = i; bestJ = j; bestCase = 1; }
+                    if (d_EA_EB < bestDist) { bestDist = d_EA_EB; bestI = i; bestJ = j; bestCase = 2; }
+                    if (d_SA_SB < bestDist) { bestDist = d_SA_SB; bestI = i; bestJ = j; bestCase = 3; }
+                    if (d_SA_EB < bestDist) { bestDist = d_SA_EB; bestI = i; bestJ = j; bestCase = 4; }
+                }
+            }
+
+            if (bestDist > gapTolerancePt || bestI < 0) {
                 break;
             }
 
-            const merged = mergeTwoPaths(seed, match.seedKind, match.other, match.otherKind);
-            seed.curve = merged.curve;
-            seed.start = merged.start;
-            seed.end = merged.end;
-            seed.active = true;
-            match.other.active = false;
-            joinCount += 1;
-        }
-    }
+            let chainA = activeChains[bestI];
+            let chainB = activeChains[bestJ];
 
-    return joinCount;
-}
+            if (bestCase === 2) {
+                chainB = reverseChain(chainB);
+            } else if (bestCase === 3) {
+                chainA = reverseChain(chainA);
+            } else if (bestCase === 4) {
+                chainA = reverseChain(chainA);
+                chainB = reverseChain(chainB);
+            }
 
-function toLocalCurve(node, spreadCurve) {
-    const matrix = getTransformMatrix(node.curvesInterface.domainTransform);
-    const inverse = matrix ? invertAffineMatrix(matrix) : null;
-    return inverse ? transformCurve(spreadCurve, inverse) : spreadCurve.clone();
-}
+            let merged = null;
+            if (mode === 0) {
+                merged = buildSmoothBezierBridge(chainA, chainB, tension);
+            } else if (mode === 1 || mode === 2) {
+                merged = weldTwoChainsIntoOne(chainA, chainB, smoothMode);
+                if (mode === 2) {
+                    merged = collapseMicroSegmentsInChain(merged, gapTolerancePt, false, smoothMode);
+                }
+            } else if (mode === 4) {
+                merged = buildChamferBridge(chainA, chainB);
+            } else {
+                merged = [...chainA, ...chainB];
+            }
 
-function applyJoinResults(doc, nodes, closedByNode, openPaths) {
-    const activeOpen = openPaths.filter(path => path.active);
-    const openByNode = new Map();
-    for (const node of nodes) {
-        openByNode.set(node, []);
-    }
-    for (const path of activeOpen) {
-        if (!openByNode.has(path.node)) {
-            openByNode.set(path.node, []);
-        }
-        openByNode.get(path.node).push(path);
-    }
-
-    const compound = CompoundCommandBuilder.create();
-    let commandCount = 0;
-    const nodesToDelete = [];
-
-    for (const node of nodes) {
-        const closed = closedByNode.get(node) || [];
-        const open = openByNode.get(node) || [];
-        const localCurves = [];
-
-        for (const curve of closed) {
-            localCurves.push(curve.clone());
-        }
-        for (const path of open) {
-            localCurves.push(toLocalCurve(node, path.curve));
+            activeChains.splice(bestJ, 1);
+            activeChains[bestI] = merged;
+            operationsPerformed++;
         }
 
-        if (localCurves.length === 0) {
-            nodesToDelete.push(node);
-            continue;
+        // Auto-close if requested (unchecked by default for 2 curves)
+        for (let i = 0; i < activeChains.length; i++) {
+            let ch = activeChains[i];
+            let isClosed = false;
+            const gap = dist(ch[0].start, ch[ch.length - 1].end);
+
+            if (autoClose && gap <= gapTolerancePt) {
+                if (mode === 0 && gap > 1e-4) {
+                    const tExit = getExitTangent(ch);
+                    const tEntry = getEntryTangent(ch);
+                    const h = (gap / 3.0) * tension;
+                    ch.push({
+                        start: { x: ch[ch.length - 1].end.x, y: ch[ch.length - 1].end.y },
+                        c1: { x: ch[ch.length - 1].end.x + tExit.x * h, y: ch[ch.length - 1].end.y + tExit.y * h },
+                        c2: { x: ch[0].start.x - tEntry.x * h, y: ch[0].start.y - tEntry.y * h },
+                        end: { x: ch[0].start.x, y: ch[0].start.y }
+                    });
+                    isClosed = true;
+                    operationsPerformed++;
+                } else if ((mode === 1 || mode === 2)) {
+                    ch = weldSingleOpenCurveEndpoints(ch, smoothMode);
+                    isClosed = true;
+                    operationsPerformed++;
+                } else if (mode === 4 && gap > 1e-4) {
+                    ch.push({
+                        start: { x: ch[ch.length - 1].end.x, y: ch[ch.length - 1].end.y },
+                        c1: { x: ch[ch.length - 1].end.x, y: ch[ch.length - 1].end.y },
+                        c2: { x: ch[0].start.x, y: ch[0].start.y },
+                        end: { x: ch[0].start.x, y: ch[0].start.y }
+                    });
+                    isClosed = true;
+                    operationsPerformed++;
+                }
+            }
+
+            if (mode === 2 || mode === 3) {
+                ch = collapseMicroSegmentsInChain(ch, gapTolerancePt, isClosed, smoothMode);
+            }
+
+            result.push({ beziers: ch, isClosed });
         }
 
-        const polyCurve = new PolyCurve();
-        for (const curve of localCurves) {
-            polyCurve.addCurve(curve);
+        for (const cp of closedPaths) {
+            let cChain = cp.beziers.map(cloneBezier);
+            if (mode === 2 || mode === 3) {
+                cChain = collapseMicroSegmentsInChain(cChain, gapTolerancePt, true, smoothMode);
+            }
+            result.push({ beziers: cChain, isClosed: true });
         }
-        compound.addCommand(DocumentCommand.createSetCurves(node.curvesInterface, polyCurve));
-        commandCount += 1;
-    }
 
-    for (const node of nodesToDelete) {
-        compound.addCommand(DocumentCommand.createDeleteSelection(Selection.create(doc, node, true), false));
-        commandCount += 1;
-    }
-
-    if (commandCount === 0) {
-        return nodes.filter(node => !nodesToDelete.includes(node));
-    }
-
-    executeDocumentCommand(doc, compound.createCommand(), false);
-    return nodes.filter(node => !nodesToDelete.includes(node));
-}
-
-function captureJoinSnapshot(doc, nodes) {
-    const dupes = duplicateNodes(doc, nodes);
-    if (dupes.length === 0) {
-        return { paths: [], openCount: 0, error: 'Could not read the selection geometry.' };
-    }
-
-    const working = ensureCurves(doc, dupes);
-    const { openPaths } = analyzeNodes(working);
-    deleteNodes(doc, dupes);
-
-    if (openPaths.length === 0) {
-        return { paths: [], openCount: 0, error: 'No open paths found in the selection.' };
-    }
-
-    return {
-        paths: openPaths.map((path, index) => ({
-            id: index,
-            curve: path.curve.clone(),
-            start: copyPoint(path.start),
-            end: copyPoint(path.end),
-        })),
-        openCount: openPaths.length,
-        error: null,
-    };
-}
-
-function simulateJoinStats(snapshot, radius) {
-    if (snapshot.error) {
         return {
-            openCount: snapshot.openCount,
-            joinCount: 0,
-            remainingOpen: snapshot.openCount,
-            error: snapshot.error,
+            success: operationsPerformed > 0,
+            operationsCount: operationsPerformed,
+            chains: result
         };
     }
 
-    const paths = snapshot.paths.map((entry) => ({
-        id: entry.id,
-        curve: entry.curve.clone(),
-        start: copyPoint(entry.start),
-        end: copyPoint(entry.end),
-        active: true,
-        node: null,
-    }));
+    if (closedPaths.length > 0) {
+        for (const cp of closedPaths) {
+            let cChain = cp.beziers.map(cloneBezier);
+            const beforeCount = cChain.length;
+            cChain = collapseMicroSegmentsInChain(cChain, gapTolerancePt, true, smoothMode);
+            if (cChain.length < beforeCount) {
+                operationsPerformed++;
+            }
+            result.push({ beziers: cChain, isClosed: true });
+        }
 
-    const joinCount = joinOpenPaths(paths, radius);
-    return {
-        openCount: snapshot.openCount,
-        joinCount,
-        remainingOpen: paths.filter(path => path.active).length,
-        error: null,
-    };
-}
-
-function runJoin(doc, nodes, radius) {
-    const working = ensureCurves(doc, nodes.slice());
-    const { openPaths, closedByNode } = analyzeNodes(working);
-
-    if (openPaths.length === 0) {
         return {
-            nodes: working,
-            openCount: 0,
-            joinCount: 0,
-            remainingOpen: 0,
-            error: 'No open paths found in the selection.',
+            success: operationsPerformed > 0,
+            operationsCount: operationsPerformed,
+            chains: result
         };
     }
 
-    const initialOpen = openPaths.length;
-    const joinCount = joinOpenPaths(openPaths, radius);
-    const remainingOpen = openPaths.filter(path => path.active).length;
-    const resultNodes = applyJoinResults(doc, working, closedByNode, openPaths);
-
-    return {
-        nodes: resultNodes,
-        openCount: initialOpen,
-        joinCount,
-        remainingOpen,
-        error: null,
-    };
+    return { success: false, operationsCount: 0, chains: [] };
 }
 
-function duplicateNodes(doc, nodes) {
-    if (nodes.length === 0) {
-        return [];
-    }
-    const selection = Selection.create(doc, nodes, true);
-    const command = DocumentCommand.createTransform(selection, null, { duplicateNodes: true });
-    executeDocumentCommand(doc, command, false);
-    return command.newNodes && command.newNodes.length > 0 ? command.newNodes.slice() : [];
-}
+// =============================================================================
+// MAIN CONTROLLER
+// =============================================================================
 
-function setNodesVisible(doc, nodes, visible) {
-    for (const node of nodes) {
-        try {
-            executeDocumentCommand(
-                doc,
-                DocumentCommand.createSetVisibility(Selection.create(doc, node, true), visible),
-                false
-            );
-        } catch (_) {}
-    }
-}
-
-function deleteNodes(doc, nodes) {
-    for (const node of nodes) {
-        try {
-            executeDocumentCommand(
-                doc,
-                DocumentCommand.createDeleteSelection(Selection.create(doc, node, true), false),
-                false
-            );
-        } catch (_) {}
-    }
-}
-
-function buildDialog(values, stats) {
-    const dialog = Dialog.create(APP_NAME);
-    dialog.initialWidth = 320;
-    dialog.isResizable = true;
-
-    const column = dialog.addColumn();
-    const statsGroup = column.addGroup('Statistics');
-    const statsText = statsGroup.addStaticText('', formatStatsLine(stats));
-    statsText.isFullWidth = true;
-
-    const group = column.addGroup('');
-    const radiusCtrl = group.addUnitValueEditor(
-        'Radius',
-        UnitType.Pixel,
-        UnitType.Pixel,
-        values.radius,
-        0,
-        5000
-    );
-    radiusCtrl.showPopupSlider = true;
-    radiusCtrl.precision = 1;
-    radiusCtrl.isFullWidth = true;
-
-    return { dialog, radiusCtrl, statsText };
-}
-
-function readValues(controls, previous) {
-    return {
-        radius: parseNumber(controls.radiusCtrl.value, previous.radius, 0, 5000),
-    };
-}
-
-function main() {
-    const doc = Document.current;
+function runJoinCurvesPro() {
+    const doc = Document.current || (Document.all.length > 0 ? Document.all[0] : null);
     if (!doc) {
-        app.alert('Open a document before running Join paths.', APP_NAME);
+        const dlg = Dialog.create("Join Curves Pro");
+        const col = dlg.addColumn();
+        const grp = col.addGroup("Notice");
+        grp.addStaticText("Status", "No active document found. Please open a document with vector curves.");
+        dlg.runModal();
         return;
     }
 
-    const originalNodes = getSelectedVectorNodes(doc);
-    if (originalNodes.length === 0) {
-        app.alert('Select at least one vector shape.', APP_NAME);
+    if (doc.selection.length === 0) {
+        const dlg = Dialog.create("Join Curves Pro");
+        const col = dlg.addColumn();
+        const grp = col.addGroup("Notice");
+        grp.addStaticText("Status", "No curves selected. Please select at least 1 curve with vector nodes.");
+        dlg.runModal();
         return;
     }
 
-    const snapshot = captureJoinSnapshot(doc, originalNodes);
-    if (snapshot.error) {
-        app.alert(snapshot.error, APP_NAME);
+    const allSubpaths = extractAllSubpaths(doc);
+    if (allSubpaths.length === 0) {
+        const dlg = Dialog.create("Join Curves Pro");
+        const col = dlg.addColumn();
+        const grp = col.addGroup("Notice");
+        grp.addStaticText("Status", "No vector nodes found in selection. Ensure the selected layers are Curves.");
+        dlg.runModal();
         return;
     }
 
-    let values = Object.assign({}, DEFAULTS);
-    let previewNodes = [];
-    let originalsHidden = false;
+    const openSubpaths = allSubpaths.filter(p => !p.isClosed);
+    const closedSubpaths = allSubpaths.filter(p => p.isClosed);
 
-    function discardPreview() {
-        if (previewNodes.length > 0) {
-            deleteNodes(doc, previewNodes);
-            previewNodes = [];
+    let minGapPt = Infinity;
+    let minSegPt = Infinity;
+
+    for (const p of allSubpaths) {
+        for (const b of p.beziers) {
+            const len = approxBezierLength(b);
+            if (len < minSegPt) minSegPt = len;
         }
-        if (originalsHidden) {
-            setNodesVisible(doc, originalNodes, true);
-            originalsHidden = false;
+    }
+
+    if (openSubpaths.length >= 2) {
+        for (let i = 0; i < openSubpaths.length; i++) {
+            for (let j = i + 1; j < openSubpaths.length; j++) {
+                const pA = openSubpaths[i], pB = openSubpaths[j];
+                minGapPt = Math.min(minGapPt,
+                    dist(pA.endPt, pB.startPt),
+                    dist(pA.endPt, pB.endPt),
+                    dist(pA.startPt, pB.startPt),
+                    dist(pA.startPt, pB.endPt)
+                );
+            }
+        }
+    } else if (openSubpaths.length === 1) {
+        minGapPt = dist(openSubpaths[0].startPt, openSubpaths[0].endPt);
+    }
+
+    const relevantDistanceMm = isFinite(minGapPt) ? (minGapPt * PT_TO_MM) : (isFinite(minSegPt) ? minSegPt * PT_TO_MM : 2.0);
+    const initialToleranceMm = Math.max(1.0, Math.ceil(relevantDistanceMm * 1.5 * 10) / 10);
+
+    const primaryNode = allSubpaths[0].node;
+    const secondaryNodesMap = new Map();
+    for (let i = 1; i < allSubpaths.length; i++) {
+        const n = allSubpaths[i].node;
+        if (n !== primaryNode) {
+            secondaryNodesMap.set(n.handle, n);
+        }
+    }
+    const secondaryNodes = Array.from(secondaryNodesMap.values());
+
+    // -------------------------------------------------------------------------
+    // DIALOG SETUP
+    // -------------------------------------------------------------------------
+    const dlg = Dialog.create("Join Curves Pro");
+    const col = dlg.addColumn();
+
+    const grpMode = col.addGroup("Join Operation");
+    const modeItems = [
+        "Smooth Bézier Bridge (Draw Connecting Curve)",
+        "Weld Nodes into One (No Lines Drawn - Corel Style)",
+        "Weld Nodes + Delete Micro-Segments (Plotter Clean)",
+        "Delete Micro-Segments Only (Keep Open)",
+        "Chamfer (Straight Line)"
+    ];
+    // Smooth Bézier Bridge is DEFAULT (index 0)
+    const comboMode = grpMode.addComboBox("Mode", modeItems, 0);
+
+    const grpSmooth = col.addGroup("Junction Smoothness");
+    const smoothItems = [
+        "Auto-Smooth (< 60° smooth, >= 60° sharp corner)",
+        "Always Smooth (Continuous Plotter Cut)",
+        "Keep Corner Sharp (Preserve Original Angles)"
+    ];
+    const comboSmooth = grpSmooth.addComboBox("Smoothness", smoothItems, 0);
+
+    const grpSettings = col.addGroup("Parameters");
+    const gapEditor = grpSettings.addUnitValueEditor("Tolerance Gap", UnitType.Millimeters, UnitType.Millimeters, initialToleranceMm, 0.01, 1000.0);
+    gapEditor.setShowPopupSlider(true);
+
+    const tensionEditor = grpSettings.addUnitValueEditor("Bézier Tension", UnitType.None, UnitType.None, 1.0, 0.1, 3.0);
+    tensionEditor.setShowPopupSlider(true);
+    tensionEditor.setPrecision(2);
+
+    // v1.2.1 behavior: false for 2 curves so only the closest pair is joined
+    const chkAutoClose = grpSettings.addCheckBox("Auto-Close opposite ends if within tolerance", openSubpaths.length <= 1);
+    const chkPreview = grpSettings.addCheckBox("Live Preview", true);
+
+    const grpInfo = col.addGroup("Geometry Info");
+    if (openSubpaths.length === 1) {
+        grpInfo.addStaticText("Selection", "1 Open Curve (" + openSubpaths[0].beziers.length + " segments)");
+        grpInfo.addStaticText("Endpoint Gap", (minGapPt * PT_TO_MM).toFixed(3) + " mm (" + minGapPt.toFixed(2) + " pt)");
+    } else if (openSubpaths.length >= 2) {
+        grpInfo.addStaticText("Selection", openSubpaths.length + " Open Curves");
+        grpInfo.addStaticText("Closest Gap", (minGapPt * PT_TO_MM).toFixed(3) + " mm (" + minGapPt.toFixed(2) + " pt)");
+    } else {
+        grpInfo.addStaticText("Selection", closedSubpaths.length + " Closed Curve(s)");
+        grpInfo.addStaticText("Shortest Segment", (minSegPt * PT_TO_MM).toFixed(3) + " mm");
+    }
+
+    // -------------------------------------------------------------------------
+    // PREVIEW & ATOMIC HISTORY MANAGEMENT
+    // -------------------------------------------------------------------------
+    let previewApplied = false;
+
+    function applyJoinToDocument() {
+        const mode = comboMode.selectedIndex;
+        const smoothMode = comboSmooth.selectedIndex;
+        const tolerancePt = (gapEditor.value || initialToleranceMm) * MM_TO_PT;
+        const tension = tensionEditor.value || 1.0;
+        const autoClose = chkAutoClose.value;
+
+        const joinResult = executeMasterJoin(allSubpaths, mode, smoothMode, tolerancePt, tension, autoClose);
+        if (!joinResult.success || joinResult.chains.length === 0) {
+            return false;
+        }
+
+        const newPolyCurve = new PolyCurve();
+        for (let i = 0; i < joinResult.chains.length; i++) {
+            const chain = joinResult.chains[i].beziers;
+            const isClosed = joinResult.chains[i].isClosed;
+            if (chain.length === 0) continue;
+
+            const cb = CurveBuilder.create();
+            cb.begin(chain[0].start);
+            for (let j = 0; j < chain.length; j++) {
+                const b = chain[j];
+                cb.addBezier(b.c1, b.c2, b.end);
+            }
+            if (isClosed) {
+                cb.close();
+            }
+
+            const c = cb.createCurve();
+            newPolyCurve.addCurve(c);
+        }
+
+        const ccb = CompoundCommandBuilder.create();
+        ccb.addCommand(DocumentCommand.createSetCurves(primaryNode.curvesInterface, newPolyCurve));
+
+        if (secondaryNodes.length > 0) {
+            const selDelete = Selection.create(doc);
+            for (const secNode of secondaryNodes) {
+                selDelete.add(secNode);
+            }
+            ccb.addCommand(DocumentCommand.createDeleteSelection(selDelete));
+        }
+
+        doc.executeCommand(ccb.createCommand());
+        return true;
+    }
+
+    function updatePreview() {
+        if (previewApplied) {
+            doc.undo();
+            previewApplied = false;
+        }
+
+        if (chkPreview.value) {
+            const ok = applyJoinToDocument();
+            if (ok) {
+                previewApplied = true;
+            }
         }
     }
 
-    function rebuildPreview() {
-        discardPreview();
+    dlg.setOnControlValueChangedHandler((ctrl) => {
+        updatePreview();
+    });
 
-        setNodesVisible(doc, originalNodes, false);
-        originalsHidden = true;
-        previewNodes = duplicateNodes(doc, originalNodes);
-        if (previewNodes.length === 0) {
-            setNodesVisible(doc, originalNodes, true);
-            originalsHidden = false;
-            return { error: 'Could not duplicate the selection for preview.' };
+    if (chkPreview.value) {
+        updatePreview();
+    }
+
+    const dialogResult = dlg.runModal();
+
+    if (dialogResult === DialogResult.Ok) {
+        if (!previewApplied) {
+            applyJoinToDocument();
         }
-
-        const result = runJoin(doc, previewNodes, values.radius);
-        previewNodes = result.nodes;
-        return result;
+    } else {
+        if (previewApplied) {
+            doc.undo();
+            previewApplied = false;
+        }
     }
-
-    const initialPreview = rebuildPreview();
-    if (initialPreview.error) {
-        app.alert(initialPreview.error, APP_NAME);
-        discardPreview();
-        return;
-    }
-
-    const initialStats = simulateJoinStats(snapshot, values.radius);
-    const controls = buildDialog(values, initialStats);
-
-    controls.radiusCtrl.onValueChangedHandler = () => {
-        values.radius = parseNumber(controls.radiusCtrl.value, values.radius, 0, 5000);
-        const stats = simulateJoinStats(snapshot, values.radius);
-        controls.statsText.text = formatStatsLine(stats);
-        rebuildPreview();
-    };
-
-    if (getResultValue(controls.dialog.show()) !== DialogResult.Ok.value) {
-        discardPreview();
-        doc.executeCommand(DocumentCommand.createClearPreviews());
-        return;
-    }
-
-    values = readValues(controls, values);
-    doc.executeCommand(DocumentCommand.createClearPreviews());
-
-    discardPreview();
-    const joinedNodes = duplicateNodes(doc, originalNodes);
-    if (joinedNodes.length === 0) {
-        app.alert('Could not duplicate the selection.', APP_NAME);
-        return;
-    }
-    const finalResult = runJoin(doc, joinedNodes, values.radius);
-    if (finalResult.error) {
-        deleteNodes(doc, joinedNodes);
-        app.alert(finalResult.error, APP_NAME);
-        return;
-    }
-    deleteNodes(doc, originalNodes);
 }
 
-try {
-    main();
-} catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    app.alert('Join paths failed: ' + message, APP_NAME);
-}
+// Run
+runJoinCurvesPro();
