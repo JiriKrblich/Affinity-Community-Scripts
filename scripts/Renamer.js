@@ -1,10 +1,23 @@
 /**
  * name: Renamer Pro
- * description: Rename selected elements with remove, add, replace, and prefix, suffix, or insert numbering operations.
- * version: 1.1.0
+ * description: Batch-renames selected elements in selection order or spatial Position order. Supports removing a range, replacing matching text, adding text as a prefix, suffix, indexed insertion or complete overwrite, and sequential numbering with padding, separators and reverse order. Select elements and run the script. Add is enabled by default with Overwrite selected: enter the desired Text or disable Add before confirming.
+ * version: 1.1.1
  * author: WaveF
  * email: wavef@live.com
  * website: https://minicg.com
+ *
+ * 1.1.1 - checked against current Affinity SDK (3.3):
+ *  - DialogControl.setIsEnabledBy() and
+ *    setIsEnabledByControlIDWithSelectedIndex() are deprecated and are now
+ *    silent no-ops (confirmed live - they warn once and do nothing). Every
+ *    "greyed out until enabled" wire-up in this dialog used one of the two,
+ *    so all fields showed as permanently enabled regardless of their
+ *    section's switch or the Add/Number position choice. The rename logic
+ *    itself was unaffected (it already reads each section's .value at
+ *    apply time), so nothing was silently wrong - the dialog just didn't
+ *    grey anything out. Replaced with a manual updateControlState()
+ *    wired to dlg.onControlValueChangedHandler, matching the pattern the
+ *    rest of the current scripts use.
 */
 'use strict';
 
@@ -256,7 +269,7 @@ function collectRenamePreview(settings) {
 }
 
 function buildDialog() {
-  const dlg = Dialog.create(`${APP_NAME} v1.1.0`);
+  const dlg = Dialog.create(`${APP_NAME} v1.1.1`);
   dlg.initialWidth = 380;
   dlg.isResizable = false;
 
@@ -270,60 +283,81 @@ function buildDialog() {
   dlg.removeStart = removeGroup.addUnitValueEditor('Start', UnitType.Number, UnitType.Number, 0, 0, 999999);
   dlg.removeStart.precision = 0;
   dlg.removeStart.showPopupSlider = false;
-  dlg.removeStart.setIsEnabledBy(dlg.removeEnabled);
+
   dlg.removeLength = removeGroup.addUnitValueEditor('Length', UnitType.Number, UnitType.Number, 1, 0, 999999);
   dlg.removeLength.precision = 0;
   dlg.removeLength.showPopupSlider = false;
-  dlg.removeLength.setIsEnabledBy(dlg.removeEnabled);
+
 
   const appendGroup = col.addGroup('Add');
   dlg.appendEnabled = appendGroup.addSwitch('Enabled', true);
   dlg.appendPosition = appendGroup.addButtonSet('Position', ['Prefix', 'Suffix', 'Insert', 'Overwrite'], 3);
-  dlg.appendPosition.setIsEnabledBy(dlg.appendEnabled);
+
   dlg.appendInsertAt = appendGroup.addUnitValueEditor('Insert at', UnitType.Number, UnitType.Number, 0, 0, 999999);
   dlg.appendInsertAt.precision = 0;
   dlg.appendInsertAt.showPopupSlider = false;
-  dlg.appendInsertAt.setIsEnabledBy(dlg.appendEnabled);
-  dlg.appendInsertAt.setIsEnabledByControlIDWithSelectedIndex(dlg.appendPosition.controlID, 2);
+
   dlg.appendText = appendGroup.addTextBox('Text', '');
-  dlg.appendText.setIsEnabledBy(dlg.appendEnabled);
+
 
   const replaceGroup = col.addGroup('Replace');
   dlg.replaceEnabled = replaceGroup.addSwitch('Enabled', false);
   dlg.replaceFind = replaceGroup.addTextBox('Find', '');
-  dlg.replaceFind.setIsEnabledBy(dlg.replaceEnabled);
+
   dlg.replaceWith = replaceGroup.addTextBox('With', '');
-  dlg.replaceWith.setIsEnabledBy(dlg.replaceEnabled);
+
 
   const numberGroup = col.addGroup('Number');
   dlg.numberEnabled = numberGroup.addSwitch('Enabled', false);
   dlg.numberMode = numberGroup.addButtonSet('Position', ['Prefix', 'Suffix', 'Insert'], 1);
-  dlg.numberMode.setIsEnabledBy(dlg.numberEnabled);
+
   dlg.numberSeparator = numberGroup.addTextBox('Separator', '_');
-  dlg.numberSeparator.setIsEnabledBy(dlg.numberEnabled);
+
   dlg.numberAt = numberGroup.addUnitValueEditor('Insert at', UnitType.Number, UnitType.Number, 0, 0, 999999);
   dlg.numberAt.precision = 0;
   dlg.numberAt.showPopupSlider = false;
-  dlg.numberAt.setIsEnabledBy(dlg.numberEnabled);
-  dlg.numberAt.setIsEnabledByControlIDWithSelectedIndex(dlg.numberMode.controlID, 2);
+
   dlg.numberStart = numberGroup.addUnitValueEditor('Start', UnitType.Number, UnitType.Number, 1, -999999, 999999);
   dlg.numberStart.precision = 0;
   dlg.numberStart.showPopupSlider = false;
-  dlg.numberStart.setIsEnabledBy(dlg.numberEnabled);
+
   dlg.numberIncrement = numberGroup.addUnitValueEditor('Increment', UnitType.Number, UnitType.Number, 1, -999999, 999999);
   dlg.numberIncrement.precision = 0;
   dlg.numberIncrement.showPopupSlider = false;
-  dlg.numberIncrement.setIsEnabledBy(dlg.numberEnabled);
+
   dlg.numberDigits = numberGroup.addUnitValueEditor('Pad', UnitType.Number, UnitType.Number, 1, 0, 12);
   dlg.numberDigits.precision = 0;
   dlg.numberDigits.showPopupSlider = false;
-  dlg.numberDigits.setIsEnabledBy(dlg.numberEnabled);
+
   dlg.numberReverse = numberGroup.addSwitch('Reverse', false);
-  dlg.numberReverse.setIsEnabledBy(dlg.numberEnabled);
+
 
   const footerGroup = col.addGroup('');
   dlg.statusText = footerGroup.addStaticText('', `Selected Elements: ${count}`);
   dlg.statusText.isFullWidth = true;
+
+  function updateControlState() {
+    dlg.removeStart.isEnabled = dlg.removeEnabled.value;
+    dlg.removeLength.isEnabled = dlg.removeEnabled.value;
+
+    dlg.appendPosition.isEnabled = dlg.appendEnabled.value;
+    dlg.appendText.isEnabled = dlg.appendEnabled.value;
+    dlg.appendInsertAt.isEnabled = dlg.appendEnabled.value && dlg.appendPosition.selectedIndex === 2;
+
+    dlg.replaceFind.isEnabled = dlg.replaceEnabled.value;
+    dlg.replaceWith.isEnabled = dlg.replaceEnabled.value;
+
+    dlg.numberMode.isEnabled = dlg.numberEnabled.value;
+    dlg.numberSeparator.isEnabled = dlg.numberEnabled.value;
+    dlg.numberStart.isEnabled = dlg.numberEnabled.value;
+    dlg.numberIncrement.isEnabled = dlg.numberEnabled.value;
+    dlg.numberDigits.isEnabled = dlg.numberEnabled.value;
+    dlg.numberReverse.isEnabled = dlg.numberEnabled.value;
+    dlg.numberAt.isEnabled = dlg.numberEnabled.value && dlg.numberMode.selectedIndex === 2;
+  }
+
+  dlg.onControlValueChangedHandler = updateControlState;
+  updateControlState();
 
   return dlg;
 }
