@@ -1,3 +1,26 @@
+/**
+ * name: SELECT+
+ * description: Utility that select layers by relationship (eg. all layers within a group), containment (objects inside another shape), random distribution, or pattern-based rules.
+ * version: 1.0.1
+ * author: EricP
+ *
+ * 1.0.1 - checked against current Affinity SDK (3.3):
+ *  - DialogControl.setIsEnabledBy() is deprecated and is now a silent
+ *    no-op (confirmed live - it warns once and does nothing). All eight
+ *    "greyed out until its checkbox is on" wire-ups in this dialog used
+ *    it, so every field showed as permanently enabled regardless of
+ *    Relationship/Name/Shape/Every/Random being checked. The selection
+ *    logic itself reads each checkbox's .value at OK time, so results
+ *    were unaffected - only the dialog's enabled/disabled look was off.
+ *    Replaced with a manual updateControlState() wired to
+ *    dialog.onControlValueChangedHandler, matching the pattern used
+ *    across the current script set.
+ *  - Everything else (relationship/name/shape-containment/every/random
+ *    filtering, PolyPolyCurve.containsPoint, layer-order via
+ *    doc.layers.all.reverse(), Collection.toArray()) checked live and
+ *    works unchanged.
+ */
+
 "use strict";
 
 const { app } = require("/application");
@@ -61,14 +84,18 @@ function showSelectDialog(doc) {
   everyUnselectControl.customSize = { width: 90, height: -1 };
   randomControl.isFullWidth = true;
   randomPercentageControl.isFullWidth = true;
-  relationshipControl.setIsEnabledBy(relationshipEnabledControl);
-  nameTextControl.setIsEnabledBy(nameControl);
-  shapeModeControl.setIsEnabledBy(shapeControl);
-  shapeTargetControl.setIsEnabledBy(shapeControl);
-  everyIndexingControl.setIsEnabledBy(everyControl);
-  everySelectControl.setIsEnabledBy(everyControl);
-  everyUnselectControl.setIsEnabledBy(everyControl);
-  randomPercentageControl.setIsEnabledBy(randomControl);
+  function updateControlState() {
+    relationshipControl.isEnabled = relationshipEnabledControl.value;
+    nameTextControl.isEnabled = nameControl.value;
+    shapeModeControl.isEnabled = shapeControl.value;
+    shapeTargetControl.isEnabled = shapeControl.value;
+    everyIndexingControl.isEnabled = everyControl.value;
+    everySelectControl.isEnabled = everyControl.value;
+    everyUnselectControl.isEnabled = everyControl.value;
+    randomPercentageControl.isEnabled = randomControl.value;
+  }
+  dialog.onControlValueChangedHandler = updateControlState;
+  updateControlState();
 
   if (getResultValue(dialog.runModal()) !== DialogResult.Ok.value) {
     return null;

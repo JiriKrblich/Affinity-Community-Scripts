@@ -520,7 +520,8 @@
       "name": "SELECT+",
       "description": "Utility that select layers by relationship (eg. all layers within a group), containment (objects inside another shape), random distribution, or pattern-based rules.",
       "author": "EricP",
-      "version": "1.0.0",
+      "contributors":"Erhard.otto",
+      "version": "1.0.1",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/selectplus.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/selectplus.js"
