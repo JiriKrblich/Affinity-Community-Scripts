@@ -1,35 +1,38 @@
 "use strict";
 
 // =============================================================================
-// RADIAL REPEAT v6fa (Standard Procedural Radial Array & Geometry Engine)
+// RADIAL REPEAT v6fa (Raster Supported, New SDK & Flicker-Free Live Preview)
 // Affinity Designer / Photo / Publisher (v3e & Multi-Effect Standard)
 //
-// Features & Architecture in v6fa:
-// - 1:1 Live Preview & Output Synchronization (v6fa Fix):
+// Features & Architecture:
+// - Full Raster & Vector Universal Support:
+//   Works seamlessly with Curves, Shapes, Groups, and Raster layers (Pixel, Placed Image).
+//   Pure vector layers preview crisply via PolyCurveNodeDefinition.
+//   Raster layers capture instant O(1) bitmaps via NodeRenderingEngine and preview
+//   via RasterNodeDefinition.
+// - 100% Flicker-Free Live Preview:
+//   Synchronous reentrancy guard eliminates canvas blinking/flashing on slider movement.
+// - Updated to New Affinity SDK Standard:
+//   PolyCurveNodeDefinition.create(curve, brushFill, lineFill, lineStyle, transparencyFill)
+//   properly maps lineFill and lineStyle arguments.
+// - 1:1 Live Preview & Output Synchronization:
 //   Guarantees 100% mathematical and visual identity between Live Preview and
 //   the final applied container by applying conjugate similarity transformation
 //   T_spread = M_container * T_local * M_container^-1 to duplicated source nodes.
+// - Safe Duplication:
+//   Uses DocumentCommand.createTransform with { duplicateNodes: true, cloneRaster: true }
+//   guaranteeing full raster bitmap duplication.
 // - Non-Uniform Container Transform Compensation:
-//   When the container group is resized or transformed on canvas without maintaining
-//   aspect ratio (non-uniform stretch/squash), Radial Repeat v6fa decomposes and inverts
-//   the container transform matrix to work in container local coordinate space.
-//   Master source curves and local placement matrices maintain 100% purity and
-//   geometric integrity, completely eliminating compound deformation or distortion.
+//   When container group is transformed on canvas, Radial Repeat decomposes
+//   and inverts the container transform matrix to preserve geometric purity.
 // - Reverse Stacking Order Switch:
 //   Interactive switch "Reverse Stacking Order" to invert the Z-index of
 //   concentric rows and radial items (Inner on Top vs Outer on Top).
-// - Mix Shapes Across Rows & Rings (Multi-Shape Sequencing):
+// - Multi-Shape Sequencing Across Rows:
 //   Alternate or sequence multiple selected shapes across concentric rows or around single rings.
-// - Preserved Source Integrity:
-//   Sources (Source 1, Source 2...) maintain 100% geometric and styling integrity across infinite re-runs.
-// - Zero Phantom Strokes & Exact Style Fidelity:
-//   Accurate stroke visibility detection; never adds phantom strokes to un-stroked shapes.
-// - Full Blend Mode & Opacity Fidelity in Live Preview:
-//   Accurately renders Layer Blend Modes (Multiply, Screen, Overlay, Color Dodge, etc.)
-//   and semi-transparent opacity in real time during live preview.
-// - Standard Clean Metadata Storage (Zig Zag v3e Standard):
-//   Zero parameters in the container group name ("Radial Repeat Effect").
-//   All active parameters stored in TagInterface as JSON under 'radialRepeatSettings' and 'effectPipeline'.
+// - Preserved Source Integrity & Clean Metadata:
+//   Sources maintain 100% geometric and styling integrity across infinite re-runs.
+//   TagInterface stores clean JSON under 'radialRepeatSettings' and 'effectPipeline'.
 // =============================================================================
 
 const { Document } = require("/document");
@@ -42,20 +45,20 @@ const {
   NodeMoveType
 } = require("/commands");
 const { PolyCurve, CurveBuilder, Transform } = require("/geometry");
-const { ContainerNodeDefinition, PolyCurveNodeDefinition } = require("/nodes");
+const { ContainerNodeDefinition, PolyCurveNodeDefinition, RasterNodeDefinition } = require("/nodes");
 const { Dialog, DialogResult, HorizontalAlignment } = require("/dialog");
 const { Selection } = require("/selections");
 const { UnitType } = require("/units");
 const { RGB8 } = require("/colours");
 const { FillDescriptor, BlendMode } = require("/fills");
 const { LineStyleDescriptor } = require("/linestyle");
-const { setTimeout } = require("/timers");
+const { NodeRenderingEngine, RasterFormat } = require("/rasterobject");
 
 // =============================================================================
 // CONSTANTS & REGISTRY
 // =============================================================================
 
-const SCRIPT_TITLE = "Radial Repeat v6fa";
+const SCRIPT_TITLE = "Radial Repeat v6fa (Raster Supported)";
 const TAG_KEY = "radialRepeatSettings";
 const GROUP_PREFIX = "Radial Repeat Effect";
 const SOURCE_PREFIX = "Source";
@@ -106,9 +109,28 @@ function getNodeName(node) {
   try { return node.userDescription || node.name || ""; } catch (e) { return ""; }
 }
 
+function nodeTag(node) {
+  try { return node && node[Symbol.toStringTag] ? String(node[Symbol.toStringTag]) : ""; } catch (e) { return ""; }
+}
+
+function isRasterNode(node) {
+  if (!node) return false;
+  try {
+    if (node.isRasterNode || node.isImageNode) return true;
+  } catch (e) {}
+  const tag = nodeTag(node).toLowerCase();
+  return tag.includes("raster") || tag.includes("image") || (node.type && /raster|image/i.test(String(node.type)));
+}
+
 function getChildren(node) {
   if (!node) return [];
   const children = [];
+  try {
+    if (node.children) {
+      for (const child of node.children) children.push(child);
+      if (children.length > 0) return children;
+    }
+  } catch (e) {}
   let child = null;
   try { child = node.firstChild; } catch (e) { child = null; }
   while (child) {
@@ -116,6 +138,16 @@ function getChildren(node) {
     try { child = child.nextSibling; } catch (e) { child = null; }
   }
   return children;
+}
+
+function hasRasterDescendants(node) {
+  if (!node) return false;
+  if (isRasterNode(node)) return true;
+  const children = getChildren(node);
+  for (const child of children) {
+    if (hasRasterDescendants(child)) return true;
+  }
+  return false;
 }
 
 function getSourceIndex(node) {
@@ -130,13 +162,15 @@ function getResultIndex(node) {
   return m ? parseInt(m[1], 10) : 99999;
 }
 
-// Check if a node or any of its descendants is a Symbol
 function isSymbolNode(node) {
   if (!node) return false;
 
   try {
     if (node.isSymbol || node.isSymbolNode || node.isSymbolInstance) return true;
   } catch (e) {}
+
+  const tag = nodeTag(node).toLowerCase();
+  if (tag.includes("symbol")) return true;
 
   try {
     if (node.type && /symbol/i.test(String(node.type))) return true;
@@ -357,9 +391,7 @@ function setContainerMetadata(document, group, params) {
   if (!group) return;
   try {
     const groupSel = Selection.create(document, group, true);
-    // Standard clean container naming (Zero parameters in layer name)
     document.executeCommand(DocumentCommand.createSetDescription(groupSel, GROUP_PREFIX), false);
-    // Standard JSON metadata serialization in TagInterface (v3e standard)
     document.executeCommand(DocumentCommand.createSetTagValueForKey(groupSel, TAG_KEY, JSON.stringify(params)), false);
     document.executeCommand(DocumentCommand.createSetTagValueForKey(groupSel, "effectPipeline", JSON.stringify([{ id: "radial_repeat", params: params }])), false);
   } catch (e) {
@@ -373,6 +405,45 @@ function setContainerMetadata(document, group, params) {
 
 function validBB(b) {
   return b && isFinite(b.x) && isFinite(b.y) && isFinite(b.width) && isFinite(b.height) && (b.width > 0 || b.height > 0);
+}
+
+function getNodeSpreadBox(node) {
+  if (!node) return { x: 0, y: 0, width: 100, height: 100 };
+  try {
+    const eb = node.exactSpreadBaseBox;
+    if (validBB(eb)) return eb;
+  } catch (e) {}
+  try {
+    const sb = node.spreadBaseBox;
+    if (validBB(sb)) return sb;
+  } catch (e) {}
+  try {
+    const bb = node.getSpreadBaseBox ? node.getSpreadBaseBox(false) : null;
+    if (validBB(bb)) return bb;
+  } catch (e) {}
+  try {
+    const b = node.baseBox;
+    if (validBB(b)) return b;
+  } catch (e) {}
+  return { x: 0, y: 0, width: 100, height: 100 };
+}
+
+function transformPoint(matrix, pt) {
+  if (!matrix) return { x: pt.x, y: pt.y };
+  try {
+    if (typeof matrix.applyToPoint === "function") {
+      const res = matrix.applyToPoint(pt);
+      if (res && typeof res.x === "number" && typeof res.y === "number") return res;
+    }
+  } catch (e) {}
+  const d = matrix.data;
+  if (d) {
+    return {
+      x: d[0] * pt.x + d[1] * pt.y + d[2],
+      y: d[3] * pt.x + d[4] * pt.y + d[5]
+    };
+  }
+  return { x: pt.x, y: pt.y };
 }
 
 function getContainerTransform(containerNode) {
@@ -436,7 +507,7 @@ function getNodeStyle(node) {
     }
   } catch (e) {}
 
-  // 3. Line / Stroke Style (Accurate stroke detection: No phantom strokes)
+  // 3. Line / Stroke Style
   try {
     if (node.lineStyleInterface) {
       const lsi = node.lineStyleInterface;
@@ -489,11 +560,6 @@ function getNodeStyle(node) {
   };
 }
 
-/**
- * Modulates the alpha and binds the exact BlendMode of a FillDescriptor
- * so live preview accurately renders blend modes (Multiply, Screen, Overlay, etc.)
- * and semi-transparent opacity in real-time.
- */
 function applyOpacityAndBlendToFillDescriptor(fillDesc, opacity, targetBlendMode) {
   if (!fillDesc || fillDesc.isNoFill) return FillDescriptor.createNone();
   try {
@@ -517,14 +583,12 @@ function applyOpacityAndBlendToFillDescriptor(fillDesc, opacity, targetBlendMode
   return fillDesc;
 }
 
-/**
- * Extracts PolyCurve entries from a node in local container coordinates.
- * When containerTransform is provided (e.g. from existingGroup), the spread-space
- * polycurve is inverted by containerTransform to recover the pristine local geometry.
- */
 function extractGeomEntriesFromNode(node, containerTransform) {
   const entries = [];
   if (!node) return entries;
+
+  // Rasters are handled natively by RasterNodeDefinition
+  if (isRasterNode(node) || hasRasterDescendants(node)) return entries;
 
   const containerInv = (containerTransform && containerTransform.inverted) ? containerTransform.inverted : null;
 
@@ -594,9 +658,15 @@ function getEntriesBounds(entries) {
 function buildLocalGeometry(sourceItems) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, found = false;
   for (const item of sourceItems) {
-    if (item && item.geomEntries) {
+    if (item && item.localBox && validBB(item.localBox)) {
+      x0 = Math.min(x0, item.localBox.x);
+      y0 = Math.min(y0, item.localBox.y);
+      x1 = Math.max(x1, item.localBox.x + item.localBox.width);
+      y1 = Math.max(y1, item.localBox.y + item.localBox.height);
+      found = true;
+    } else if (item && item.geomEntries && item.geomEntries.length) {
       const b = getEntriesBounds(item.geomEntries);
-      if (b) {
+      if (b && validBB(b)) {
         x0 = Math.min(x0, b.x);
         y0 = Math.min(y0, b.y);
         x1 = Math.max(x1, b.x + b.width);
@@ -630,11 +700,11 @@ function indexToTemplateLetter(index) {
 
 function buildObjectLabelText(count) {
   if (count <= 1) {
-    return "1 shape selected (select 2+ to mix across rows)";
+    return "1 object selected (select 2+ to mix across rows)";
   }
   const labels = [];
   for (let i = 0; i < count; i++) {
-    labels.push(`${i + 1}=Shape ${indexToTemplateLetter(i)}`);
+    labels.push(`${i + 1}=Object ${indexToTemplateLetter(i)}`);
   }
   return labels.join("  •  ");
 }
@@ -765,8 +835,7 @@ function clearPreviews(document) {
   } catch (e) {}
 }
 
-function doPreviewPolyCurves(document, sourceItems, targetNode, localGeometry, params, containerTransform) {
-  clearPreviews(document);
+function doLivePreview(document, sourceItems, targetNode, localGeometry, params, containerTransform) {
   if (!sourceItems || !sourceItems.length) return;
 
   const placements = buildPlacements(params, localGeometry.center);
@@ -779,10 +848,11 @@ function doPreviewPolyCurves(document, sourceItems, targetNode, localGeometry, p
     addBuilder.setInsertionMode(InsertionMode.Top);
   }
 
-  // When reverseZIndex is true, add preview nodes in reverse order so inner items draw on top of outer items
   const indices = params.reverseZIndex
     ? Array.from({ length: placements.length }, (_, i) => placements.length - 1 - i)
     : Array.from({ length: placements.length }, (_, i) => i);
+
+  let hasNodes = false;
 
   for (const placementIndex of indices) {
     const templateIndex = getTemplateIndexForPlacement(placementIndex, placements[placementIndex], sourceNodes, params);
@@ -792,7 +862,18 @@ function doPreviewPolyCurves(document, sourceItems, targetNode, localGeometry, p
     const localTransform = buildPlacementTransform(sourceCenters[templateIndex], placements[placementIndex]);
     const previewTransform = containerTransform ? containerTransform.multiply(localTransform) : localTransform;
 
-    if (item.geomEntries && item.geomEntries.length) {
+    if (item.isRaster && item.rasterEntry && item.rasterEntry.bitmap) {
+      try {
+        const rDef = RasterNodeDefinition.create(RasterFormat.RGBA8);
+        rDef.bitmap = item.rasterEntry.bitmap;
+        rDef.transform = previewTransform.multiply(Transform.createTranslate(item.localBox.x, item.localBox.y));
+        rDef.userDescription = "Preview Raster";
+        addBuilder.addRasterNode(rDef);
+        hasNodes = true;
+      } catch (e) {
+        console.log("Error adding preview raster node: " + e);
+      }
+    } else if (item.geomEntries && item.geomEntries.length) {
       for (const geom of item.geomEntries) {
         if (!geom || !geom.polyCurve) continue;
         const pc = geom.polyCurve.clone();
@@ -801,7 +882,6 @@ function doPreviewPolyCurves(document, sourceItems, targetNode, localGeometry, p
         const op = (typeof s.opacity === "number") ? s.opacity : 1.0;
         const bm = s.blendMode || null;
 
-        // Apply opacity and blend mode modulation directly to preview brush and line fills
         const previewBrushFill = (s.brushFill && !s.brushFill.isNoFill)
           ? applyOpacityAndBlendToFillDescriptor(s.brushFill, op, bm)
           : FillDescriptor.createNone();
@@ -814,22 +894,26 @@ function doPreviewPolyCurves(document, sourceItems, targetNode, localGeometry, p
           ? (s.lineStyle || LineStyleDescriptor.createDefault(1))
           : LineStyleDescriptor.createDefault(0);
 
+        // Affinity SDK signature: PolyCurveNodeDefinition.create(curve, brushFill, lineFill, lineStyle, transparencyFill)
         const def = PolyCurveNodeDefinition.create(
           pc,
           previewBrushFill,
-          previewLineStyle,
           previewLineFill,
+          previewLineStyle,
           s.transparencyFill || FillDescriptor.createNone()
         );
 
         addBuilder.addNode(def);
+        hasNodes = true;
       }
     }
   }
 
-  const cmd = addBuilder.createCommand(false, NodeChildType.Main);
-  if (cmd) {
-    document.executeCommand(cmd, true);
+  if (hasNodes) {
+    const cmd = addBuilder.createCommand(false, NodeChildType.Main);
+    if (cmd) {
+      document.executeCommand(cmd, true); // true = preview mode
+    }
   }
 }
 
@@ -869,7 +953,7 @@ function doApply(document, nodes, localGeometry, params, existingGroup, sourceIt
 
   } else {
     // -------------------------------------------------------------------------
-    // 2. FRESH CONTAINER CREATION (First run on raw shapes / groups)
+    // 2. FRESH CONTAINER CREATION (First run on raw shapes / groups / rasters)
     // -------------------------------------------------------------------------
     const gBuilder = AddChildNodesCommandBuilder.create();
     gBuilder.setInsertionTargetSelection(mkSel(nodes[0]));
@@ -912,7 +996,10 @@ function doApply(document, nodes, localGeometry, params, existingGroup, sourceIt
       : localTransform;
 
     dupCb.addCommand(
-      DocumentCommand.createTransform(mkSel(node), spreadTransform, { duplicateNodes: true }),
+      DocumentCommand.createTransform(mkSel(node), spreadTransform, {
+        duplicateNodes: true,
+        cloneRaster: true
+      }),
       false
     );
   }
@@ -999,7 +1086,7 @@ function runRadialRepeat(document, rawNodes) {
   let existingGroup = null;
   let nodes = [];
 
-  // Robust container & selection resolution (Extrude Tool v6de standard):
+  // Robust container & selection resolution
   if (rawNodes.length === 1 && isRadialRepeatGroup(rawNodes[0])) {
     existingGroup = rawNodes[0];
   } else {
@@ -1022,7 +1109,7 @@ function runRadialRepeat(document, rawNodes) {
       nodes = children;
     }
   } else {
-    // Canvas selection: 1 or more shapes, curves, or groups
+    // Canvas selection: 1 or more shapes, curves, rasters, or groups
     nodes = rawNodes;
   }
 
@@ -1042,18 +1129,73 @@ function runRadialRepeat(document, rawNodes) {
     return;
   }
 
+  // Temporarily ensure sources are visible so NodeRenderingEngine captures full raster content
+  if (existingGroup) {
+    const showSourcesCb = CompoundCommandBuilder.create();
+    for (const n of nodes) {
+      showSourcesCb.addCommand(DocumentCommand.createSetVisibility(mkSel(n), true));
+    }
+    document.executeCommand(showSourcesCb.createCommand());
+  }
+
   // Extract container transform matrix (if editing existing container)
   const containerTransform = existingGroup ? getContainerTransform(existingGroup) : null;
+  const containerInv = (containerTransform && containerTransform.inverted) ? containerTransform.inverted : null;
 
-  // Prepare source items with local-space PolyCurves for ultra-fast, smooth, distortion-free preview
+  // Prepare source items with local-space PolyCurves and/or Raster snapshots
   const sourceItems = nodes.map(node => {
-    const entries = extractGeomEntriesFromNode(node, containerTransform);
-    const b = getEntriesBounds(entries);
-    return {
-      node: node,
-      geomEntries: entries,
-      localCenter: b ? b.center : { x: 0, y: 0 }
-    };
+    const isRaster = isRasterNode(node) || hasRasterDescendants(node);
+    const entries = isRaster ? [] : extractGeomEntriesFromNode(node, containerTransform);
+    let rasterEntry = null;
+    let localBox = null;
+    let localCenter = { x: 0, y: 0 };
+
+    if (isRaster || !entries.length) {
+      const sb = getNodeSpreadBox(node);
+      const cSpread = { x: sb.x + sb.width / 2, y: sb.y + sb.height / 2 };
+      const tlSpread = { x: sb.x, y: sb.y };
+      const cLocal = containerInv ? transformPoint(containerInv, cSpread) : cSpread;
+      const tlLocal = containerInv ? transformPoint(containerInv, tlSpread) : tlSpread;
+
+      localCenter = cLocal;
+      localBox = { x: tlLocal.x, y: tlLocal.y, width: sb.width, height: sb.height };
+
+      try {
+        const engine = NodeRenderingEngine.createDefault(node, RasterFormat.RGBA8);
+        const bmp = engine.createCompatibleBitmap(true);
+        rasterEntry = {
+          bitmap: bmp,
+          width: bmp.width,
+          height: bmp.height
+        };
+        localBox.width = bmp.width;
+        localBox.height = bmp.height;
+      } catch (e) {
+        console.log("Radial Repeat raster snapshot error: " + e);
+      }
+
+      return {
+        node: node,
+        isRaster: true,
+        geomEntries: [],
+        rasterEntry: rasterEntry,
+        localBox: localBox,
+        localCenter: localCenter
+      };
+    } else {
+      const b = getEntriesBounds(entries);
+      localCenter = b ? b.center : { x: 0, y: 0 };
+      localBox = b ? { x: b.x, y: b.y, width: b.width, height: b.height } : { x: 0, y: 0, width: 100, height: 100 };
+
+      return {
+        node: node,
+        isRaster: false,
+        geomEntries: entries,
+        rasterEntry: null,
+        localBox: localBox,
+        localCenter: localCenter
+      };
+    }
   });
 
   const localGeometry = buildLocalGeometry(sourceItems);
@@ -1061,21 +1203,21 @@ function runRadialRepeat(document, rawNodes) {
 
   // ---------------------------------------------------------------------------
   // LIVE PREVIEW VISIBILITY MANAGEMENT:
-  // - If editing existing container: hide old results during preview.
-  //   Sources STAY hidden.
+  // - If editing existing container: hide old results and keep sources hidden.
   // - If running on fresh primary shapes: hide primary objects during preview
   //   so only the repeating radial pattern is visible.
   // ---------------------------------------------------------------------------
   let oldResultsToHide = [];
   if (existingGroup) {
     oldResultsToHide = getChildren(existingGroup).filter(isResultNode);
-    if (oldResultsToHide.length > 0) {
-      const hideOldCb = CompoundCommandBuilder.create();
-      for (const res of oldResultsToHide) {
-        hideOldCb.addCommand(DocumentCommand.createSetVisibility(mkSel(res), false));
-      }
-      document.executeCommand(hideOldCb.createCommand());
+    const prepCb = CompoundCommandBuilder.create();
+    for (const n of nodes) {
+      prepCb.addCommand(DocumentCommand.createSetVisibility(mkSel(n), false));
     }
+    for (const res of oldResultsToHide) {
+      prepCb.addCommand(DocumentCommand.createSetVisibility(mkSel(res), false));
+    }
+    document.executeCommand(prepCb.createCommand());
   } else {
     const hidePrimariesCb = CompoundCommandBuilder.create();
     for (const n of nodes) {
@@ -1131,15 +1273,15 @@ function runRadialRepeat(document, rawNodes) {
 
   const col2 = dlg.addColumn();
 
-  // Multi-Shape Rows Section (Rows terminology & conditional display)
-  const templateGrp = col2.addGroup("Mix Shapes Across Rows");
+  // Multi-Shape Rows Section
+  const templateGrp = col2.addGroup("Mix Objects Across Rows");
   let rowTemplateModeCtrl = null;
   let objectLabelsCtrl = null;
   let rowPatternCtrl = null;
 
   if (nodes.length > 1) {
-    rowTemplateModeCtrl = templateGrp.addSwitch("Mix Shapes by Row", initialValues.rowTemplateMode);
-    objectLabelsCtrl = templateGrp.addStaticText("Your Shapes", buildObjectLabelText(nodes.length));
+    rowTemplateModeCtrl = templateGrp.addSwitch("Mix Objects by Row", initialValues.rowTemplateMode);
+    objectLabelsCtrl = templateGrp.addStaticText("Your Objects", buildObjectLabelText(nodes.length));
     
     rowPatternCtrl = templateGrp.addTextBox("Row Pattern (e.g. 1.2 or 1.2.1)", initialValues.rowPattern);
     rowPatternCtrl.isFullWidth = true;
@@ -1147,8 +1289,8 @@ function runRadialRepeat(document, rawNodes) {
     rowPatternCtrl.rowSpan = 2;
 
     const rowPatternHelpCtrl = templateGrp.addStaticText(
-      "How to arrange shapes",
-      "Choose which shape goes on each row (from inner to outer):\n• Type shape numbers (1, 2) or letters (A, B) separated by dots.\n• Example: 1.2 alternates Shape 1 and Shape 2 on each row.\n• Example: 1.1.2 puts Shape 1 on rows 1 & 2, and Shape 2 on row 3."
+      "How to arrange objects",
+      "Choose which object goes on each row (from inner to outer):\n• Type object numbers (1, 2) or letters (A, B) separated by dots.\n• Example: 1.2 alternates Object 1 and Object 2 on each row.\n• Example: 1.1.2 puts Object 1 on rows 1 & 2, and Object 2 on row 3."
     );
     rowPatternHelpCtrl.isFullWidth = true;
   } else {
@@ -1159,7 +1301,7 @@ function runRadialRepeat(document, rawNodes) {
     singleInfoCtrl.isFullWidth = true;
   }
 
-  // Standard Procedural Stack Info (Clean, concise)
+  // Standard Procedural Stack Info
   const noteGrp = col2.addGroup("");
   const txt1 = noteGrp.addStaticText(
     null,
@@ -1204,54 +1346,65 @@ function runRadialRepeat(document, rawNodes) {
     }, nodes.length);
   }
 
-  // Debounced Live Preview
-  let inPreview = false, previewTimer = null;
-  function applyPreview() {
-    if (previewTimer) previewTimer.cancel();
-    previewTimer = setTimeout(80, (err) => {
-      if (err || inPreview) return;
-      inPreview = true;
-      try {
+  // Synchronous Reentrancy-Guarded Live Preview (100% Flicker-Free)
+  let inPreview = false;
+  let pendingPreview = false;
+  let lastPreviewKey = "";
+
+  function applyPreview(immediate = false) {
+    if (inPreview) {
+      pendingPreview = true;
+      return;
+    }
+    inPreview = true;
+
+    try {
+      do {
+        pendingPreview = false;
         const params = readValues();
-        doPreviewPolyCurves(document, sourceItems, previewTargetNode, localGeometry, params, containerTransform);
-      } catch (e) {
-        console.log(SCRIPT_TITLE + " preview error: " + e);
-        clearPreviews(document);
-      } finally {
-        inPreview = false;
-      }
-    });
+        const key = `${params.instances}:${params.radius.toFixed(1)}:${params.sizeScale.toFixed(3)}:${params.rows}:${params.rowSpacing.toFixed(1)}:${params.addedInstancesPerRow}:${params.rowRotation.toFixed(1)}:${params.reverseZIndex ? 1 : 0}:${params.customRotation ? 1 : 0}:${params.customAngle.toFixed(1)}:${params.startScale.toFixed(3)}:${params.endScale.toFixed(3)}:${params.rowScaling.toFixed(3)}:${params.rowTemplateMode ? 1 : 0}:${params.rowPattern}`;
+        if (immediate || key !== lastPreviewKey) {
+          lastPreviewKey = key;
+          doLivePreview(document, sourceItems, previewTargetNode, localGeometry, params, containerTransform);
+        }
+      } while (pendingPreview);
+    } catch (e) {
+      console.log(SCRIPT_TITLE + " preview error: " + e);
+    } finally {
+      inPreview = false;
+    }
   }
 
-  instancesCtrl.onValueChangedHandler = applyPreview;
-  radiusCtrl.onValueChangedHandler = applyPreview;
-  sizeCtrl.onValueChangedHandler = applyPreview;
-  rowsCtrl.onValueChangedHandler = applyPreview;
-  rowSpacingCtrl.onValueChangedHandler = applyPreview;
-  addedCtrl.onValueChangedHandler = applyPreview;
-  rowRotationCtrl.onValueChangedHandler = applyPreview;
-  reverseZIndexCtrl.onValueChangedHandler = applyPreview;
-  customRotationCtrl.onValueChangedHandler = applyPreview;
-  customAngleCtrl.onValueChangedHandler = applyPreview;
-  startScaleCtrl.onValueChangedHandler = applyPreview;
-  endScaleCtrl.onValueChangedHandler = applyPreview;
-  rowScaleCtrl.onValueChangedHandler = applyPreview;
+  const onVal = () => applyPreview(false);
+  instancesCtrl.onValueChangedHandler = onVal;
+  radiusCtrl.onValueChangedHandler = onVal;
+  sizeCtrl.onValueChangedHandler = onVal;
+  rowsCtrl.onValueChangedHandler = onVal;
+  rowSpacingCtrl.onValueChangedHandler = onVal;
+  addedCtrl.onValueChangedHandler = onVal;
+  rowRotationCtrl.onValueChangedHandler = onVal;
+  reverseZIndexCtrl.onValueChangedHandler = onVal;
+  customRotationCtrl.onValueChangedHandler = onVal;
+  customAngleCtrl.onValueChangedHandler = onVal;
+  startScaleCtrl.onValueChangedHandler = onVal;
+  endScaleCtrl.onValueChangedHandler = onVal;
+  rowScaleCtrl.onValueChangedHandler = onVal;
   if (rowTemplateModeCtrl) {
     rowTemplateModeCtrl.onValueChangedHandler = function() {
       updateTemplateControls();
-      applyPreview();
+      applyPreview(false);
     };
   }
   if (rowPatternCtrl) {
-    rowPatternCtrl.onValueChangedHandler = applyPreview;
+    rowPatternCtrl.onValueChangedHandler = onVal;
   }
-  dlg.onControlValueChangedHandler = applyPreview;
+  dlg.onControlValueChangedHandler = onVal;
 
   updateTemplateControls();
-  applyPreview();
+  // Immediate initial preview render so canvas is updated immediately without lag
+  applyPreview(true);
 
   const result = dlg.show();
-  if (previewTimer) previewTimer.cancel();
   clearPreviews(document);
 
   if (result.value === DialogResult.Ok.value) {
@@ -1262,7 +1415,7 @@ function runRadialRepeat(document, rawNodes) {
       alert("Application failed:\n" + e.message);
     }
   } else {
-    // If Cancelled, restore visibility
+    // If Cancelled, restore visibility cleanly without corrupting history or doc.undo()
     const restoreCb = CompoundCommandBuilder.create();
     if (existingGroup) {
       for (const src of nodes) {
@@ -1277,6 +1430,9 @@ function runRadialRepeat(document, rawNodes) {
       }
     }
     document.executeCommand(restoreCb.createCommand());
+    try {
+      document.selection = Selection.create(document, existingGroup || nodes, true);
+    } catch (e) {}
   }
 }
 
@@ -1292,7 +1448,7 @@ function main() {
 
   const rawNodes = doc.selection ? doc.selection.nodes.toArray().filter(Boolean) : [];
   if (!rawNodes.length) {
-    alert("Please select at least one object (curve, shape, or group).");
+    alert("Please select at least one object (curve, shape, raster, or group).");
     return;
   }
 
