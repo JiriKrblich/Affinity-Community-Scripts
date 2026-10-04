@@ -1,3 +1,10 @@
+/**
+ * name: BBTools Shadow 2 3.0.1
+ * description: Replicates BBTools Shadow 2 (Photoshop) for Affinity Designer / Photo / Publisher.
+ * version: 1.3.2
+ * author: gabrielcrown
+ */
+
 // ─── BBTools Shadow 2 — Affinity Port (Live Preview) ───────────────────────
 // Replicates BBTools Shadow 2 (Photoshop) for Affinity Designer / Photo / Publisher.
 // Live preview updates the canvas on every slider move. Cancel restores the
@@ -11,6 +18,16 @@
 //   Color     — shadow colour (default dark navy)
 
 'use strict';
+
+// v1.3.2 – robustness update for the current Affinity version:
+//   * Live preview no longer rewinds doc.history.position inside the dialog
+//     handler. The previous preview shadow is tracked and deleted instead
+//     (history rewinds during live dialogs proved unreliable / crash-prone).
+//   * Shadow is now really placed BEHIND the subject: NodeMoveType.After put it
+//     above (a duplicate already sits above its original; "After" keeps it there),
+//     so the shadow covered the object -> NodeMoveType.Before
+//   * Re-entrancy guard for the change handler, explicit dialog start values,
+//     handler registered via setOnControlValueChangedHandler().
 
 const { Document } = require('/document');
 const { Colour } = require('/colours');
@@ -54,7 +71,7 @@ if (!doc) {
             const scaleY = Math.max(0.05, 1 - dy / bh);     // Y scale (clamped)
 
             const shadowNode = subjectNode.duplicate();
-            if (!shadowNode) return;
+            if (!shadowNode) return null;
 
             const shadowSel = shadowNode.selfSelection;
 
@@ -89,9 +106,24 @@ if (!doc) {
             doc.executeCommand(
                 DocumentCommand.createMoveNodes(
                     shadowNode.selfSelection, subjectNode,
-                    NodeMoveType.After, NodeChildType.Main
+                    NodeMoveType.Before, NodeChildType.Main   // Before = below the subject
                 )
             );
+            return shadowNode;
+        }
+
+        // ── Preview bookkeeping: the shadow currently shown on the canvas ──
+        let currentShadow = null;
+        function removeShadow() {
+            if (!currentShadow) return;
+            try {
+                doc.executeCommand(
+                    DocumentCommand.createDeleteSelection(currentShadow.selfSelection, false)
+                );
+            } catch (e) {
+                console.log('BBTools Shadow 2 — could not remove preview: ' + e);
+            }
+            currentShadow = null;
         }
 
         // ── Build the dialog ───────────────────────────────────────────────
@@ -101,51 +133,59 @@ if (!doc) {
         const grp = col.addGroup('Shadow');
 
         const angleEd = grp.addUnitValueEditor('Angle °', UnitType.Degree, UnitType.Degree, 225, 0, 359);
+        angleEd.value = 225;
         angleEd.precision = 0;
         angleEd.showPopupSlider = true;
 
         const scaleEd = grp.addUnitValueEditor('Scale', UnitType.Number, UnitType.Number, 50, 1, 100);
+        scaleEd.value = 50;
         scaleEd.precision = 0;
         scaleEd.showPopupSlider = true;
 
         const blurEd = grp.addUnitValueEditor('Blur px', UnitType.Number, UnitType.Number, 15, 1, 100);
+        blurEd.value = 15;
         blurEd.precision = 0;
         blurEd.showPopupSlider = true;
 
         const opacityEd = grp.addUnitValueEditor('Opacity %', UnitType.Percentage, UnitType.Percentage, 60, 1, 100);
+        opacityEd.value = 60;
         opacityEd.precision = 0;
         opacityEd.showPopupSlider = true;
 
         const colourPicker = grp.addColourPicker('Color', defaultColour);
 
         // ── Live preview ───────────────────────────────────────────────────
-        // Snapshot the undo position BEFORE any shadow is added.
-        // The change handler rewinds to this point then re-applies from scratch,
-        // so each slider drag produces one clean shadow (no accumulation).
-        const previewStart = doc.history.position;
+        // Each change removes the previous preview shadow and builds a new one,
+        // so exactly one shadow exists at any time (no accumulation).
+        let inPreview = false;
+        function updatePreview() {
+            if (inPreview) return;
+            inPreview = true;
+            try {
+                removeShadow();
+                const angleDeg  = Math.min(359, Math.max(0,   angleEd.value   || 225));
+                const scale     = Math.min(100, Math.max(1,   scaleEd.value   || 50));
+                const blur      = Math.min(100, Math.max(1,   blurEd.value    || 15));
+                const opacityPc = Math.min(100, Math.max(1,   opacityEd.value || 60));
+                const colour    = colourPicker.value || defaultColour;
+                currentShadow = applyShadow(angleDeg, scale, blur, opacityPc, colour);
+            } catch (e) {
+                console.log('BBTools Shadow 2 — preview error: ' + e);
+            } finally {
+                inPreview = false;
+            }
+        }
 
         // Show the initial shadow with default values so the canvas isn't blank
-        applyShadow(225, 50, 15, 60, defaultColour);
-
-        dlg.onControlValueChangedHandler = () => {
-            // Rewind to the pre-shadow state, erasing the previous preview
-            doc.history.position = previewStart;
-
-            // Re-apply with whatever the controls currently show
-            const angleDeg  = Math.min(359, Math.max(0,   angleEd.value   || 225));
-            const scale     = Math.min(100, Math.max(1,   scaleEd.value   || 50));
-            const blur      = Math.min(100, Math.max(1,   blurEd.value    || 15));
-            const opacityPc = Math.min(100, Math.max(1,   opacityEd.value || 60));
-            const colour    = colourPicker.value || defaultColour;
-            applyShadow(angleDeg, scale, blur, opacityPc, colour);
-        };
+        updatePreview();
+        dlg.setOnControlValueChangedHandler(updatePreview);
 
         // ── Run the modal ──────────────────────────────────────────────────
         const result = dlg.runModal();
 
         if (result.value !== DialogResult.Ok.value) {
-            // Cancelled — rewind the preview so no shadow remains
-            doc.history.position = previewStart;
+            // Cancelled — remove the preview so no shadow remains
+            removeShadow();
             console.log('BBTools Shadow 2 — cancelled, preview removed.');
         } else {
             // OK — the last live-preview shadow IS the committed result; nothing to do
