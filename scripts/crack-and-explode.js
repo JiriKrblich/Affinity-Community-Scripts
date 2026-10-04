@@ -1,4 +1,18 @@
+/**
+ * name: Crack and Explode 1.1.1
+ * description: Create radial cracks in the shape and explode it.
+ * version: 1.1.1
+ * author: rbonelli
+ */
+
 'use strict';
+
+// v1.0.1 – SDK compatibility update for the current Affinity version:
+//   * UnitType.None does not exist -> UnitType.Number (Shards, Rotation and Seed
+//     editors were created with an undefined unit)
+//   * "Prevent Overlap" read checkbox.checked (undefined) -> checkbox.value
+//   * Dialog.show() (deprecated) -> runModal(); explicit dialog start values
+//   * new CurveBuilder() -> CurveBuilder.create()
 const { Document }             = require('/document');
 const { Dialog, DialogResult } = require('/dialog');
 const { UnitType }             = require('/units');
@@ -156,7 +170,7 @@ function generateExplosion(origNode, origBox) {
         const angle = i * angleStep + (rng() - 0.5) * 2 * maxWobble;
         const ox = cx + (rng() - 0.5) * 2 * maxImpactJitter;
         const oy = cy + (rng() - 0.5) * 2 * maxImpactJitter;
-        const cutLine = new CurveBuilder()
+        const cutLine = CurveBuilder.create()
             .beginXY(ox + Math.cos(angle) * R, oy + Math.sin(angle) * R)
             .lineToXY( ox - Math.cos(angle) * R, oy - Math.sin(angle) * R)
             .createCurve();
@@ -223,7 +237,7 @@ function run() {
         const dlg = Dialog.create('Crack and Explode');
         dlg.addColumn().addGroup('').addStaticText('',
             'No object selected. Please select an object first.').isFullWidth = true;
-        dlg.show();
+        dlg.runModal();
         return;
     }
 
@@ -238,7 +252,7 @@ function run() {
         dlg.addColumn().addGroup('').addStaticText('',
             'Selected object has no valid dimensions.\n' +
             'Please select a shape, image or text - not a group.').isFullWidth = true;
-        dlg.show();
+        dlg.runModal();
         return;
     }
 
@@ -254,21 +268,27 @@ function run() {
 
     const sg = col.addGroup('Settings');
 
-    const shardsCtrl    = sg.addUnitValueEditor('Shards',            UnitType.None,  UnitType.None,  config.shards,   3,   64);
+    const shardsCtrl    = sg.addUnitValueEditor('Shards',            UnitType.Number, UnitType.Number, config.shards,   3,   64);
+    shardsCtrl.value = config.shards;
     shardsCtrl.showPopupSlider = true; shardsCtrl.precision = 0;
 
-    const forceCtrl     = sg.addUnitValueEditor('Force (px)',        UnitType.Pixel, UnitType.Pixel, config.force,    0,  500);
+    const forceCtrl     = sg.addUnitValueEditor('Force',             UnitType.Pixel, UnitType.Pixel, config.force,    0,  500);
+    forceCtrl.value = config.force;
     forceCtrl.showPopupSlider = true;
 
-    const scatterCtrl   = sg.addUnitValueEditor('Scatter (px)',      UnitType.Pixel, UnitType.Pixel, config.scatter,  0,  300);
+    const scatterCtrl   = sg.addUnitValueEditor('Scatter',           UnitType.Pixel, UnitType.Pixel, config.scatter,  0,  300);
+    scatterCtrl.value = config.scatter;
     scatterCtrl.showPopupSlider = true;
 
-    const rotationCtrl  = sg.addUnitValueEditor('Max Rotation (deg)', UnitType.None, UnitType.None,  config.rotation, 0,  180);
+    const rotationCtrl  = sg.addUnitValueEditor('Max Rotation (deg)', UnitType.Number, UnitType.Number, config.rotation, 0,  180);
+    rotationCtrl.value = config.rotation;
     rotationCtrl.showPopupSlider = true; rotationCtrl.precision = 0;
 
     const noOverlapCtrl = sg.addCheckBox('Prevent Overlap', config.noOverlap);
+    noOverlapCtrl.value = !!config.noOverlap;
 
-    const seedCtrl      = sg.addUnitValueEditor('Random Seed',       UnitType.None,  UnitType.None,  config.seed,     1, 9999);
+    const seedCtrl      = sg.addUnitValueEditor('Random Seed',       UnitType.Number, UnitType.Number, config.seed,     1, 9999);
+    seedCtrl.value = config.seed;
     seedCtrl.showPopupSlider = true; seedCtrl.precision = 0;
 
     const sepGrp = col.addGroup('');
@@ -283,20 +303,20 @@ function run() {
         errDlg.addColumn().addGroup('').addStaticText('',
             `Could not fragment the object:\n${e.message || e}`
         ).isFullWidth = true;
-        errDlg.show();
+        errDlg.runModal();
         return;
     }
 
     let running = true;
     while (running) {
         btns.selectedIndex = 0;
-        const result = dialog.show();
+        const result = dialog.runModal();
 
         config.shards    = Math.max(3,   Math.round(shardsCtrl.value));
         config.force     = Math.max(0,   forceCtrl.value);
         config.scatter   = Math.max(0,   scatterCtrl.value);
         config.rotation  = Math.max(0,   Math.min(180, Math.round(rotationCtrl.value)));
-        config.noOverlap = noOverlapCtrl.checked;
+        config.noOverlap = !!noOverlapCtrl.value;
         config.seed      = Math.max(1,   Math.round(seedCtrl.value));
         const mode       = btns.selectedIndex;
 
@@ -310,7 +330,7 @@ function run() {
                 errDlg.addColumn().addGroup('').addStaticText('',
                     `Could not fragment the object:\n${e.message || e}`
                 ).isFullWidth = true;
-                errDlg.show();
+                errDlg.runModal();
                 running = false;
                 return;
             }
