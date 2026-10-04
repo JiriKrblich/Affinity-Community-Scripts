@@ -1536,6 +1536,17 @@
       "version": "1.0.0",
       "category": "Text",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/universalRTLFixerPro.js"
+    },
+    {
+      "id": "podhodEngraving",
+      "name": "PODHOD Engraving",
+      "description": "Create an engraving or guilloche effect on a new raster layer from the selected object. Adjust the hatching, color, and contrast.",
+      "author": "Vladimir Solovev",
+      "url": "https://podhod.com",
+      "version": "1.0.0",
+      "category": "Effect",
+      "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/podhodEngraving.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/podhodEngraving.js"
     }
   ]
 }
