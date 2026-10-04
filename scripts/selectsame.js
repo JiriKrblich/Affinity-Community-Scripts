@@ -1,10 +1,35 @@
+/**
+ * name: Select Same
+ * description: Adds Affinity's missing Select → Same (Illustrator-style). Select one object as a reference, run the script, tick the attribute(s) you want to match, and every object sharing them gets selected.
+ * version: 1.6.0
+ * author: olliollio
+ *
+ * 1.6.0 – Fill / stroke for vector objects and gradients:
+ *  - "Fill colour" and "Stroke colour" now work for vector objects (shapes,
+ *    curves) AND text – one criterion for both, so a red rectangle also finds
+ *    red text. Text is still read per glyph run (node.brushFillDescriptor is
+ *    always NoFill for text).
+ *  - Gradients are compared too: same gradient type + same stops (positions
+ *    and colours). Gradient geometry (direction/length) is ignored, so the
+ *    same gradient on objects of different size still matches.
+ *  - New criterion "Stroke weight" (vector objects, 0.01 px buckets).
+ *  - Groups/layers themselves are never matched by fill/stroke criteria.
+ * 1.5.1 – checked against current Affinity SDK (3.3): all ten criteria,
+ * getNodeChildrenRecursive, Selection.createEmpty/add and the selection
+ * setter work unchanged (live-tested).
+ *  - Dialog result compared via .value instead of object identity (robust
+ *    across SDK versions).
+ *  - Removed a duplicate sizeKey() definition (the first one was dead code).
+ *  - Hidden objects are no longer selected (like Illustrator's Select Same).
+ */
+
 'use strict';
 
 /**
  * name: select_same_1.0
  * description: Select Same — multi-attribute selection. Selects every object
  *              that shares the checked attribute(s) with the current selection:
- *              font family, family & style, font size, text fill/stroke colour,
+ *              font family, family & style, font size, fill/stroke colour,
  *              opacity, blend mode, shape type, corner radius, rotation.
  *              Combine with Match-all for Illustrator's "Family, Style & Size"
  *              etc. Closes the gap to the Select > Same submenu.
@@ -18,13 +43,10 @@ const { Document } = require('/document');
 const { Selection, SubSelectionType } = require('/selections');
 const { NodeChildType, getNodeChildrenRecursive } = require('/nodes');
 const { Dialog, DialogResult } = require('/dialog');
+const { Colour } = require('/colours');
 
-const VERSION = 'v1.5';
+const VERSION = 'v1.6';
 const TITLE = 'Select Same';
-
-// Glyph sizes are canonicalised to 2 decimals, giving a ~0.01 pt match bucket
-// so floating-point noise (11.9997 vs 12.0001) still counts as the same size.
-function sizeKey(h) { return h.toFixed(2); }
 
 // Very long stories are sampled rather than scanned char-by-char, so a single
 // huge text frame can't stall the whole pass.
@@ -87,21 +109,32 @@ function sizeKey(a) {
   return (typeof h === 'number' && isFinite(h)) ? h.toFixed(2) : null;
 }
 
-// A text run's fill/stroke lives on a FillDescriptor (atts.brushFill = fill,
-// atts.penFill = stroke); its `.fill` is the actual Fill object. Only a
-// SolidFill compares reliably -> canonical "r,g,b,alpha". Gradients / none /
-// patterns yield null so they never match a solid colour.
+// Fill/stroke live on a FillDescriptor (text: atts.brushFill / atts.penFill,
+// vectors: node.brushFillDescriptor / lineStyleInterface.penFillDescriptor);
+// its `.fill` is the actual Fill object. Colours are compared as "r,g,b,alpha".
 function rgbaKey(colour) {
   if (!colour) return null;
   try { const c = colour.rgba8; return c.r + ',' + c.g + ',' + c.b + ',' + c.alpha; }
   catch (e) { return null; }
 }
+// Solid fill -> "r,g,b,a". Gradient fill -> "grad:<type>|pos@r,g,b,a;..."
+// (geometry ignored). NoFill / bitmap / mesh / hatch -> null.
 function descriptorColourKey(desc) {
   if (!desc) return null;
   let fill; try { fill = desc.fill; } catch (e) { return null; }
   if (!fill) return null;
-  try { if (fill[Symbol.toStringTag] === 'SolidFill') return rgbaKey(fill.colour); }
-  catch (e) {}
+  let tag; try { tag = fill[Symbol.toStringTag]; } catch (e) { return null; }
+  if (tag === 'SolidFill') {
+    try { return rgbaKey(fill.colour); } catch (e) { return null; }
+  }
+  if (tag === 'GradientFill') {
+    try {
+      const type = enumVal(fill.gradientFillType);
+      const stops = fill.gradient.stops.map((st) =>
+        Number(st.position).toFixed(3) + '@' + rgbaKey(new Colour(st.colour)));
+      return 'grad:' + type + '|' + stops.join(';');
+    } catch (e) { return null; }
+  }
   return null;
 }
 
@@ -132,7 +165,15 @@ function describeFaces(set) {
   }).sort();
   return 'font family & style ' + names.join(', ');
 }
+const GRAD_TYPES = ['linear', 'elliptical', 'radial', 'conical'];
 function hexOf(key) {
+  if (key.slice(0, 5) === 'grad:') {
+    const body = key.slice(5);
+    const bar = body.indexOf('|');
+    const type = GRAD_TYPES[Number(body.slice(0, bar))] || 'gradient';
+    const cols = body.slice(bar + 1).split(';').map((s) => hexOf(s.split('@')[1]));
+    return type + ' gradient (' + cols.join(' → ') + ')';
+  }
   const p = key.split(',');
   const to2 = (n) => ('0' + (parseInt(n, 10) || 0).toString(16)).slice(-2);
   let hex = '#' + to2(p[0]) + to2(p[1]) + to2(p[2]);
@@ -201,6 +242,42 @@ function cornerRadiusKey(node) {
     parts.push((ct == null ? '?' : ct) + ':' + r.toFixed(4));
   }
   return 'abs' + (abs ? '1' : '0') + '|' + parts.join('|');
+}
+
+// -- Fill / stroke of vector objects ---------------------------------------
+function isTextNode(node) {
+  try { return /Text/.test(String(node[Symbol.toStringTag])) && !!node.storyInterface; }
+  catch (e) { return false; }
+}
+function isContainerNode(node) {
+  try { return /Group|Container|Spread|Document/.test(String(node[Symbol.toStringTag])); }
+  catch (e) { return true; }
+}
+function nodeFillKey(node) {
+  if (isContainerNode(node)) return null;
+  let fd; try { fd = node.brushFillDescriptor; } catch (e) { return null; }
+  return descriptorColourKey(fd);
+}
+function strokeVisible(node) {
+  try {
+    const ls = node.lineStyleInterface;
+    if (!ls || ls.isNoFill) return false;
+    const w = ls.lineWeight;
+    return typeof w === 'number' && w > 0;
+  } catch (e) { return false; }
+}
+function nodeStrokeKey(node) {
+  if (isContainerNode(node) || !strokeVisible(node)) return null;
+  let fd; try { fd = node.lineStyleInterface.penFillDescriptor; } catch (e) { return null; }
+  return descriptorColourKey(fd);
+}
+function strokeWeightKey(node) {
+  if (isContainerNode(node) || isTextNode(node) || !strokeVisible(node)) return null;
+  try { return node.lineStyleInterface.lineWeight.toFixed(2); } catch (e) { return null; }
+}
+function describeStrokeWeight(set) {
+  return 'stroke weight ' + [...set].map(Number).sort((a, b) => a - b)
+    .map((v) => (Math.round(v * 100) / 100) + ' px').join(', ');
 }
 
 function describeShape(set) {
@@ -276,6 +353,24 @@ function glyphCriterion(id, label, def, extract, describe) {
     test: (node, set) => anyKeyIn(node, set, extract),
   };
 }
+// Works on text (per glyph run) AND on vector objects (node fill/stroke).
+function hybridCriterion(id, label, def, glyphExtract, nodeExtract, describe) {
+  return {
+    id: id, label: label, default: def, describe: describe,
+    refKeys: (node, range) => {
+      if (isTextNode(node)) return collectKeys(node, range, glyphExtract);
+      const s = new Set();
+      let k; try { k = nodeExtract(node); } catch (e) { k = null; }
+      if (k != null) s.add(k);
+      return s;
+    },
+    test: (node, set) => {
+      if (isTextNode(node)) return anyKeyIn(node, set, glyphExtract);
+      let k; try { k = nodeExtract(node); } catch (e) { k = null; }
+      return k != null && set.has(k);
+    },
+  };
+}
 function nodeCriterion(id, label, def, extract, describe) {
   return {
     id: id, label: label, default: def, describe: describe,
@@ -298,12 +393,13 @@ const CRITERIA = [
     describeFamilies),
   glyphCriterion('fontFace', 'Font family & style', false, faceKey, describeFaces),
   glyphCriterion('fontSize', 'Font size', false, sizeKey, describeSizes),
-  glyphCriterion('textFill', 'Text fill colour', false,
-    (a) => descriptorColourKey(a.brushFill),
-    (set) => describeColours('text fill colour', set)),
-  glyphCriterion('textStroke', 'Text stroke colour', false,
-    (a) => descriptorColourKey(a.penFill),
-    (set) => describeColours('text stroke colour', set)),
+  hybridCriterion('fill', 'Fill colour / gradient', false,
+    (a) => descriptorColourKey(a.brushFill), nodeFillKey,
+    (set) => describeColours('fill', set)),
+  hybridCriterion('stroke', 'Stroke colour / gradient', false,
+    (a) => descriptorColourKey(a.penFill), nodeStrokeKey,
+    (set) => describeColours('stroke', set)),
+  nodeCriterion('strokeWeight', 'Stroke weight', false, strokeWeightKey, describeStrokeWeight),
 
   nodeCriterion('opacity', 'Opacity', false, opacityKey, describeOpacity),
   nodeCriterion('blendMode', 'Blend mode', false, blendKey, describeBlend),
@@ -402,7 +498,8 @@ function main() {
   const scopeCombo   = grpScope.addComboBox('Search in', ['Whole spread', 'This artboard', 'Same layer as selection'], 0);
   const combineCombo = grpScope.addComboBox('When multiple checked', ['Match all (AND)', 'Match any (OR)'], 0);
 
-  if (dlg.runModal() !== DialogResult.Ok) return;
+  const result = dlg.runModal();
+  if (!result || result.value !== DialogResult.Ok.value) return;
 
   const chosen = CRITERIA.filter((c, i) => checks[i].value);
   if (chosen.length === 0) {
@@ -422,7 +519,7 @@ function main() {
   }
   if (applicable.length === 0) {
     app.alert('The selection has no ' + chosen.map((c) => c.label.toLowerCase()).join(' / ') +
-      ' to match.\n(Text attributes need a text object; opacity / blend mode work on any object.)', TITLE);
+      ' to match.\n(Font attributes need a text object; fill / stroke need a solid or gradient fill; opacity / blend mode work on any object.)', TITLE);
     return;
   }
 
@@ -444,6 +541,10 @@ function main() {
   let scanned = 0;
   for (const child of getNodeChildrenRecursive(parent.handle, NodeChildType.Main, false)) {
     scanned++;
+    // Skip hidden objects
+    let visible = true;
+    try { visible = child.isVisible !== false; } catch (e) {}
+    if (!visible) continue;
     if (nodeMatches(child, applicable, refKeys, combineAll)) matches.push(child);
   }
 

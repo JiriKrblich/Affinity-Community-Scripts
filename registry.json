@@ -1039,7 +1039,7 @@
       "name": "Select Same",
       "description": "Adds Affinity's missing Select → Same (Illustrator-style). Select one object as a reference, run the script, tick the attribute(s) you want to match, and every object sharing them gets selected.",
       "author": "olliollio",
-      "version": "1.5.0",
+      "version": "1.6.0",
       "category": "Object",
       "email": "ollio@ollio.de",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/selectsame.webp",
