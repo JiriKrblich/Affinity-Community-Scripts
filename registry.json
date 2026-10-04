@@ -1275,7 +1275,7 @@
       "name": "Roughen Effect",
       "description": "Converts procedural effects into normal editable vector shapes. It takes the generated result out of the effect group, preserves any of your own objects inside it, and removes the hidden source layers and wrapper group. In short: it is the bake/expand command for these effects.",
       "author": "BlackMortimer-13",
-      "version": "3.0.0",
+      "version": "4.0.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Rougheneffect.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Rougheneffect.js"
