@@ -1,8 +1,25 @@
 /**
  * name: Blend Tool (混合工具)
- * description: Select multiple shapes Blend it together or use last selected path as blend path. 选择多个形状混合，支持将最后选择的一个形状作为混合路径。Rewrite from Blend-tool by robinsnest56.
- * version: 2.0.0
+ * description: Rewrite from Blend-tool by robinsnest56. Select 2 vector objects, then run. Supports path as 3rd object.
+ * version: 2.1.0
  * author: Soulmate
+ *
+ * 2.1.0 – checked/adapted for current Affinity SDK (3.3):
+ *  - Preview rollback via doc.history.position instead of counting commands
+ *    and replaying "Undo" commands (a miscount could undo the user's own
+ *    earlier work, e.g. when a step failed half-way).
+ *  - Single runModal(): "Update Preview" button keeps the dialog open,
+ *    native OK = apply, Cancel/X/ESC = discard. (Before: ButtonSet
+ *    Preview/Apply + OK, dialog re-opened in a loop.)
+ *  - Stroke style of the source is kept (alignment, cap, join, dashes);
+ *    only the weight is interpolated. Before, every step got a default
+ *    centred round-cap stroke.
+ *  - Removed dlg.initialHeight (does not exist in the dialog API) and
+ *    unused legacy functions (old 2-object/group blend code paths).
+ *  - Result layer is created in the parent of the first source object.
+ *  - Objects inside moved/scaled groups: curves are now mapped with the full
+ *    local->spread transform (baseToSpreadTransform) instead of only the
+ *    object's own transform, so blends no longer jump to a wrong position.
  */
 
 "use strict";
@@ -52,8 +69,18 @@ function bezToWorld(xf, seg) {
     end: applyXf(xf, seg.end),
   };
 }
+// Full local->spread transform (includes all parent groups). node.transform-
+// Interface.transform alone is only the node's own transform, which is wrong
+// for objects inside a moved/scaled group.
+function spreadXf(node) {
+  try {
+    const t = node.baseToSpreadTransform;
+    if (t) return t;
+  } catch (e) {}
+  return node.transformInterface.transform;
+}
 function getWorldBeziers(node) {
-  const xf = node.transformInterface.transform;
+  const xf = spreadXf(node);
   return [...node.polyCurve.at(0).beziers].map((s) => bezToWorld(xf, s));
 }
 function polyCurveAt(pc, index) {
@@ -295,13 +322,6 @@ function glyphsListCentroid(glyphs) {
       }
   return n > 0 ? { x: x / n, y: y / n } : { x: 0, y: 0 };
 }
-function nodeCentroid(node) {
-  if (node.isGroupNode) {
-    const g = extractGroupGlyphs(node);
-    return glyphsListCentroid(g);
-  }
-  return bezCentroid(getWorldBeziers(node));
-}
 function translateBez(beziers, from, to) {
   const dx = to.x - from.x,
     dy = to.y - from.y;
@@ -504,14 +524,29 @@ function extractStroke(node) {
     const lsi = node.lineStyleInterface,
       fd = lsi.penFillDescriptor,
       fill = extractFillDataFromDescriptor(fd, { type: "none" });
+    let lsd = null;
+    try { lsd = lsi.getCurrentDescriptors().lineStyle; } catch (e) {}
     return {
       fill,
       fillXf: extractFillXfFromDescriptor(fd, node),
       weight: fill.type === "none" ? 0 : lsi.lineStyle.weight,
+      lsd,
     };
   } catch (e) {
-    return { fill: { type: "none" }, fillXf: defaultFillXf(node), weight: 0 };
+    return { fill: { type: "none" }, fillXf: defaultFillXf(node), weight: 0, lsd: null };
   }
+}
+// Line style of the source (alignment, cap, join, dashes) with a new weight.
+function strokeStyleDescriptor(stroke) {
+  const w = stroke.weight || 0;
+  if (stroke.lsd) {
+    try {
+      const ls = stroke.lsd.lineStyle.clone();
+      ls.weight = w;
+      return stroke.lsd.cloneWithNewLineStyle(ls);
+    } catch (e) {}
+  }
+  return LineStyleDescriptor.create(LineStyle.createDefaultWithWeight(w));
 }
 function strokeFillDescriptor(stroke) {
   if (stroke.fillDescriptor) return stroke.fillDescriptor;
@@ -535,6 +570,7 @@ function lerpStroke(sA, sB, t, doInterp) {
       doInterp,
     ),
     weight: doInterp ? lerp(sA.weight, sB.weight, t) : sA.weight,
+    lsd: sA.lsd || sB.lsd,
   };
 }
 
@@ -551,9 +587,7 @@ function makeDef(beziers, fill, stroke, name, shouldClose) {
   def.setBrushFillDescriptor(fill, 0);
   def.setLineDescriptors(
     strokeFillDescriptor(stroke),
-    LineStyleDescriptor.create(
-      LineStyle.createDefaultWithWeight(stroke.weight),
-    ),
+    strokeStyleDescriptor(stroke),
     0,
   );
   def.userDescription = name;
@@ -561,34 +595,6 @@ function makeDef(beziers, fill, stroke, name, shouldClose) {
 }
 
 // ── Group / compound-path glyph extraction ─────────────────
-function extractGroupGlyphs(groupNode) {
-  const glyphs = [];
-  const groupXf = groupNode.transformInterface.transform;
-  let child = groupNode.firstChild;
-  while (child) {
-    if (child.isVectorNode || child.polyCurve) {
-      const childXf = child.transformInterface.transform;
-      const pc = child.polyCurve;
-      const subCurves = [];
-      for (let sc = 0, curveTotal = polyCurveCount(pc); sc < curveTotal; sc++) {
-        const curve = polyCurveAt(pc, sc);
-        if (!curve) continue;
-        const bez = [...curve.beziers]
-          .map((s) => bezToWorld(childXf, s))
-          .map((s) => bezToWorld(groupXf, s));
-        subCurves.push({ bez, isClosed: curve.isClosed });
-      }
-      glyphs.push({
-        subCurves,
-        fill: extractFillData(child),
-        fillXf: extractFillXf(child),
-        stroke: extractStroke(child),
-      });
-    }
-    child = child.nextSibling;
-  }
-  return glyphs;
-}
 function padGlyphs(glyphs, target) {
   if (glyphs.length >= target) return glyphs.slice(0, target);
   const out = [...glyphs];
@@ -659,7 +665,7 @@ function buildGlyphDef(gA, gB, t, doFill, doStroke, name) {
   def.setBrushFillDescriptor(fill, 0);
   def.setLineDescriptors(
     strokeFillDescriptor(stk),
-    LineStyleDescriptor.create(LineStyle.createDefaultWithWeight(stk.weight)),
+    strokeStyleDescriptor(stk),
     0,
   );
   def.userDescription = name;
@@ -667,135 +673,26 @@ function buildGlyphDef(gA, gB, t, doFill, doStroke, name) {
 }
 
 // ── Vector blend def builders ──────────────────────────────
-function buildVectorDefs(
-  bezA,
-  bezB,
-  shouldClose,
-  fillA,
-  fillB,
-  xfA,
-  xfB,
-  stkA,
-  stkB,
-  steps,
-  doFill,
-  doStroke,
-) {
-  const defs = [];
-  const pair = prepareBlendSegments(bezA, bezB, shouldClose);
-  defs.push(
-    makeDef(
-      bezA,
-      buildFill(fillA, fillA, xfA, xfA, 0, false),
-      stkA,
-      "Sh 1",
-      shouldClose,
-    ),
-  );
-  for (let s = 1; s <= steps; s++) {
-    const t = s / (steps + 1);
-    const pc = PolyCurve.create();
-    pc.addCurve(buildBlendCurveFromSegments(pair.sA, pair.sB, t, shouldClose));
-    const def = PolyCurveNodeDefinition.createDefault();
-    def.setCurves(pc);
-    def.setBrushFillDescriptor(buildFill(fillA, fillB, xfA, xfB, t, doFill), 0);
-    const stk = lerpStroke(stkA, stkB, t, doStroke);
-    def.setLineDescriptors(
-      strokeFillDescriptor(stk),
-      LineStyleDescriptor.create(LineStyle.createDefaultWithWeight(stk.weight)),
-      0,
-    );
-    def.userDescription = "Step " + s;
-    defs.push(def);
-  }
-  defs.push(
-    makeDef(
-      bezB,
-      buildFill(fillB, fillB, xfB, xfB, 0, false),
-      stkB,
-      "Sh 2",
-      shouldClose,
-    ),
-  );
-  return defs;
-}
-function buildPathVectorDefs(
-  bezA,
-  bezB,
-  shouldClose,
-  pathBeziers,
-  fillA,
-  fillB,
-  xfA,
-  xfB,
-  stkA,
-  stkB,
-  steps,
-  doFill,
-  doStroke,
-) {
-  const tbl = buildArcTable(pathBeziers);
-  const pair = prepareBlendSegments(bezA, bezB, shouldClose);
-  const defs = [];
-  const ptS = samplePath(tbl, pathBeziers, 0);
-  defs.push(
-    makeDef(
-      translateBez(bezA, bezCentroid(bezA), ptS),
-      buildFill(fillA, fillA, xfA, xfA, 0, false),
-      stkA,
-      "Sh 1",
-      shouldClose,
-    ),
-  );
-  for (let s = 1; s <= steps; s++) {
-    const frac = s / (steps + 1);
-    const pathPt = samplePath(tbl, pathBeziers, frac);
-    const interp = pair.sA.map((a, i) => {
-      const v = pair.sB[i];
-      return {
-        start: lerpPt(a.start, v.start, frac),
-        c1: lerpPt(a.c1, v.c1, frac),
-        c2: lerpPt(a.c2, v.c2, frac),
-        end: lerpPt(a.end, v.end, frac),
-      };
-    });
-    defs.push(
-      makeDef(
-        translateBez(interp, bezCentroid(interp), pathPt),
-        buildFill(fillA, fillB, xfA, xfB, frac, doFill),
-        lerpStroke(stkA, stkB, frac, doStroke),
-        "Step " + s,
-        shouldClose,
-      ),
-    );
-  }
-  const ptE = samplePath(tbl, pathBeziers, 1);
-  defs.push(
-    makeDef(
-      translateBez(bezB, bezCentroid(bezB), ptE),
-      buildFill(fillB, fillB, xfB, xfB, 0, false),
-      stkB,
-      "Sh 2",
-      shouldClose,
-    ),
-  );
-  return defs;
-}
-
 // ── Document execution helpers ────────────────────────────
 function exec(doc, cmd) {
   doc.executeCommand(cmd);
-}
-function undoN(doc, n) {
-  for (let i = 0; i < n; i++) exec(doc, DocumentCommand.createUndo());
 }
 function deleteNode(doc, node) {
   exec(doc, DocumentCommand.createSetSelection(node.selfSelection));
   doc.deleteSelection();
 }
 
+// Parent (layer / artboard / spread) of the first source object
+let blendInsertionTarget = null;
+function setInsertionTargetFor(cb) {
+  if (blendInsertionTarget) {
+    try { cb.setInsertionTarget(blendInsertionTarget); } catch (e) {}
+  }
+}
+
 function execVectorBlend(doc, defs, label) {
   const cb = AddChildNodesCommandBuilder.create();
+  setInsertionTargetFor(cb);
   cb.addContainerNode(ContainerNodeDefinition.create(label));
   const ccmd = cb.createCommand(false, NodeChildType.Main);
   exec(doc, ccmd);
@@ -805,78 +702,6 @@ function execVectorBlend(doc, defs, label) {
   for (const d of defs) ch.addNode(d);
   exec(doc, ch.createCommand(false, NodeChildType.Main));
   return 2;
-}
-
-function execGroupBlend(
-  doc,
-  nodeA,
-  nodeB,
-  steps,
-  doFill,
-  doStroke,
-  label,
-  pathBeziers,
-) {
-  const glyphsA = extractGroupGlyphs(nodeA),
-    glyphsB = extractGroupGlyphs(nodeB);
-  const count = Math.max(glyphsA.length, glyphsB.length);
-  const paddedA = padGlyphs(glyphsA, count),
-    paddedB = padGlyphs(glyphsB, count);
-  const onPath = !!pathBeziers;
-  const tbl = onPath ? buildArcTable(pathBeziers) : null;
-  const centA = onPath ? glyphsListCentroid(glyphsA) : null;
-  const centB = onPath ? glyphsListCentroid(glyphsB) : null;
-  let n = 0;
-  const cb = AddChildNodesCommandBuilder.create();
-  cb.addContainerNode(ContainerNodeDefinition.create(label));
-  const ccmd = cb.createCommand(false, NodeChildType.Main);
-  exec(doc, ccmd);
-  n++;
-  const main = ccmd.newNodes[0];
-  function addStep(name, gA_arr, gB_arr, t, dx, dy) {
-    const scb = AddChildNodesCommandBuilder.create();
-    scb.setInsertionTarget(main);
-    scb.addContainerNode(ContainerNodeDefinition.create(name));
-    const scmd = scb.createCommand(false, NodeChildType.Main);
-    exec(doc, scmd);
-    n++;
-    const stepC = scmd.newNodes[0];
-    const gcb = AddChildNodesCommandBuilder.create();
-    gcb.setInsertionTarget(stepC);
-    for (let g = 0; g < count; g++) {
-      const sA = onPath ? shiftGlyph(gA_arr[g], dx, dy) : gA_arr[g];
-      const sB = onPath ? shiftGlyph(gB_arr[g], dx, dy) : gB_arr[g];
-      gcb.addNode(
-        buildGlyphDef(sA, sB, t, doFill, doStroke, "Glyph " + (g + 1)),
-      );
-    }
-    exec(doc, gcb.createCommand(false, NodeChildType.Main));
-    n++;
-  }
-  if (onPath) {
-    const ptS = samplePath(tbl, pathBeziers, 0);
-    addStep("Sh 1", paddedA, paddedA, 0, ptS.x - centA.x, ptS.y - centA.y);
-  } else addStep("Sh 1", paddedA, paddedA, 0, 0, 0);
-  for (let s = 1; s <= steps; s++) {
-    const frac = s / (steps + 1);
-    if (onPath) {
-      const pathPt = samplePath(tbl, pathBeziers, frac);
-      const interpC = lerpPt(centA, centB, frac);
-      addStep(
-        "Step " + s,
-        paddedA,
-        paddedB,
-        frac,
-        pathPt.x - interpC.x,
-        pathPt.y - interpC.y,
-      );
-    } else addStep("Step " + s, paddedA, paddedB, frac, 0, 0);
-  }
-  if (onPath) {
-    const ptE = samplePath(tbl, pathBeziers, 1);
-    addStep("Sh 2", paddedB, paddedB, 0, ptE.x - centB.x, ptE.y - centB.y);
-  } else addStep("Sh 2", paddedB, paddedB, 0, 0, 0);
-  return n;
 }
 
 // ── Error dialog (fixed: isFullWidth prevents text being obscured) ──
@@ -1131,9 +956,9 @@ if (selLen < 2) {
     };
   }
 
-  function curveGlyphs(node, index) {
+  function curveGlyphs(node, index, xfOverride) {
     if (!hasCurveData(node)) throw Error("Selected target " + (index + 1) + " is not a curve object.");
-    const xf = node.transformInterface.transform;
+    const xf = xfOverride || spreadXf(node);
     const pc = node.polyCurve;
     const subCurves = [];
     for (let sc = 0, curveTotal = polyCurveCount(pc); sc < curveTotal; sc++) {
@@ -1165,15 +990,17 @@ if (selLen < 2) {
     };
   }
 
-  function containerGlyphs(node, index, depth) {
+  // ownXf: for the outermost container its full spread transform; nested
+  // levels use their local transform (applied level by level).
+  function containerGlyphs(node, index, depth, ownXf) {
     if (depth === undefined) depth = 0;
     if (depth > 12) return [];
     const glyphs = [];
-    const parentXf = node.transformInterface ? node.transformInterface.transform : null;
+    const parentXf = ownXf || (node.transformInterface ? node.transformInterface.transform : null);
     let child = node.firstChild;
     while (child) {
       let childGlyphs = [];
-      if (hasCurveData(child)) childGlyphs = curveGlyphs(child, index);
+      if (hasCurveData(child)) childGlyphs = curveGlyphs(child, index, child.transformInterface.transform);
       else if (hasChildNodes(child)) childGlyphs = containerGlyphs(child, index, depth + 1);
       if (parentXf && childGlyphs.length) childGlyphs = childGlyphs.map((g) => transformGlyph(g, parentXf));
       glyphs.push(...childGlyphs);
@@ -1185,7 +1012,7 @@ if (selLen < 2) {
   function targetGlyphs(node, index) {
     if (hasCurveData(node)) return curveGlyphs(node, index);
     if (hasChildNodes(node)) {
-      const glyphs = containerGlyphs(node, index);
+      const glyphs = containerGlyphs(node, index, 0, spreadXf(node));
       if (glyphs.length) return glyphs;
       throw Error("Selected target " + (index + 1) + " contains no editable curve objects.");
     }
@@ -1351,6 +1178,7 @@ if (selLen < 2) {
     let commandCount = 0;
 
     const cb = AddChildNodesCommandBuilder.create();
+    setInsertionTargetFor(cb);
     cb.addContainerNode(ContainerNodeDefinition.create(label));
     const ccmd = cb.createCommand(false, NodeChildType.Main);
     exec(doc, ccmd);
@@ -1467,10 +1295,15 @@ if (selLen < 2) {
     return labelFor(setup, targets);
   }
 
+  // Result layer goes into the parent of the first source object
+  try {
+    const p0 = allNodes[0] && allNodes[0].parent;
+    if (p0 && p0[Symbol.toStringTag] !== "DocumentNode") blendInsertionTarget = p0;
+  } catch (e) {}
+
   // ── Build dialog ──────────────────────────────────────
   const dlg = Dialog.create("Blend Tool");
   dlg.initialWidth = 360;
-  dlg.initialHeight = 560;
   const col = dlg.addColumn();
 
   const selGrp = col.addGroup("Selection");
@@ -1479,104 +1312,82 @@ if (selLen < 2) {
   selGrp.addStaticText("Last", nodeName(allNodes[allNodes.length - 1], "Shape " + allNodes.length));
 
   const blendGrp = col.addGroup("Blend");
-  const stepsCtrl = blendGrp.addUnitValueEditor(
-    "Steps",
-    UnitType.Number,
-    UnitType.Number,
-    15,
-    1,
-    9999,
-  );
+  const stepsCtrl = blendGrp.addUnitValueEditor("Steps", UnitType.Number, UnitType.Number, 15, 1, 9999);
   stepsCtrl.precision = 0;
   stepsCtrl.showPopupSlider = true;
+  stepsCtrl.value = 15; // initial value is not reliably taken over
 
   const orientGrp = col.addGroup("Orientation");
   const reverseCtrl = orientGrp.addSwitch("Reverse target order", false);
   const pathCtrl = orientGrp.addSwitch("Last selected path as blend path", false);
+  reverseCtrl.value = false;
+  pathCtrl.value = false;
 
   const colGrp = col.addGroup("Colour");
   const fillCtrl = colGrp.addSwitch("Interpolate fill colour", true);
   const strokeCtrl = colGrp.addSwitch("Interpolate stroke", true);
+  fillCtrl.value = true;
+  strokeCtrl.value = true;
 
   const actGrp = col.addGroup("Actions");
   actGrp.enableSeparator = true;
+  const previewBtn = actGrp.addButton("↺ Update Preview");
+  previewBtn.isFullWidth = true;
   const statusCtrl = actGrp.addStaticText("", "");
-  statusCtrl.text = "Preview is temporary. Apply commits the blend.";
   statusCtrl.isFullWidth = true;
   statusCtrl.textHorizontalAlignment = HorizontalAlignment.Left;
-  const btns = actGrp.addButtonSet("", ["Preview", "Apply"], 0);
-  btns.isFullWidth = true;
+  statusCtrl.text = "OK = apply, Cancel = discard.";
 
-  // ── Initial preview ───────────────────────────────────
-  let cmdCount = 0,
-    previewActive = false,
-    blendLabel = "";
-  try {
-    blendLabel = currentLabel(false, pathCtrl.value);
-    cmdCount = doApply(clampSteps(stepsCtrl.value), fillCtrl.value, strokeCtrl.value, false, pathCtrl.value);
-    previewActive = true;
-    statusCtrl.text = "• Preview: " + clampSteps(stepsCtrl.value) + " steps" + (pathCtrl.value ? " on path" : "") + " - Preview active";
-  } catch (e) {
-    statusCtrl.text = "Preview failed: " + selectionDebugText(e);
-    console.log("Blend initial error:", e.stack);
+  function readOpts() {
+    return {
+      steps: clampSteps(stepsCtrl.value),
+      doFill: !!fillCtrl.value,
+      doStroke: !!strokeCtrl.value,
+      reverse: !!reverseCtrl.value,
+      useLastAsPath: !!pathCtrl.value,
+    };
   }
 
-  // ── Dialog loop ───────────────────────────────────────
-  // ButtonSet index: 0 = Preview, 1 = Apply. Native OK uses Preview by default.
-  let running = true;
-  while (running) {
-    btns.selectedIndex = 0;
-    const result = dlg.runModal();
-    const steps = clampSteps(stepsCtrl.value);
-    const doFill = fillCtrl.value,
-      doStroke = strokeCtrl.value,
-      reverse = reverseCtrl.value,
-      useLastAsPath = pathCtrl.value;
-    const mode = btns.selectedIndex;
+  // ── Preview handling via history position ───────────
+  const basePos = doc.history.position;
+  function rollback() {
+    let guard = 100000;
+    while (doc.history.position > basePos && guard-- > 0) doc.history.undo();
+  }
 
-    if (result.value !== DialogResult.Ok.value) {
-      if (previewActive) {
-        undoN(doc, cmdCount);
-        previewActive = false;
-      }
-      running = false;
-    } else if (mode === 1) {
-      if (previewActive) {
-        undoN(doc, cmdCount);
-        previewActive = false;
-      }
-      try {
-        blendLabel = currentLabel(reverse, useLastAsPath);
-        cmdCount = doApply(steps, doFill, doStroke, reverse, useLastAsPath);
-        previewActive = true;
-        cleanupSources(useLastAsPath, blendLabel);
-      } catch (e) {
-        showError("Blend failed: " + selectionDebugText(e));
-        console.log("Blend error:", e.stack);
-      }
-      running = false;
-    } else {
-      if (previewActive) {
-        undoN(doc, cmdCount);
-        previewActive = false;
-        cmdCount = 0;
-      }
-      try {
-        blendLabel = currentLabel(reverse, useLastAsPath);
-        cmdCount = doApply(steps, doFill, doStroke, reverse, useLastAsPath);
-        previewActive = true;
-        statusCtrl.text =
-          "• Preview: " +
-          steps +
-          " step" +
-          (steps === 1 ? "" : "s") +
-          (useLastAsPath ? " on path" : "") +
-          (reverse ? " · reversed" : "") +
-          " - Preview active";
-      } catch (e) {
-        statusCtrl.text = "Preview failed: " + selectionDebugText(e);
-        console.log("Blend preview error:", e.stack);
-      }
+  function updatePreview() {
+    rollback();
+    const o = readOpts();
+    try {
+      doApply(o.steps, o.doFill, o.doStroke, o.reverse, o.useLastAsPath);
+      statusCtrl.text =
+        "• Preview: " + o.steps + " step" + (o.steps === 1 ? "" : "s") +
+        (o.useLastAsPath ? " on path" : "") +
+        (o.reverse ? " · reversed" : "") +
+        " – OK = apply, Cancel = discard";
+    } catch (e) {
+      rollback();
+      statusCtrl.text = "Preview failed: " + selectionDebugText(e);
+      console.log("Blend preview error:", e.stack);
+    }
+  }
+
+  previewBtn.setOnClickHandler(updatePreview);
+  updatePreview();
+
+  const result = dlg.runModal();
+  rollback();
+
+  if (result && result.value === DialogResult.Ok.value) {
+    const o = readOpts();
+    try {
+      const blendLabel = currentLabel(o.reverse, o.useLastAsPath);
+      doApply(o.steps, o.doFill, o.doStroke, o.reverse, o.useLastAsPath);
+      cleanupSources(o.useLastAsPath, blendLabel);
+    } catch (e) {
+      rollback();
+      showError("Blend failed: " + selectionDebugText(e));
+      console.log("Blend error:", e.stack);
     }
   }
 }
