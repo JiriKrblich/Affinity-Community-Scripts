@@ -1,10 +1,15 @@
 /**
- * name: Dithering
- * description: Error-diffusion and ordered dithering for selected layers.
- * version: 1.0.0
+ * name: Dithering 3.0.1
+ * description: Adjustable halftone dithering effect with 12 dithering algorithms.
+ * version: 1.0.1
  * author: bitmancer
  */
 "use strict";
+// v1.0.1 – SDK compatibility update for the current Affinity version:
+//   * PixelBuffer.format is an enum object now -> format lookup via .value
+//   * app.getUserDesktopPath (deprecated) -> app.userDesktopPath
+//   * File I/O: File.readAll() / File.create(path, "wb") instead of new File(path)
+//   * Dialog start values set explicitly after control creation
 
 // ═══════════════════════════════════════════════════════════════════════
 // Imports
@@ -18,8 +23,7 @@ const { RasterFormat } = require("/rasterobject");
 const { Dialog, DialogResult } = require("/dialog");
 const { UnitType } = require("/units");
 const { Rectangle } = require("/geometry");
-const { File } = require("/fs");
-const { Buffer } = require("/buffer");
+const { File, exists: fsExists } = require("/fs");
 
 // ═══════════════════════════════════════════════════════════════════════
 // Pixel format dispatch
@@ -239,8 +243,11 @@ const ALGO_NAMES = Object.keys(ALGOS);
 
 function dither(doc, workingNode, params) {
   const pbuf = workingNode.rasterInterface.createCompatibleBuffer(true);
-  const fmt = FORMATS[pbuf.format];
-  if (!fmt) throw new Error("Unsupported raster format: " + pbuf.format);
+  // pbuf.format is a RasterFormat enum object (not a number) in the current SDK
+  const fmtKey =
+    pbuf.format && typeof pbuf.format === "object" ? pbuf.format.value : pbuf.format;
+  const fmt = FORMATS[fmtKey];
+  if (!fmt) throw new Error("Unsupported raster format: " + String(pbuf.format));
 
   const W = pbuf.width,
     H = pbuf.height,
@@ -368,33 +375,25 @@ function dither(doc, workingNode, params) {
 // ═══════════════════════════════════════════════════════════════════════
 
 function getSettingsCandidatePaths() {
-  const desktop = app.getUserDesktopPath;
+  let desktop = null;
+  try {
+    desktop = app.userDesktopPath;
+  } catch (e) {}
   if (!desktop || typeof desktop !== "string") return [];
-  // Normalizace lomítek pro detekci OS
-  const isWin = desktop.indexOf("\\") !== -1; // opravený escapování
-  const sep = isWin ? "\\" : "/"; // opraveno
-  const home = desktop.replace(/[/\\]Desktop[/\\]?$/, ""); // opravený regex
+  const isWin = desktop.indexOf("\\") !== -1;
+  const sep = isWin ? "\\" : "/";
   const file = "dithering-settings.json";
-  return [home + sep + "Documents" + sep + file, desktop + sep + file];
+  // Only the desktop folder is reliably writable for scripts.
+  return [desktop + sep + file];
 }
 
 function loadSettings() {
   for (const path of getSettingsCandidatePaths()) {
-    let f = null;
     try {
-      f = new File(path); // opraveno – konstruktor bez parametru módu
-      if (!f || !f.exists) continue; // zjednodušená kontrola existence
-      f.open("r"); // otevření pro čtení
-      const len = f.length;
-      if (!len) {
-        f.close();
-        continue;
-      }
-      const buf = Buffer.create(len);
-      f.read(buf, len);
-      f.close();
-      f = null;
-      const raw = JSON.parse(buf.toString());
+      if (!fsExists(path)) continue;
+      const text = File.readAll(path).toString();
+      if (!text) continue;
+      const raw = JSON.parse(text);
       return {
         algorithm: raw.algorithm,
         threshold: raw.threshold,
@@ -403,13 +402,7 @@ function loadSettings() {
         transparent: !!raw.transparent,
       };
     } catch (e) {
-      // pokračuj na další cestu
-    } finally {
-      if (f && f.isOpen) {
-        try {
-          f.close();
-        } catch (e) {}
-      }
+      // try next path
     }
   }
   return null;
@@ -430,16 +423,15 @@ function saveSettings(params) {
   for (const path of getSettingsCandidatePaths()) {
     let f = null;
     try {
-      f = new File(path); // opraveno
-      f.open("w"); // otevření pro zápis
-      if (!f.isOpen) continue;
+      f = File.create(path, "wb");
       f.writeStringAsUtf8(json);
       f.close();
+      f = null;
       return;
     } catch (e) {
-      // další pokus
+      // try next path
     } finally {
-      if (f && f.isOpen) {
+      if (f) {
         try {
           f.close();
         } catch (e) {}
@@ -459,6 +451,9 @@ function buildDialog(defaults) {
   const grp = col.addGroup("Controls");
   const algoIndex = Math.max(0, ALGO_NAMES.indexOf(defaults.algorithm));
   dlg.algo = grp.addComboBox("Algorithm", ALGO_NAMES, algoIndex);
+  try {
+    dlg.algo.selectedIndex = algoIndex;
+  } catch (e) {}
   dlg.threshold = grp.addUnitValueEditor(
     "Threshold",
     UnitType.Percentage,
@@ -483,10 +478,15 @@ function buildDialog(defaults) {
     1,
     100,
   );
+  // Initial values are not reliably taken from the constructor -> set explicitly
+  dlg.threshold.value = defaults.threshold * 100;
+  dlg.strength.value = defaults.strength * 100;
+  dlg.resolution.value = defaults.resolution * 100;
   dlg.threshold.showPopupSlider = true;
   dlg.strength.showPopupSlider = true;
   dlg.resolution.showPopupSlider = true;
   dlg.transparent = grp.addCheckBox("Transparent BG", !!defaults.transparent);
+  dlg.transparent.value = !!defaults.transparent;
 
   dlg.initialWidth = 320;
   return dlg;
@@ -495,7 +495,7 @@ function buildDialog(defaults) {
 function readDialogValues(dlg) {
   const clamp01 = (v) => Math.max(0, Math.min(1, v));
   return {
-    algorithm: ALGO_NAMES[dlg.algo.selectedIndex],
+    algorithm: ALGO_NAMES[Number(dlg.algo.selectedIndex)] || ALGO_NAMES[0],
     threshold: clamp01(dlg.threshold.value / 100),
     strength: clamp01(dlg.strength.value / 100),
     resolution: clamp01(dlg.resolution.value / 100),

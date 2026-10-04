@@ -136,7 +136,8 @@
       "name": "Dithering",
       "description": "Adjustable halftone dithering effect with 12 dithering algorithms.",
       "author": "bitmancer",
-      "version": "1.0",
+      "contributors":"Erhard.otto",
+      "version": "1.1.1",
       "category": "Effect",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/dithering.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/dithering.js"
