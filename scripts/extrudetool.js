@@ -1,61 +1,41 @@
 /**
- * name: Extrude Tool v6de
+ * name: Extrude Tool v6df (Live Preview Fixed)
  */
 "use strict";
 
 // =============================================================================
-// EXTRUDE TOOL v6de (Robust Node Identity, Foreign/Duplicate Extraction & Synergy)
+// EXTRUDE TOOL v6df (Primordial Color Fidelity, Robust Order & Live Preview)
 // Affinity Designer / Photo / Publisher
 //
-// Features & Fixes in v6de:
-// - Robust DOM Identity Comparison (v6de Critical Fix):
-//   Replaced referential equality (===) with isSameNode DOM equality across all
-//   container detection and grouping logic. Affinity wrapper objects for the same
-//   group node now correctly deduplicate, eliminating the 'Select at least 2 shapes'
-//   error when 2 shapes inside a container are selected.
-// - Foreign & Duplicate Shape Extraction:
-//   Selecting 2 or more duplicate generated objects, duplicate caps, or foreign shapes
-//   (e.g. 2 ellipses, rectangles, stars) inside a container automatically extracts
-//   them above the container (NodeMoveType.After) and opens the Extrude dialog
-//   to create a new separate extrusion, leaving the original container untouched.
-// - Smart Sub-Selection Resolution:
-//   Clicking on ANY single component of an extrusion on canvas or in the Layers
-//   panel (Cap 1, Cap 2, Front Wall, Back Bevel, or any child curve) automatically
-//   targets the parent Extrude container for parameter editing.
-// - Non-Recursive Crash-Proof Architecture:
-//   Zero recursive loops between group and result detection, completely eliminating
-//   JavaScript stack overflows.
-// - Safe Document Selection & Visibility:
-//   Safely repoints document selection to the container group and non-destructively
-//   toggles visibility during live preview to avoid dangling C++ pointers.
-// - Swap Main/Secondary Re-entrancy Stability:
-//   Preserves exact cap orientation and visual state across infinite re-runs
-//   without inverting or flipping caps.
-// - Canonical Cap Index Ordering:
-//   Existing container caps maintain strict canonical identity (Cap 1, Cap 2, etc.)
-//   independently of transient container Z-index stacking.
-// - Clean Container Naming & JSON Metadata (Zig Zag v3e Standard):
-//   Container group is named cleanly as 'Extrude Tool Effect' with zero parameter
-//   clutter in the layer name. All active parameters are serialized as JSON in
-//   tagInterface under 'extrudeSettings' and 'effectPipeline'.
-// - Backward Compatibility:
-//   Seamlessly reads parameters from existing legacy containers that had settings
-//   in their name or tags.
-// - Direct Procedural Effect Synergy:
-//   Full native support for extruding paths and shapes with procedural effects
-//   (Zig Zag, Roughen, Pucker & Bloat, Twist, etc.).
-// - Re-entrant & Non-Destructive:
-//   Re-run Extrude Tool on an existing group anytime to modify sliders, adjust bevel
-//   profiles, or change blend steps.
-// - Canvas Transform Re-adaptation:
-//   Scale, move, or transform cap paths on canvas, then re-run Extrude Tool to
-//   automatically recalculate and regenerate the 3D extrusion.
+// Features & Fixes in v6df:
+// - Primordial Object Color Fidelity (v6df Critical Fix):
+//   Eliminated arbitrary scored.sort heuristic (which sorted by zRank and perimeter).
+//   Strictly preserves user selection and creation order: the first selected node
+//   is guaranteed to be Cap 1 (Obiectul Primordial) and dictates extrusion color.
+// - Advanced Color Source Selection:
+//   Added interactive 'Color Source' option in Style group:
+//     • Cap 1 (Primordial) [Default]
+//     • Cap 2 (Secondary)
+//     • Blend (Cap 1 → Cap 2) with smooth color interpolation across extrusion steps.
+// - Robust Style & Fill Extraction:
+//   Extracts SolidFill (RGBA8), GradientFill (dominant stop extraction), and falls
+//   back to stroke color (penFillDescriptor) when an object has no brush fill,
+//   ensuring outline/line-art shapes extrude with visible, vibrant solid color.
+// - Procedural Container Color Traversal:
+//   If a cap is a procedural effect container (Zig Zag, Roughen, Pucker & Bloat, etc.),
+//   seamlessly resolves color through Result node -> Source node -> Container.
+// - 3D Facet Shading Control:
+//   Added '3D Shading (%)' slider (0% to 50%, default 0% for pure 100% primordial color).
+//   When increased, adds subtle directional lighting/depth to side and bevel walls.
+// - SDK 3.3 Compatibility:
+//   Maintains PolyCurveNodeDefinition.create signature:
+//   (curve, brushFill, lineFill, lineStyle, transparencyFill).
+// - Live Preview Z-Stack Alignment:
+//   Ensures front cap is rendered seamlessly at the top of preview geometry.
+// - Robust DOM Identity Comparison:
+//   Uses isSameNode DOM equality across all container detection and grouping logic.
 // - Red Layer Tag (v3d/v3e Standard):
-//   Marks all generated Extrude Result containers/nodes with RGB8(255, 0, 0)
-//   for seamless integration with Expand Effects v3d/v3e.
-// - Spread Coordinate Baking:
-//   Coordinates are baked in spread space via clonePolyCurveToSpread to eliminate
-//   any canvas origin drifting.
+//   Marks generated Extrude Result containers with RGB8(255, 0, 0) for Expand Effects.
 // =============================================================================
 
 const { Document } = require("/document");
@@ -81,7 +61,7 @@ const { setTimeout } = require("/timers");
 // CONSTANTS & REGISTRY
 // =============================================================================
 
-const SCRIPT_TITLE = 'Extrude Tool v6de';
+const SCRIPT_TITLE = 'Extrude Tool v6df';
 const GROUP_PREFIX = 'Extrude Tool Effect';
 const RESULT_PREFIX = 'Extrude Result';
 const BEVEL_EDITOR_MAX = 10000;
@@ -91,6 +71,8 @@ const DEFAULT_VALUES = {
   steps: 1,
   subdivs: 5,
   opacity: 100,
+  colorSource: 0, // 0: Cap 1 (Primordial), 1: Cap 2 (Secondary), 2: Blend (Cap 1 -> Cap 2)
+  shading: 0,     // 0% to 50%
   bevelEnabled: true,
   bevelCenter: 0,
   bevelHighToLow: 0,
@@ -243,9 +225,6 @@ function hasRedTag(node) {
   return false;
 }
 
-/**
- * Non-recursive check: verifies only the node itself without inspecting children.
- */
 function isExtrudeGroup(node) {
   if (!node || !node.isContainerNode) return false;
   try {
@@ -280,9 +259,6 @@ function isProceduralEffectContainer(node) {
   return false;
 }
 
-/**
- * Non-recursive check: verifies if a node is an Extrude Result container or inside one.
- */
 function isExtrudeResultNode(node) {
   if (!node) return false;
   if (hasRedTag(node)) return true;
@@ -436,6 +412,8 @@ function sanitizeValues(v) {
     steps: (typeof v.steps === 'number' && !isNaN(v.steps)) ? Math.max(1, Math.min(50, Math.round(v.steps))) : DEFAULT_VALUES.steps,
     subdivs: (typeof v.subdivs === 'number' && !isNaN(v.subdivs)) ? Math.max(1, Math.min(32, Math.round(v.subdivs))) : DEFAULT_VALUES.subdivs,
     opacity: (typeof v.opacity === 'number' && !isNaN(v.opacity)) ? Math.max(0, Math.min(100, v.opacity)) : DEFAULT_VALUES.opacity,
+    colorSource: (typeof v.colorSource === 'number' && !isNaN(v.colorSource)) ? Math.max(0, Math.min(2, Math.round(v.colorSource))) : DEFAULT_VALUES.colorSource,
+    shading: (typeof v.shading === 'number' && !isNaN(v.shading)) ? Math.max(0, Math.min(50, Math.round(v.shading))) : DEFAULT_VALUES.shading,
     bevelEnabled: v.bevelEnabled !== undefined ? !!v.bevelEnabled : DEFAULT_VALUES.bevelEnabled,
     bevelCenter: (typeof v.bevelCenter === 'number' && !isNaN(v.bevelCenter)) ? Math.max(0, Math.round(v.bevelCenter)) : DEFAULT_VALUES.bevelCenter,
     bevelHighToLow: (typeof v.bevelHighToLow === 'number' && !isNaN(v.bevelHighToLow)) ? Math.max(0, Math.round(v.bevelHighToLow)) : DEFAULT_VALUES.bevelHighToLow,
@@ -621,6 +599,125 @@ function extractCapPolyCurve(node) {
 }
 
 // =============================================================================
+// COLOR, STYLE & FILL RESOLUTION (v6df Primordial Color Fidelity)
+// =============================================================================
+
+function extractNodeColor(node) {
+  if (!node) return null;
+
+  // 1. Check brushFillInterface / brushFillDescriptor
+  try {
+    let bfd = null;
+    if (node.brushFillInterface && !node.brushFillInterface.isNoFill) {
+      bfd = node.brushFillInterface.currentDescriptor;
+    } else if (node.brushFillDescriptor) {
+      bfd = node.brushFillDescriptor;
+    }
+
+    if (bfd && bfd.fill) {
+      const f = bfd.fill;
+      const tag = f[Symbol.toStringTag];
+      if (tag === 'SolidFill' && f.colour) {
+        const c = f.colour.rgba8 || (f.colour.getRGBA8 ? f.colour.getRGBA8() : null);
+        if (c) return { r: c.r, g: c.g, b: c.b, alpha: c.alpha !== undefined ? c.alpha : 255 };
+      }
+      if (tag === 'GradientFill' && f.gradient) {
+        const stops = f.gradient.stops;
+        if (stops && stops.length > 0 && stops[0].colour) {
+          const sc = stops[0].colour;
+          const c = sc.rgba8 || (sc.getRGBA8 ? sc.getRGBA8() : null);
+          if (c) return { r: c.r, g: c.g, b: c.b, alpha: c.alpha !== undefined ? c.alpha : 255 };
+        }
+      }
+    }
+  } catch (e) {}
+
+  // 2. Fallback to penFillDescriptor (stroke color) when brush fill is None
+  try {
+    let pfd = null;
+    if (node.penFillDescriptor) pfd = node.penFillDescriptor;
+    if (pfd && pfd.fill) {
+      const f = pfd.fill;
+      const tag = f[Symbol.toStringTag];
+      if (tag === 'SolidFill' && f.colour) {
+        const c = f.colour.rgba8 || (f.colour.getRGBA8 ? f.colour.getRGBA8() : null);
+        if (c) return { r: c.r, g: c.g, b: c.b, alpha: c.alpha !== undefined ? c.alpha : 255 };
+      }
+    }
+  } catch (e) {}
+
+  return null;
+}
+
+function resolveRawNodeColor(node) {
+  if (!node) return { r: 128, g: 128, b: 128, alpha: 255 };
+
+  if (isProceduralEffectContainer(node)) {
+    const children = getChildren(node);
+    const res = children.find(c => hasRedTag(c) || getNodeName(c).indexOf('Result') === 0);
+    const src = children.find(c => getNodeName(c).indexOf('Source') === 0);
+    const candidates = [res, src, node].filter(Boolean);
+    for (const cand of candidates) {
+      const col = extractNodeColor(cand);
+      if (col) return col;
+    }
+  }
+
+  const direct = extractNodeColor(node);
+  if (direct) return direct;
+
+  return { r: 128, g: 128, b: 128, alpha: 255 };
+}
+
+function lerpColor(c1, c2, t) {
+  const f = Math.max(0, Math.min(1, t));
+  return {
+    r: Math.round(c1.r + (c2.r - c1.r) * f),
+    g: Math.round(c1.g + (c2.g - c1.g) * f),
+    b: Math.round(c1.b + (c2.b - c1.b) * f),
+    alpha: Math.round(c1.alpha + (c2.alpha - c1.alpha) * f)
+  };
+}
+
+function applyShading(c, shadowFactor) {
+  if (!shadowFactor || shadowFactor <= 0) return c;
+  const factor = Math.max(0, Math.min(1, 1 - shadowFactor));
+  return {
+    r: Math.round(c.r * factor),
+    g: Math.round(c.g * factor),
+    b: Math.round(c.b * factor),
+    alpha: c.alpha
+  };
+}
+
+function readStyle(node, opacity) {
+  const f = opacity / 100;
+  let effectiveNode = node;
+
+  if (isProceduralEffectContainer(node)) {
+    const children = getChildren(node);
+    const res = children.find(c => hasRedTag(c) || getNodeName(c).indexOf('Result') === 0) || children[0];
+    if (res) effectiveNode = res;
+  }
+
+  const rawCol = resolveRawNodeColor(effectiveNode);
+  const alphaVal = Math.min(255, Math.round(rawCol.alpha * f));
+  const fill = FillDescriptor.createSolid(RGBA8(rawCol.r, rawCol.g, rawCol.b, alphaVal), BlendMode.Normal);
+
+  let stroke = FillDescriptor.createNone();
+  try {
+    const pfd = effectiveNode.penFillDescriptor;
+    if (pfd && pfd.type !== "none") stroke = pfd;
+  } catch (e) {}
+
+  let lsd = null;
+  try { lsd = effectiveNode.lineStyleDescriptor; } catch (e) {}
+  if (!lsd) lsd = LineStyleDescriptor.createDefault(4.166);
+
+  return { fill, stroke, lsd, rawCol };
+}
+
+// =============================================================================
 // GEOMETRY & BEZIER MATH HELPERS
 // =============================================================================
 
@@ -736,7 +833,7 @@ function scaleSegsFromCenter(segs, center, scale) {
 
 function addPointToBounds(bounds, p) {
   bounds.minX = Math.min(bounds.minX, p.x);
-  bounds.minY = Math.min(bounds.minY, p.x);
+  bounds.minY = Math.min(bounds.minY, p.y);
   bounds.maxX = Math.max(bounds.maxX, p.x);
   bounds.maxY = Math.max(bounds.maxY, p.y);
 }
@@ -780,13 +877,13 @@ function facePC(sA, sB) {
   cb.lineToXY(sB.end.x, sB.end.y);
   cb.addBezierXY(sB.c2.x, sB.c2.y, sB.c1.x, sB.c1.y, sB.start.x, sB.start.y);
   cb.close();
-  const pc = new PolyCurve();
+  const pc = PolyCurve.create();
   pc.addCurve(cb.createCurve());
   return pc;
 }
 
 function mkNode(poly, fill, strokeFill, lsd) {
-  return PolyCurveNodeDefinition.create(poly, fill, lsd, strokeFill, FillDescriptor.createNone());
+  return PolyCurveNodeDefinition.create(poly, fill, strokeFill, lsd, FillDescriptor.createNone());
 }
 
 function faceSignedArea(sA, sB) {
@@ -892,211 +989,231 @@ function getStartTangent(b) {
 function detectCorners(beziers, tbl, totalLen, closed) {
   const ANGLE_THRESHOLD = 15 * Math.PI / 180;
   const corners = [];
-  const bezierEndCum = [];
-  for (let bi = 0; bi < beziers.length; bi++) bezierEndCum[bi] = 0;
-  for (let j = 0; j < tbl.length; j++) {
-    if (tbl[j].t === 1) bezierEndCum[tbl[j].bi] = tbl[j].cum;
+  let cum = 0;
+  for (let bi = 0; bi < beziers.length - 1; bi++) {
+    cum = tbl.find(entry => entry.bi === bi + 1 && entry.t === 0)?.cum ?? cum;
+    const tanEnd = getEndTangent(beziers[bi]), tanStart = getStartTangent(beziers[bi + 1]);
+    const dot = Math.max(-1, Math.min(1, tanEnd.tx * tanStart.tx + tanEnd.ty * tanStart.ty));
+    if (Math.acos(dot) > ANGLE_THRESHOLD) corners.push({ dist: cum, bi: bi + 1 });
   }
-  const n = beziers.length;
-  for (let i = 0; i < n; i++) {
-    const nextIdx = (i + 1) % n;
-    if (!closed && nextIdx === 0) continue;
-    const g1 = getEndTangent(beziers[i]);
-    const g2 = getStartTangent(beziers[nextIdx]);
-    const dot = g1.tx * g2.tx + g1.ty * g2.ty;
-    const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
-    if (angle > ANGLE_THRESHOLD) {
-      let cum = bezierEndCum[i];
-      if (closed && i === n - 1 && Math.abs(cum - totalLen) < 1e-6) cum = 0;
-      let bx = g1.tx + g2.tx, by = g1.ty + g2.ty;
-      let bl = Math.hypot(bx, by);
-      if (bl < 1e-9) { bx = -g1.ty; by = g1.tx; bl = 1.0; }
-      corners.push({ cum: cum, tx: bx / bl, ty: by / bl });
+  if (closed) {
+    const tanEnd = getEndTangent(beziers[beziers.length - 1]), tanStart = getStartTangent(beziers[0]);
+    const dot = Math.max(-1, Math.min(1, tanEnd.tx * tanStart.tx + tanEnd.ty * tanStart.ty));
+    if (Math.acos(dot) > ANGLE_THRESHOLD) {
+      corners.push({ dist: 0, bi: 0 });
+      corners.push({ dist: totalLen, bi: beziers.length });
     }
   }
-  corners.sort((a, b) => a.cum - b.cum);
   return corners;
 }
 
-function buildZigZagPolyCurve(sourcePolyCurve, amp, ridges, smooth) {
-  if (amp <= 0 || ridges <= 0) return sourcePolyCurve.clone();
-  const out = PolyCurve.create();
-  for (const curve of sourcePolyCurve) {
+function buildZigZagPolyCurve(polyCurve, amp, ridges, smooth) {
+  const result = PolyCurve.create();
+  for (const curve of polyCurve) {
     const beziers = [...curve.beziers];
     if (!beziers.length) continue;
+    const closed = curve.isClosed;
     const tbl = buildArcTable(beziers);
     const totalLen = tbl[tbl.length - 1].cum;
-    if (totalLen < 1e-9) { out.addCurve(curve.clone()); continue; }
-    const closed = curve.isClosed;
+    if (totalLen <= 0) continue;
+
     const corners = detectCorners(beziers, tbl, totalLen, closed);
-    const peaks = ridges * 2;
-    const step = totalLen / peaks;
-    const pts = [];
-    if (closed) {
-      for (let i = 0; i < peaks; i++) {
-        const sampled = sampleAt(tbl, beziers, i * step);
-        const sign = i % 2 === 0 ? 1 : -1;
-        pts.push({ x: sampled.p.x + sampled.g.nx * amp * sign, y: sampled.p.y + sampled.g.ny * amp * sign, tx: sampled.g.tx, ty: sampled.g.ty });
-      }
-    } else {
-      for (let i = 0; i <= peaks; i++) {
-        const sampled = sampleAt(tbl, beziers, Math.min(i * step, totalLen));
-        const sign = (i === 0 || i === peaks) ? 0 : (i % 2 === 1 ? 1 : -1);
-        pts.push({ x: sampled.p.x + sampled.g.nx * amp * sign, y: sampled.p.y + sampled.g.ny * amp * sign, tx: sampled.g.tx, ty: sampled.g.ty });
-      }
+    const cornerDists = corners.map(c => c.dist);
+    const segLimits = [0];
+    for (const d of cornerDists) {
+      if (d > 1e-4 && d < totalLen - 1e-4) segLimits.push(d);
     }
-    const builder = CurveBuilder.create();
-    builder.beginXY(pts[0].x, pts[0].y);
-    const count = closed ? pts.length : pts.length - 1;
+    segLimits.push(totalLen);
+    segLimits.sort((a, b) => a - b);
+
+    const peaks = [];
+    for (let si = 0; si < segLimits.length - 1; si++) {
+      const segStart = segLimits[si], segEnd = segLimits[si + 1];
+      const segLen = segEnd - segStart;
+      if (segLen <= 0) continue;
+
+      const segRidges = Math.max(1, Math.round(ridges * (segLen / totalLen)));
+      const numHalfWaves = segRidges * 2;
+      const step = segLen / numHalfWaves;
+
+      if (si === 0) {
+        const s0 = sampleAt(tbl, beziers, segStart);
+        peaks.push({ pt: { x: s0.p.x, y: s0.p.y }, nx: s0.g.nx, ny: s0.g.ny, isCorner: true });
+      }
+
+      for (let hi = 1; hi < numHalfWaves; hi++) {
+        const dist = segStart + hi * step;
+        const s = sampleAt(tbl, beziers, dist);
+        const sign = (hi % 2 === 1) ? 1 : -1;
+        peaks.push({
+          pt: { x: s.p.x + s.g.nx * amp * sign, y: s.p.y + s.g.ny * amp * sign },
+          nx: s.g.nx * sign,
+          ny: s.g.ny * sign,
+          isCorner: false
+        });
+      }
+
+      const sEnd = sampleAt(tbl, beziers, segEnd);
+      peaks.push({ pt: { x: sEnd.p.x, y: sEnd.p.y }, nx: sEnd.g.nx, ny: sEnd.g.ny, isCorner: true });
+    }
+
+    const cb = CurveBuilder.create();
+    if (!peaks.length) continue;
+    cb.beginXY(peaks[0].pt.x, peaks[0].pt.y);
+
     if (smooth) {
-      for (let i = 0; i < count; i++) {
-        const p0 = pts[i], p1 = pts[(i + 1) % pts.length];
-        const h = Math.hypot(p1.x - p0.x, p1.y - p0.y) / 3;
-        builder.addBezierXY(p0.x + p0.tx * h, p0.y + p0.ty * h, p1.x - p1.tx * h, p1.y - p1.ty * h, p1.x, p1.y);
+      const N = peaks.length;
+      for (let i = 0; i < N - 1; i++) {
+        const p0 = peaks[Math.max(0, i - 1)].pt;
+        const p1 = peaks[i].pt;
+        const p2 = peaks[i + 1].pt;
+        const p3 = peaks[Math.min(N - 1, i + 2)].pt;
+        const d1x = (p2.x - p0.x) / 6, d1y = (p2.y - p0.y) / 6;
+        const d2x = (p3.x - p1.x) / 6, d2y = (p3.y - p1.y) / 6;
+        cb.addBezierXY(p1.x + d1x, p1.y + d1y, p2.x - d2x, p2.y - d2y, p2.x, p2.y);
       }
     } else {
-      for (let i = 1; i <= count; i++) builder.lineToXY(pts[i % pts.length].x, pts[i % pts.length].y);
+      for (let i = 1; i < peaks.length; i++) {
+        cb.lineToXY(peaks[i].pt.x, peaks[i].pt.y);
+      }
     }
-    if (closed) builder.close();
-    out.addCurve(builder.createCurve());
+
+    if (closed) cb.close();
+    result.addCurve(cb.createCurve());
   }
-  return out;
+  return result;
 }
 
-function readPolyCurveBounds(polyCurve) {
-  let bbox = null;
-  try { bbox = polyCurve.exactBoundingBox || polyCurve.boundingBox; } catch (e) {}
-  if (!bbox) return { x: 0, y: 0, width: 100, height: 100, cx: 50, cy: 50, maxDimension: 100 };
-  const w = (bbox.width !== undefined) ? bbox.width : 100;
-  const h = (bbox.height !== undefined) ? bbox.height : 100;
-  const x = (bbox.x !== undefined) ? bbox.x : 0;
-  const y = (bbox.y !== undefined) ? bbox.y : 0;
-  return { x, y, width: w, height: h, cx: x + w / 2, cy: y + h / 2, maxDimension: Math.max(w, h, 1) };
-}
+function buildRoughenPolyCurve(polyCurve, size, isRelative, detail, smooth, seed) {
+  let rng = (seed ? seed : 42) >>> 0;
+  const nextRand = () => {
+    rng = (Math.imul(1664525, rng) + 1013904223) >>> 0;
+    return (rng >>> 0) / 4294967296;
+  };
 
-function pseudoNoise(seed, index) {
-  const n = index * 12.9898 + seed * 78.233;
-  const f = Math.sin(n) * 43758.5453;
-  return (f - Math.floor(f)) * 2 - 1;
-}
-
-function buildRoughenPolyCurve(sourcePolyCurve, size, isRelative, detail, smooth, seed) {
-  if (!sourcePolyCurve) return PolyCurve.create();
-  if (size <= 0) return sourcePolyCurve.clone();
-  const bounds = readPolyCurveBounds(sourcePolyCurve);
-  const INCH_PT = 72;
-  const safeSeed = seed || 42;
-  const out = PolyCurve.create();
-  let globalPointIdx = 0;
-  for (const curve of sourcePolyCurve) {
+  const result = PolyCurve.create();
+  for (const curve of polyCurve) {
     const beziers = [...curve.beziers];
     if (!beziers.length) continue;
+    const closed = curve.isClosed;
     const tbl = buildArcTable(beziers);
     const totalLen = tbl[tbl.length - 1].cum;
-    if (totalLen < 1e-9) { out.addCurve(curve.clone()); continue; }
-    const closed = curve.isClosed;
-    const actualAmp = isRelative ? (Math.max(bounds.maxDimension, totalLen * 0.5) * (size / 100)) : size;
-    let segments = Math.max(2, Math.round(detail * (totalLen / INCH_PT)));
-    if (closed && segments % 2 !== 0) segments += 1;
-    const step = totalLen / segments;
+    if (totalLen <= 0) continue;
+
+    const effAmp = isRelative ? (size / 100) * (totalLen / (2 * Math.PI)) : size;
+    const numSteps = Math.max(4, Math.round(detail * (totalLen / 100)));
+    const stepDist = totalLen / numSteps;
+
     const pts = [];
-    const count = closed ? segments : segments + 1;
-    for (let i = 0; i < count; i++) {
-      const isEndpoint = !closed && (i === 0 || i === segments);
-      const c = Math.min(i * step, totalLen);
-      const sampled = sampleAt(tbl, beziers, c);
-      let disp = 0;
-      if (!isEndpoint) {
-        const nVal = pseudoNoise(safeSeed, globalPointIdx + i * 3);
-        disp = nVal * actualAmp;
-      }
-      pts.push({ x: sampled.p.x + sampled.g.nx * disp, y: sampled.p.y + sampled.g.ny * disp, tx: sampled.g.tx, ty: sampled.g.ty });
+    for (let i = 0; i <= numSteps; i++) {
+      const d = Math.min(totalLen, i * stepDist);
+      const s = sampleAt(tbl, beziers, d);
+      const randN = (nextRand() * 2 - 1) * effAmp;
+      const randT = (nextRand() * 2 - 1) * effAmp * 0.5;
+      pts.push({
+        x: s.p.x + s.g.nx * randN + s.g.tx * randT,
+        y: s.p.y + s.g.ny * randN + s.g.ty * randT
+      });
     }
-    globalPointIdx += count + 10;
-    const builder = CurveBuilder.create();
-    builder.beginXY(pts[0].x, pts[0].y);
-    const loopCount = closed ? pts.length : pts.length - 1;
+
+    if (closed && pts.length > 1) pts[pts.length - 1] = { ...pts[0] };
+
+    const cb = CurveBuilder.create();
+    cb.beginXY(pts[0].x, pts[0].y);
     if (smooth) {
-      for (let i = 0; i < loopCount; i++) {
-        const p0 = pts[i], p1 = pts[(i + 1) % pts.length];
-        const h = Math.hypot(p1.x - p0.x, p1.y - p0.y) / 3;
-        builder.addBezierXY(p0.x + p0.tx * h, p0.y + p0.ty * h, p1.x - p1.tx * h, p1.y - p1.ty * h, p1.x, p1.y);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+        cb.addBezierXY(
+          p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6,
+          p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6,
+          p2.x, p2.y
+        );
       }
     } else {
-      for (let i = 1; i <= loopCount; i++) builder.lineToXY(pts[i % pts.length].x, pts[i % pts.length].y);
+      for (let i = 1; i < pts.length; i++) cb.lineToXY(pts[i].x, pts[i].y);
     }
-    if (closed) builder.close();
-    out.addCurve(builder.createCurve());
+    if (closed) cb.close();
+    result.addCurve(cb.createCurve());
   }
-  return out;
+  return result;
 }
 
-function warpPoint(pt, cx, cy, scale) {
-  return { x: cx + (pt.x - cx) * scale, y: cy + (pt.y - cy) * scale };
-}
-
-function buildPuckerBloatPolyCurve(sourcePolyCurve, amount) {
-  const bbox = readPolyCurveBounds(sourcePolyCurve);
-  const center = { x: bbox.cx, y: bbox.cy };
-  const t = amount / 100;
-  const anchorScale = 1 - t;
-  const handleScale = 1 + t;
-  const out = PolyCurve.create();
-  for (const curve of sourcePolyCurve) {
+function buildPuckerBloatPolyCurve(polyCurve, amount) {
+  const f = amount / 100;
+  const result = PolyCurve.create();
+  for (const curve of polyCurve) {
     const beziers = [...curve.beziers];
-    if (!beziers.length) { out.addCurve(curve.clone()); continue; }
-    const builder = CurveBuilder.create();
-    const first = warpPoint(beziers[0].start, center.x, center.y, anchorScale);
-    builder.beginXY(first.x, first.y);
-    for (const bez of beziers) {
-      const c1 = warpPoint(bez.c1, center.x, center.y, handleScale);
-      const c2 = warpPoint(bez.c2, center.x, center.y, handleScale);
-      const end = warpPoint(bez.end, center.x, center.y, anchorScale);
-      builder.addBezierXY(c1.x, c1.y, c2.x, c2.y, end.x, end.y);
+    if (!beziers.length) continue;
+    let cx = 0, cy = 0, count = 0;
+    for (const b of beziers) { cx += b.start.x; cy += b.start.y; count++; }
+    cx /= (count || 1); cy /= (count || 1);
+
+    const cb = CurveBuilder.create();
+    cb.beginXY(beziers[0].start.x, beziers[0].start.y);
+    for (const b of beziers) {
+      const mid = evalBez(b, 0.5);
+      const vx = mid.x - cx, vy = mid.y - cy;
+      const displaced = { x: mid.x + vx * f, y: mid.y + vy * f };
+      cb.addBezierXY(
+        lerp(b.c1.x, displaced.x, Math.abs(f) * 0.75),
+        lerp(b.c1.y, displaced.y, Math.abs(f) * 0.75),
+        lerp(b.c2.x, displaced.x, Math.abs(f) * 0.75),
+        lerp(b.c2.y, displaced.y, Math.abs(f) * 0.75),
+        b.end.x, b.end.y
+      );
     }
-    if (curve.isClosed) builder.close();
-    out.addCurve(builder.createCurve());
+    if (curve.isClosed) cb.close();
+    result.addCurve(cb.createCurve());
   }
-  return out;
+  return result;
 }
 
-function twistPoint(point, cx, cy, angleRad, maxR) {
-  const dx = point.x - cx, dy = point.y - cy;
-  const r = Math.hypot(dx, dy);
-  if (r < 1e-9) return point;
-  const angle = Math.atan2(dy, dx) + angleRad * (r / maxR);
-  return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-}
+function buildTwistPolyCurve(polyCurve, angleDeg, subdiv) {
+  const rad = (angleDeg * Math.PI) / 180;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const curve of polyCurve) {
+    for (const b of curve.beziers) {
+      for (const p of [b.start, b.c1, b.c2, b.end]) {
+        minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+      }
+    }
+  }
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const maxR = Math.hypot(maxX - cx, maxY - cy) || 1;
 
-function buildTwistPolyCurve(sourcePolyCurve, angleDeg, subdiv) {
-  const bounds = readPolyCurveBounds(sourcePolyCurve);
-  const cx = bounds.cx, cy = bounds.cy;
-  const maxR = Math.hypot(bounds.width / 2, bounds.height / 2) || 1;
-  const angleRad = angleDeg * Math.PI / 180;
-  const out = PolyCurve.create();
-  for (const curve of sourcePolyCurve) {
+  const twistPoint = pt => {
+    const dx = pt.x - cx, dy = pt.y - cy;
+    const r = Math.hypot(dx, dy);
+    const theta = (r / maxR) * rad;
+    const cosT = Math.cos(theta), sinT = Math.sin(theta);
+    return { x: cx + dx * cosT - dy * sinT, y: cy + dx * sinT + dy * cosT };
+  };
+
+  const result = PolyCurve.create();
+  for (const curve of polyCurve) {
     const beziers = [...curve.beziers];
-    if (!beziers.length) { out.addCurve(curve.clone()); continue; }
-    const points = [];
-    for (const bez of beziers) {
-      for (let step = 0; step < subdiv; step++) points.push(evalBez(bez, step / subdiv));
+    if (!beziers.length) continue;
+    const cb = CurveBuilder.create();
+    const startP = twistPoint(beziers[0].start);
+    cb.beginXY(startP.x, startP.y);
+
+    for (const b of beziers) {
+      const steps = Math.max(4, subdiv);
+      for (let s = 1; s <= steps; s++) {
+        const pt = evalBez(b, s / steps);
+        const tw = twistPoint(pt);
+        cb.lineToXY(tw.x, tw.y);
+      }
     }
-    if (!curve.isClosed) {
-      const last = beziers[beziers.length - 1];
-      points.push({ x: last.end.x, y: last.end.y });
-    }
-    const twisted = points.map(point => twistPoint(point, cx, cy, angleRad, maxR));
-    const builder = CurveBuilder.create();
-    builder.beginXY(twisted[0].x, twisted[0].y);
-    for (let i = 1; i < twisted.length; i++) builder.lineToXY(twisted[i].x, twisted[i].y);
-    if (curve.isClosed) builder.close();
-    out.addCurve(builder.createCurve());
+    if (curve.isClosed) cb.close();
+    result.addCurve(cb.createCurve());
   }
-  return out;
+  return result;
 }
 
 // =============================================================================
-// EXTRUDE GEOMETRY GENERATION PIPELINE
+// EXTRUDE GEOMETRY GENERATION PIPELINE (Deterministic Primordial Order)
 // =============================================================================
 
 function prepareShapes(rawNodes) {
@@ -1118,15 +1235,11 @@ function prepareShapes(rawNodes) {
     return sh;
   });
 
-  const scored = shapes.map(sh => ({
-    sh,
-    perim: approxPerimeter(sh.d.segs),
-    zRank: nodeZRank(sh.node)
-  }));
-  const maxP = Math.max(...scored.map(d => d.perim)) || 1;
-  const maxZ = Math.max(...scored.map(d => d.zRank)) || 1;
-  scored.sort((a, b) => ((b.perim / maxP) * 0.6 + (b.zRank / maxZ) * 0.4) - ((a.perim / maxP) * 0.6 + (a.zRank / maxZ) * 0.4));
-  return scored.map(d => d.sh);
+  // CRITICAL FIX in v6df: Preserve strict user selection / creation order!
+  // shapes[0] = Cap 1 (Obiectul Primordial)
+  // shapes[1] = Cap 2 (Obiectul Secundar)
+  // Eliminates arbitrary scored.sort that previously inverted shapes.
+  return shapes;
 }
 
 function prepareExistingGroupShapes(sourceNodes) {
@@ -1236,9 +1349,7 @@ function runExtrude() {
       return;
     }
 
-    // Otherwise: user selected 2 duplicates of generated objects, 2 foreign objects (e.g. 2 ellipses),
-    // duplicate caps, or a sub-selection inside the container.
-    // Extract them out of the container to create a new extrusion, keeping the container intact!
+    // Otherwise: extract them out of container to create a new separate extrusion
     const extractedList = [];
     for (const item of itemsInGroup) {
       extractNodeFromContainer(item, targetGroup);
@@ -1379,7 +1490,7 @@ function runDialog(shapes, initialValues, existingGroup) {
     return active;
   }
 
-  function addFacesBetween(faceList, A, B, exNx, exNy) {
+  function addFacesBetween(faceList, A, B, exNx, exNy, tFrac) {
     const n = Math.min(A.length, B.length);
     for (let i = 0; i < n; i++) {
       const cx = (A[i].start.x + A[i].end.x + B[i].start.x + B[i].end.x) / 4;
@@ -1387,7 +1498,8 @@ function runDialog(shapes, initialValues, existingGroup) {
       faceList.push({
         pc: facePC(A[i], B[i]),
         depth: cx * exNx + cy * exNy,
-        sa: faceSignedArea(A[i], B[i])
+        sa: faceSignedArea(A[i], B[i]),
+        t: tFrac !== undefined ? tFrac : 0.5
       });
     }
   }
@@ -1440,8 +1552,8 @@ function runDialog(shapes, initialValues, existingGroup) {
       const backProfile = profiles[profiles.length - 1];
       for (let k = 0; k < bevelSteps; k++) {
         const t0 = k / bevelSteps, t1 = (k + 1) / bevelSteps;
-        addFacesBetween(frontBevelFaces, frontBase.map((a, i) => lerpSeg(a, frontSide[i], t0)), frontBase.map((a, i) => lerpSeg(a, frontSide[i], t1)), exNx, exNy);
-        addFacesBetween(backBevelFaces, backProfile.side.map((a, i) => lerpSeg(a, backProfile.base[i], t0)), backProfile.side.map((a, i) => lerpSeg(a, backProfile.base[i], t1)), exNx, exNy);
+        addFacesBetween(frontBevelFaces, frontBase.map((a, i) => lerpSeg(a, frontSide[i], t0)), frontBase.map((a, i) => lerpSeg(a, frontSide[i], t1)), exNx, exNy, 0);
+        addFacesBetween(backBevelFaces, backProfile.side.map((a, i) => lerpSeg(a, backProfile.base[i], t0)), backProfile.side.map((a, i) => lerpSeg(a, backProfile.base[i], t1)), exNx, exNy, 1);
       }
     }
 
@@ -1449,7 +1561,8 @@ function runDialog(shapes, initialValues, existingGroup) {
       const A = profiles[s].side, B = profiles[s + 1].side;
       for (let k = 0; k < p.steps; k++) {
         const t0 = k / p.steps, t1 = (k + 1) / p.steps;
-        addFacesBetween(sideFaces, A.map((a, i) => lerpSeg(a, B[i], t0)).slice(0, subN), A.map((a, i) => lerpSeg(a, B[i], t1)).slice(0, subN), exNx, exNy);
+        const faceT = (k + 0.5) / p.steps;
+        addFacesBetween(sideFaces, A.map((a, i) => lerpSeg(a, B[i], t0)).slice(0, subN), A.map((a, i) => lerpSeg(a, B[i], t1)).slice(0, subN), exNx, exNy, faceT);
       }
     }
 
@@ -1464,66 +1577,71 @@ function runDialog(shapes, initialValues, existingGroup) {
     };
   }
 
-  function makeDefs(faces, fill, stroke, lsd) {
-    return [...faces].sort((a, b) => a.depth - b.depth).map(f => mkNode(f.pc, fill, stroke, lsd));
-  }
-
-  function readStyle(node, opacity) {
-    const f = opacity / 100;
-    let fill = FillDescriptor.createNone();
-    let effectiveNode = node;
-
-    if (isProceduralEffectContainer(node)) {
-      const children = getChildren(node);
-      const res = children.find(c => hasRedTag(c) || getNodeName(c).indexOf('Result') === 0) || children[0];
-      if (res) effectiveNode = res;
+  function computeFaceFill(face, color1, color2, p, category) {
+    // 1. Determine base color
+    let baseCol = color1;
+    if (p.colorSource === 1) {
+      baseCol = color2;
+    } else if (p.colorSource === 2) {
+      baseCol = lerpColor(color1, color2, face.t);
     }
 
-    try {
-      const bfd = effectiveNode.brushFillDescriptor;
-      if (bfd && bfd.type !== "none" && bfd.fill && bfd.fill.colour) {
-        const c = bfd.fill.colour.rgba8;
-        fill = FillDescriptor.createSolid(RGBA8(c.r, c.g, c.b, Math.min(255, Math.round(c.alpha * f))), BlendMode.Normal);
-      }
-    } catch (e) {}
+    // 2. Apply shading if enabled (p.shading > 0)
+    if (p.shading > 0) {
+      const sFrac = p.shading / 100;
+      let shadowFactor = 0;
+      if (category === "Back Wall") shadowFactor = sFrac * 0.25;
+      else if (category === "Back Bevel") shadowFactor = sFrac * 0.35;
+      else if (category === "Front Wall") shadowFactor = sFrac * 0.10;
+      else if (category === "Front Bevel") shadowFactor = 0; // Front bevel stays closest to full light
+      else if (category === "Back") shadowFactor = sFrac * 0.30;
+      else if (category === "Front") shadowFactor = sFrac * 0.08;
 
-    let stroke = FillDescriptor.createNone();
-    try {
-      const pfd = effectiveNode.penFillDescriptor;
-      if (pfd && pfd.type !== "none") stroke = pfd;
-    } catch (e) {}
+      baseCol = applyShading(baseCol, shadowFactor);
+    }
 
-    let lsd = null;
-    try { lsd = effectiveNode.lineStyleDescriptor; } catch (e) {}
-    if (!lsd) lsd = LineStyleDescriptor.createDefault(4.166);
+    const alphaVal = Math.min(255, Math.round(baseCol.alpha * (p.opacity / 100)));
+    return FillDescriptor.createSolid(RGBA8(baseCol.r, baseCol.g, baseCol.b, alphaVal), BlendMode.Normal);
+  }
 
-    return { fill, stroke, lsd };
+  function makeDefs(faces, color1, color2, stroke, lsd, p, category) {
+    return [...faces].sort((a, b) => a.depth - b.depth).map(f => {
+      const faceFill = computeFaceFill(f, color1, color2, p, category);
+      return mkNode(f.pc, faceFill, stroke, lsd);
+    });
   }
 
   function buildFaceDefinitions(active, p) {
-    const mainNode = active[0].node, secNode = active[active.length - 1].node;
+    const mainNode = active[0].node;
+    const secNode = active[active.length - 1].node;
     const built = build(active, p);
-    const style = readStyle(mainNode, p.opacity);
+
+    const style1 = readStyle(mainNode, p.opacity);
+    const style2 = readStyle(secNode, p.opacity);
+    const color1 = style1.rawCol;
+    const color2 = style2.rawCol;
+    const stroke = style1.stroke;
+    const lsd = style1.lsd;
 
     if (bevelIsActive(p)) {
       const sideSplit = splitFaces(built.sideFaces, active);
       const groups = [
-        { name: "Back Wall", defs: makeDefs(sideSplit.backFaces, style.fill, style.stroke, style.lsd) },
-        { name: "Back Bevel", defs: makeDefs(built.backBevelFaces, style.fill, style.stroke, style.lsd) },
-        { name: "Front Wall", defs: makeDefs(sideSplit.frontFaces, style.fill, style.stroke, style.lsd) },
-        { name: "Front Bevel", defs: makeDefs(built.frontBevelFaces, style.fill, style.stroke, style.lsd) }
+        { name: "Back Wall", defs: makeDefs(sideSplit.backFaces, color1, color2, stroke, lsd, p, "Back Wall") },
+        { name: "Back Bevel", defs: makeDefs(built.backBevelFaces, color1, color2, stroke, lsd, p, "Back Bevel") },
+        { name: "Front Wall", defs: makeDefs(sideSplit.frontFaces, color1, color2, stroke, lsd, p, "Front Wall") },
+        { name: "Front Bevel", defs: makeDefs(built.frontBevelFaces, color1, color2, stroke, lsd, p, "Front Bevel") }
       ].filter(g => g.defs.length > 0);
 
       const total = groups.reduce((sum, g) => sum + g.defs.length, 0);
       if (total === 0) return null;
-      return { mainNode, secNode, groups, total, bevelMode: true };
+      return { mainNode, secNode, groups, total, bevelMode: true, style1 };
     }
 
     const split = splitFaces(built.allFaces, active);
-    const fDefs = makeDefs(split.frontFaces, style.fill, style.stroke, style.lsd);
-    const bDefs = makeDefs(split.backFaces, style.fill, style.stroke, style.lsd);
+    const fDefs = makeDefs(split.frontFaces, color1, color2, stroke, lsd, p, "Front");
+    const bDefs = makeDefs(split.backFaces, color1, color2, stroke, lsd, p, "Back");
     if (fDefs.length === 0 && bDefs.length === 0) return null;
-    return { mainNode, secNode, fDefs, bDefs, F: fDefs.length, B: bDefs.length };
+    return { mainNode, secNode, fDefs, bDefs, F: fDefs.length, B: bDefs.length, style1 };
   }
 
   function doPreview(p) {
@@ -1538,21 +1656,18 @@ function runDialog(shapes, initialValues, existingGroup) {
 
       const topNodeInActive = active[0].node;
       const bottomNodeInActive = active[active.length - 1].node;
-      const isTopNodeHigherInDoc = nodeZRank(topNodeInActive) >= nodeZRank(bottomNodeInActive);
 
-      if (isTopNodeHigherInDoc) {
-        addBuilder.setInsertionTargetSelection(mkSel(bottomNodeInActive));
-        addBuilder.setInsertionMode(InsertionMode.Top);
-      } else {
-        addBuilder.setInsertionTargetSelection(mkSel(bottomNodeInActive));
-        addBuilder.setInsertionMode(InsertionMode.Top);
+      addBuilder.setInsertionTargetSelection(mkSel(bottomNodeInActive));
+      addBuilder.setInsertionMode(InsertionMode.Top);
 
-        const topCapPc = extractCapPolyCurve(topNodeInActive);
-        if (topCapPc) {
-          const capStyle = readStyle(topNodeInActive, 100);
-          const topCapDef = mkNode(topCapPc, capStyle.fill, capStyle.stroke, capStyle.lsd);
-          allDefs.push(topCapDef);
-        }
+      const topCapPc = extractCapPolyCurve(topNodeInActive);
+      if (topCapPc) {
+        const capStyle = readStyle(topNodeInActive, 100);
+        const capFill = topNodeInActive.brushFillDescriptor || capStyle.fill;
+        const capStroke = topNodeInActive.penFillDescriptor || capStyle.stroke;
+        const capLsd = topNodeInActive.lineStyleDescriptor || capStyle.lsd;
+        const topCapDef = mkNode(topCapPc, capFill, capStroke, capLsd);
+        allDefs.push(topCapDef);
       }
 
       allDefs.forEach(d => addBuilder.addNode(d));
@@ -1601,7 +1716,7 @@ function runDialog(shapes, initialValues, existingGroup) {
         prepCompound.addCommand(DocumentCommand.createSetTagValueForKey(mkSel(targetGroup), "effectPipeline", JSON.stringify([{ id: "extrude", params: p }])));
       } catch (e) {}
 
-      // Ensure persistent canonical Cap names (Cap 1, Cap 2, ...)
+      // Ensure persistent canonical Cap names (Cap 1 = Primordial, Cap 2 = Secondary, etc.)
       for (let i = 0; i < shapes.length; i++) {
         const node = shapes[i].node;
         prepCompound.addCommand(DocumentCommand.createSetDescription(mkSel(node), "Cap " + (i + 1)));
@@ -1690,6 +1805,13 @@ function runDialog(shapes, initialValues, existingGroup) {
   eSubdivs.precision = 0; eSubdivs.showPopupSlider = false;
 
   const gStyle = col.addGroup("Style");
+  const cbColorSource = gStyle.addComboBox(
+    "Color Source",
+    ["Cap 1 (Primordial)", "Cap 2 (Secondary)", "Blend (Cap 1 → Cap 2)"],
+    initialValues.colorSource
+  );
+  const eShading = gStyle.addUnitValueEditor("3D Shading (%)", "", "%", initialValues.shading, 0, 50);
+  eShading.precision = 0; eShading.showPopupSlider = false;
   const eOp = gStyle.addUnitValueEditor("Opacity (%)", "", "%", initialValues.opacity, 0, 100);
   eOp.precision = 0; eOp.showPopupSlider = false;
 
@@ -1707,13 +1829,16 @@ function runDialog(shapes, initialValues, existingGroup) {
   const sSwap = gOpts.addSwitch("Swap Main/Secondary", initialValues.swap);
 
   const gHelp = col.addGroup("How It Works");
-  const t1 = gHelp.addStaticText(null, "• Re-run anytime to edit sliders or swap caps.").setIsFullWidth(true);
-  const t2 = gHelp.addStaticText(null, "• Scale / move caps on canvas & re-run to auto-rebuild.").setIsFullWidth(true);
-  const t3 = gHelp.addStaticText(null, "• Works with Zig Zag, Roughen & effect paths directly!").setIsFullWidth(true);
+  const t1 = gHelp.addStaticText(null, "• Cap 1 is strictly the primordial (first selected) object.").setIsFullWidth(true);
+  const t2 = gHelp.addStaticText(null, "• Color Source selects Cap 1, Cap 2 or smooth Blend.").setIsFullWidth(true);
+  const t3 = gHelp.addStaticText(null, "• 3D Shading adds realistic depth without altering cap color.").setIsFullWidth(true);
+  const t4 = gHelp.addStaticText(null, "• Re-run anytime to modify sliders or swap caps.").setIsFullWidth(true);
 
   const getP = () => sanitizeValues({
     steps: Math.max(1, Math.round(eSteps.value)),
     subdivs: Math.max(1, Math.round(eSubdivs.value)),
+    colorSource: cbColorSource.selectedIndex,
+    shading: Math.max(0, Math.round(eShading.value)),
     opacity: eOp.value,
     bevelEnabled: sBevelEnabled.value,
     bevelCenter: Math.max(0, Math.round(eBevelCenter.value)),
@@ -1739,6 +1864,8 @@ function runDialog(shapes, initialValues, existingGroup) {
 
   eSteps.onValueChangedHandler = applyPreview;
   eSubdivs.onValueChangedHandler = applyPreview;
+  cbColorSource.onValueChangedHandler = applyPreview;
+  eShading.onValueChangedHandler = applyPreview;
   eOp.onValueChangedHandler = applyPreview;
   sBevelEnabled.onValueChangedHandler = applyPreview;
   eBevelCenter.onValueChangedHandler = applyPreview;
@@ -1746,6 +1873,7 @@ function runDialog(shapes, initialValues, existingGroup) {
   eBevelLowToHigh.onValueChangedHandler = applyPreview;
   sPreserveBevelBounds.onValueChangedHandler = applyPreview;
   sSwap.onValueChangedHandler = applyPreview;
+  dlg.onControlValueChangedHandler = applyPreview;
 
   applyPreview();
 
@@ -1778,5 +1906,7 @@ module.exports.main = runExtrude;
 module.exports.extractCapPolyCurve = extractCapPolyCurve;
 module.exports.isExtrudeGroup = isExtrudeGroup;
 module.exports.readGroupValues = readGroupValues;
+module.exports.extractNodeColor = extractNodeColor;
+module.exports.resolveRawNodeColor = resolveRawNodeColor;
 
 runExtrude();

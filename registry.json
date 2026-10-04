@@ -369,7 +369,7 @@
       "name": "Extrude Tool",
       "description": "This script generates a 3D-like extrusion effect by connecting selected vector shapes. Once executed, the tool automatically calculates, subdivides, and renders the connecting geometry, organizing the resulting faces while preserving your original shapes as caps",
       "author": "BlackMortimer-13",
-      "version": "5.0.0",
+      "version": "6.0.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Extrude.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/extrudetool.js"
