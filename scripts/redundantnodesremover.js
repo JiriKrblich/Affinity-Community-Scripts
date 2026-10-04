@@ -1,10 +1,17 @@
+/**
+ * name: Redundant Nodes Remover 3.0.1
+ * description: Removes redundant nodes
+ * version: 1.3.2
+ * author: Ben B.
+ */
+
 "use strict";
 
 /**
- 'use strict';
-
-/**
  * Redundant Nodes Remover v1.3
+ * v1.3.2: checked against the current Affinity SDK (all APIs compatible);
+ *         added a guard for empty sub-curves (curve.beziers throws INVALID_OP
+ *         on curves without points).
  * By Ben B. / 2026.07.01, 12-46 AM
  * -----------------------------
  * Removes on-curve nodes from the selected vector shape(s) that are
@@ -182,9 +189,28 @@ function planReduction(node) {
 
   for (let c = 0; c < pc.curveCount; c++) {
     const curve = pc.at(c);
+
+    // curve.beziers throws INVALID_OP on empty curves -> keep them unchanged
+    let isEmptyCurve = false;
+    try {
+      isEmptyCurve = curve.isEmpty || curve.pointCount === 0;
+    } catch (e) {
+      isEmptyCurve = true;
+    }
+    if (isEmptyCurve) {
+      try {
+        newPolyCurve.addCurve(curve.clone());
+      } catch (e) {}
+      continue;
+    }
+
     before += curve.beziers.length;
     const segs = reduceCurveSegs(curve, EPS);
     after += segs.length;
+    if (!segs.length) {
+      newPolyCurve.addCurve(curve.clone());
+      continue;
+    }
     newPolyCurve.addCurve(buildCurve(segs, curve.isClosed));
   }
 
