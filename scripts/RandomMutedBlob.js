@@ -1,12 +1,12 @@
 'use strict';
 
-const { Document } = require('/document');
-const { CurveBuilder, PolyCurve } = require('/geometry');
-const { PolyCurveNodeDefinition, NodeChildType } = require('/nodes');
-const { AddChildNodesCommandBuilder } = require('/commands');
-const { FillDescriptor } = require('/fills');
-const { LineStyleDescriptor } = require('/linestyle');
-const { RGBA8 } = require('/colours');
+const { Document } = require('/document.js');
+const { CurveBuilder, PolyCurve } = require('/geometry.js');
+const { PolyCurveNodeDefinition, NodeChildType } = require('/nodes.js');
+const { AddChildNodesCommandBuilder } = require('/commands.js');
+const { FillDescriptor } = require('/fills.js');
+const { LineStyleDescriptor } = require('/linestyle.js');
+const { RGBA8 } = require('/colours.js');
 const { BlendMode } = require('affinity:common');
 
 const BLOB_COUNT = 1;
@@ -140,13 +140,13 @@ if (!doc) {
         const nodeDefinition = PolyCurveNodeDefinition.create(
             makeBlob(cx, cy, radiusX, radiusY),
             fill,
-            lineStyle,
             noFill,
+            lineStyle,
             noFill
         );
 
         nodeDefinition.userDescription = 'Muted Blob ' + (i + 1);
-        commandBuilder.addNode(nodeDefinition);
+        commandBuilder.addPolyCurveNode(nodeDefinition);
     }
 
     const command = commandBuilder.createCommand(false, NodeChildType.Main);

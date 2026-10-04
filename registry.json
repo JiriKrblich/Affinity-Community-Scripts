@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-09-21",
+  "last_updated": "2026-10-04",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -1136,7 +1136,7 @@
       "name": "Random Muted Blob",
       "description": "Creates a centered grid bg in a container layer with size, color, gap control.",
       "author": "Deba33",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/RandomMutedBlob.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/RandomMutedBlob.js"
