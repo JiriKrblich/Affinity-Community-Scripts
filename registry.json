@@ -1516,6 +1516,17 @@
       "category": "color",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/findandreplacecolor.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/findandreplacecolor.js"
+    },
+    {
+      "id": "splittextbox",
+      "name": "Split Textbox",
+      "description": "ISplits selected Art Text or Frame Text into separate character textboxes or line textboxes, supports chars and lines modes.",
+      "author": "WaveF",
+      "email": "wavef@live.com",
+      "version": "1.4.5",
+      "category": "Text",
+      "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/splittextbox.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/splittextbox.js"
     }
   ]
 }
