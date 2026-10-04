@@ -1,7 +1,7 @@
 /**
  * name: Split to grid
- * description: Split vector object into an adjustable grid with live preview
- * version: 1.6.0
+ * description: Split vector object into n*n grid
+ * version: 1.2.0
  * author: JiriKrblich
  *
  * v1.5 fix: the knife cut operates in SPREAD coordinates, but the script used
@@ -12,6 +12,18 @@
  * reentrancy guard around the live preview.
  * v1.6: detect an OPEN (un-closed) path and stop with a clear message — knife
  * cutting an open path cannot produce closed grid pieces.
+ * v1.7 (checked against current Affinity SDK 3.3):
+ *  - Grid is measured on the GEOMETRY box (getSpreadBaseBox(false)) instead of
+ *    the visible box. The visible box includes the stroke, so all cut lines
+ *    were shifted by half the stroke width and the outer pieces came out
+ *    smaller than the inner ones.
+ *  - Preview rollback via doc.history.position instead of deleting the pieces
+ *    one by one (no history clutter; Cancel restores exactly the start state
+ *    incl. visibility of the original).
+ *  - Preview is only rebuilt when a setting actually changed (the dialog
+ *    handler also fires on open / programmatic changes).
+ *  - UnitType.None does not exist (undefined) -> UnitType.Number; unit editor
+ *    start values set explicitly.
  */
 
 'use strict';
@@ -27,9 +39,12 @@ let currentPieces = [];
 let config = { cols: 3, rows: 3, gap: 10 };
 
 // Object bounds in SPREAD coordinates (the space the knife cut works in).
+// Geometry box without stroke – the knife cuts the geometry, not the stroke.
 function spreadBox(node) {
-    try { return node.getSpreadVisibleBox ? node.getSpreadVisibleBox(true) : node.spreadVisibleBox; }
-    catch (e) { return node.spreadVisibleBox; }
+    try { return node.getSpreadBaseBox(false); }
+    catch (e) {
+        try { return node.getSpreadVisibleBox(true); } catch (e2) { return node.spreadVisibleBox; }
+    }
 }
 
 // True if the node is a curve with at least one OPEN (un-closed) sub-path.
@@ -51,12 +66,14 @@ function hasOpenPath(node) {
     }
 }
 
-// Cleanup: remove slices from previous preview
+// Cleanup: go back in history to the state before the current preview.
+// (Safer and cleaner than deleting the pieces one by one.)
+let previewBasePos = null;
 function deletePieces() {
     const doc = Document.current;
-    for (const p of currentPieces) {
-        try { doc.executeCommand(DocumentCommand.createDeleteSelection(Selection.create(doc, p), false)); }
-        catch (e) { /* already gone */ }
+    if (previewBasePos !== null) {
+        let guard = 100000;
+        while (doc.history.position > previewBasePos && guard-- > 0) doc.history.undo();
     }
     currentPieces = [];
 }
@@ -206,8 +223,20 @@ function run() {
         return;
     }
 
+    // History position before anything happens (Cancel returns here)
+    const startPos = doc.history.position;
+
     // Hide original; only the live-preview slices will be visible
     doc.executeCommand(DocumentCommand.createSetVisibility(origNode.selfSelection, false));
+
+    // Every preview is rolled back to this position
+    previewBasePos = doc.history.position;
+
+    function restoreStart() {
+        let guard = 100000;
+        while (doc.history.position > startPos && guard-- > 0) doc.history.undo();
+        currentPieces = [];
+    }
 
     // Build dialog once.
     const dialog = Dialog.create('Split to Grid');
@@ -219,16 +248,19 @@ function run() {
 
     const sg = col.addGroup('Grid Settings');
 
-    const colsCtrl = sg.addUnitValueEditor('Columns', UnitType.None, UnitType.None, config.cols, 1, 24);
+    const colsCtrl = sg.addUnitValueEditor('Columns', UnitType.Number, UnitType.Number, config.cols, 1, 24);
     colsCtrl.showPopupSlider = true;
     colsCtrl.precision = 0;
+    colsCtrl.value = config.cols;
 
-    const rowsCtrl = sg.addUnitValueEditor('Rows', UnitType.None, UnitType.None, config.rows, 1, 24);
+    const rowsCtrl = sg.addUnitValueEditor('Rows', UnitType.Number, UnitType.Number, config.rows, 1, 24);
+    rowsCtrl.value = config.rows;
     rowsCtrl.showPopupSlider = true;
     rowsCtrl.precision = 0;
 
     const gapCtrl = sg.addUnitValueEditor('Gap', UnitType.Pixel, UnitType.Pixel, config.gap, 0, 200);
     gapCtrl.showPopupSlider = true;
+    gapCtrl.value = config.gap;
 
     const statusGrp = col.addGroup('');
     statusGrp.enableSeparator = true;
@@ -244,11 +276,15 @@ function run() {
     // Reentrancy guard: executeCommand can pump native events and re-enter this
     // handler mid-rebuild -> currentPieces clobbered / interleaved cuts -> crash.
     let updating = false;
-    function updatePreview() {
+    let lastKey = null;
+    function updatePreview(force) {
         if (updating) return false;
         updating = true;
         try {
             readConfig();
+            const key = config.cols + '|' + config.rows + '|' + config.gap;
+            if (!force && key === lastKey && currentPieces.length > 0) return true;
+            lastKey = key;
             deletePieces();
             try {
                 generateGrid(origNode, origBox);
@@ -256,6 +292,7 @@ function run() {
                 return true;
             } catch (e) {
                 deletePieces();
+                lastKey = null;
                 statusTxt.text = `Could not split: ${e.message || e}`;
                 return false;
             }
@@ -265,8 +302,8 @@ function run() {
     }
 
     // Initial live preview.
-    if (!updatePreview()) {
-        try { doc.executeCommand(DocumentCommand.createSetVisibility(origNode.selfSelection, true)); } catch (_) {}
+    if (!updatePreview(true)) {
+        restoreStart();
         const errDlg = Dialog.create('Split to Grid - Error');
         errDlg.addColumn().addGroup('').addStaticText('',
             `${statusTxt.text}\n\nTip: convert it to curves first via Layer > Convert to Curves.`
@@ -276,7 +313,7 @@ function run() {
     }
 
     dialog.onControlValueChangedHandler = () => {
-        updatePreview();
+        updatePreview(false);
     };
 
     // runModal() throws ABORTED on Cancel; treat that as "not OK" so the
@@ -285,8 +322,8 @@ function run() {
     try { apply = dialog.runModal().value === DialogResult.Ok.value; } catch (e) { apply = false; }
 
     if (apply) {
-        if (currentPieces.length === 0 && !updatePreview()) {
-            try { doc.executeCommand(DocumentCommand.createSetVisibility(origNode.selfSelection, true)); } catch (_) {}
+        if (currentPieces.length === 0 && !updatePreview(true)) {
+            restoreStart();
             const errDlg = Dialog.create('Split to Grid - Error');
             errDlg.addColumn().addGroup('').addStaticText('', statusTxt.text).isFullWidth = true;
             try { errDlg.runModal(); } catch (eMsg) {}
@@ -300,12 +337,8 @@ function run() {
         } catch (e) { /* already gone */ }
         currentPieces = [];
     } else {
-        // Cancel: discard slices and restore the original object.
-        deletePieces();
-        try {
-            doc.executeCommand(
-                DocumentCommand.createSetVisibility(origNode.selfSelection, true));
-        } catch (e) { /* already visible */ }
+        // Cancel: back to the exact start state (original visible, no slices).
+        restoreStart();
     }
 }
 

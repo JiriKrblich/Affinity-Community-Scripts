@@ -208,8 +208,9 @@
       "name": "Split to grid",
       "description": "Split vector object into n*n grid",
       "author": "JiriKrblich",
+      "contributors":"Erhard.otto",
       "url": "https://jirikrblich.netlify.app",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/splittogrid.gif",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/split_to_grid.js"
@@ -614,7 +615,8 @@
       "name": "Shape Scatter",
       "description": "Instantly scatter perfect clones of any vector shape. Features auto-canvas detection, exact style preservation, dynamic size/rotation jitter, and overlap prevention across multiple patterns (Random, Grid, Burst). Real-time previews bake into a single, optimized node to keep your layers panel perfectly clean.",
       "author": "hellsfaun",
-      "version": "1.0.0",
+      "contributors": "Erhard.otto",
+      "version": "1.2.0",
       "category": "Generator",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Shape-Scatter.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Shape-Scatter.js"
