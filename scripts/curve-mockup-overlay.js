@@ -1,8 +1,11 @@
 /**
  * name: Curve Mockup Overlay
  * description: Draw presentation-style fake anchor points and Bezier handles over the selected curve.
- * version: 1.2.0
+ * version: 1.3.0
  * author: JiriKrblich / Codex
+ * changelog: 1.3.0 - fixed argument order in PolyCurveNodeDefinition.create
+ *            (curve, brushFill, lineFill, lineStyle, transparencyFill),
+ *            which caused "expected, FillDescriptorHandle".
  */
 
 'use strict';
@@ -263,11 +266,12 @@ function createSquarePolyCurve(points, size) {
 
 function addPolyNode(builder, label, poly, brushFill, lineFill, lineStyle) {
     if (!poly || poly.curveCount === 0) return;
+    // SDK signature: create(curve, brushFill, lineFill, lineStyle, transparencyFill)
     const def = PolyCurveNodeDefinition.create(
         poly,
         brushFill,
-        lineStyle,
         lineFill,
+        lineStyle,
         FillDescriptor.createNone()
     );
     def.userDescription = label;
@@ -306,6 +310,7 @@ function createOverlay(sourceNode, settings, basePolyCurve, insertionTarget) {
     const builder = AddChildNodesCommandBuilder.create();
     builder.setInsertionTarget(insertionTarget || findInsertionTarget(sourceNode));
 
+    // addPolyNode(builder, label, poly, brushFill, lineFill, lineStyle)
     addPolyNode(
         builder,
         'Mockup handle lines',
@@ -399,8 +404,7 @@ function run() {
     }
 
     // Reentrancy guard: executeCommand (delete + add nodes) can pump native
-    // events and re-enter this handler mid-rebuild; without the guard the shared
-    // previewNodes list is clobbered and delete/add interleave -> native crash.
+    // events and re-enter this handler mid-rebuild.
     let updating = false;
     function updatePreview() {
         if (updating) return false;
@@ -423,8 +427,7 @@ function run() {
     updatePreview();
     dlg.onControlValueChangedHandler = updatePreview;
 
-    // runModal() throws ABORTED on Cancel; treat that as "not OK" so the
-    // overlay preview is removed on cancel instead of being left on the canvas.
+    // runModal() throws ABORTED on Cancel; treat that as "not OK".
     let apply = false;
     try { apply = dlg.runModal().value === DialogResult.Ok.value; } catch (e) { apply = false; }
     if (!apply) {
