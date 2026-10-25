@@ -1695,6 +1695,17 @@
       "category": "Effect",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/scribble.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/scribble.js"
+    },
+    {
+      "id": "gerador-de-calendarios-munplus",
+      "name": "Gerador de Calendários MunPlus",
+      "description": "Brazilian Portuguese adaptation of Swiss Calendar Creator with Year, Quarter, Half-year, Month, Week, and Day views. Includes configurable typography, date formats, layout and colours, Brazilian holidays, marked dates, named presets, themes, and live preview.",
+      "author": "Victor Crespo (3dvic)",
+      "contributors": "Edson Pacheco (Munaia Marketing)",
+      "version": "3.0.0",
+      "category": "Generator",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/gerador-de-calendarios-munplus.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/gerador-de-calendarios-munplus.js"
     }
   ]
 }
