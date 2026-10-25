@@ -1569,6 +1569,17 @@
       "category": "Export",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/svg-anim.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/svg-anim.js"
+    },
+    {
+      "id": "select-children",
+      "name": "Select Children",
+      "description": "Selects the direct children (depth 1) of every selected layer, group, artboard, or object with nested content, without opening a dialog. Elements without children stay selected, and duplicates are removed. Run again to move down another level. Only the selection changes.",
+      "author": "WaveF",
+      "email": "wavef@live.com",
+      "version": "0.1.0",
+      "category": "Layer",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/select-children.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/select-children.js"
     }
   ]
 }
