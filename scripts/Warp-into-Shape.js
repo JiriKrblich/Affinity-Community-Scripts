@@ -1,30 +1,26 @@
 'use strict';
-// Warp into Shape Group v69-EN
-// English GUI variant of "Form in Verzerrungsgruppe v69". All logic and
-// math are identical - only dialog texts, group/node names translated.
-// Includes the critical fix for the current Affinity app version:
-// PolyCurveNodeDefinition.create() changed its parameter order. The
-// documented signature is now:
-//   create(curve, brushFill, lineFill, lineStyle, transparencyFill)
-// The script used to call it everywhere with the 3rd/4th parameters
-// swapped: create(curve, brushFill, LINESTYLE, LINEFILL, ...) - this
-// caused the runtime error "expected FillDescriptorHandle" in the
-// current version (a LineStyleDescriptor instance was passed where a
-// FillDescriptor for the line/pen fill is expected, and vice versa).
-// Fix: all three call sites (buildPolyCurveNode, buildGridNode,
-// buildResultNodes) now use the correct order curve, brushFill,
-// lineFill, lineStyle, transparencyFill. Empirically verified with a
-// direct test call using a real gradient fill object in the current
-// Affinity version.
+// Warp into Shape Group v71-EN
+// New in v71:
+// - FIX Strength = 0: getParams() used "Number(edStr.value)||1.0".
+//   Since 0 is "falsy" in JavaScript, strength 0 was silently replaced
+//   by the fallback 1.0 - result at 0 was identical to 1, while e.g.
+//   0.2 correctly produced an intermediate result.
+//   All numeric dialog fields are now read via numOr(), which falls
+//   back to the default ONLY for NaN/Infinity.
+//
+// Earlier changes (v70):
+// - FIX preset saving: File.create(path, mode) instead of the deprecated
+//   new File(path, mode).
+//
+// Earlier changes (v69):
+// - FIX for new Affinity version: PolyCurveNodeDefinition.create()
+//   parameter order corrected (curve, brushFill, lineFill, lineStyle,
+//   transparencyFill).
 //
 // Earlier changes (v68):
-// 1. FIX for the mesh method at reduced strength: the 0-strength
-//    reference is "trapezoidPoint" (follows the top/bottom contour
-//    exactly, only the length distortion/column curvature is reduced)
-//    instead of the bounding-box rectangle, which used to lie partially
-//    outside the shape.
-// 2. New "Mesh Extra" option: Twirl, Barrel/Cushion, and Swing Warp can
-//    now be applied on top of the mesh.
+// 1. FIX mesh method at reduced strength: the 0-strength reference is
+//    "trapezoidPoint" instead of the bounding-box rectangle.
+// 2. New "mesh extra" distortion: Twirl, Barrel/Cushion and Swing Warp.
 
 const { Document }                    = require('/document');
 const { DocumentCommand,
@@ -43,6 +39,10 @@ const { app }                         = require('/application');
 
 const MOVE_INSIDE = 2;
 const MOVE_AFTER  = 0;
+
+// Reads a numeric value; falls back to def ONLY for NaN/Infinity
+// (not for 0 - unlike "x||def").
+function numOr(v,def){const n=Number(v);return Number.isFinite(n)?n:def;}
 
 // ── Transform ─────────────────────────────────────────────────────────────────
 function composedSpreadTF(node){
@@ -79,7 +79,7 @@ function readNodeCurvesSpread(node){
     return curves.length?curves:null;
 }
 
-// ── Klassifizierung ───────────────────────────────────────────────────────────
+// ── Classification ────────────────────────────────────────────────────────────
 
 function classifyLeaf(node){
     const ci=node.curvesInterface;
@@ -95,7 +95,7 @@ function findFirstShape(node){
         return null;
     }
     if(classifyLeaf(node)==='shape')
-        return node.userDescription||node.defaultDescription||tag||'Unbekannt';
+        return node.userDescription||node.defaultDescription||tag||'Unknown';
     return null;
 }
 function collectAllItems(node){
@@ -143,15 +143,10 @@ function autoDetectRoles(nodeA, nodeB){
     return null;
 }
 
-// ── Automatische Kurven-Konvertierung ────────────────────────────────────────
-// SDK-Grenze (empirisch getestet): Node-Referenzen sind nach
-// DocumentCommand.createConvertToCurves() NICHT zuverlaessig wiederauffindbar
-// (weder ueber doc.selection noch ueber Identitaetsvergleich zwischen
-// getrennten doc.layers.all-Durchlaeufen). Robuste Loesung fuer den
-// Hauptfall (objNode ist eine GRUPPE mit mehreren Shape-Kindern): nach
-// jeder Einzelkonvertierung erneut FRISCH von der stabilen Gruppen-
-// Referenz aus scannen (das Gruppen-Objekt selbst bleibt gueltig, auch
-// wenn einzelne Kind-Referenzen ungueltig werden).
+// ── Automatic curve conversion ────────────────────────────────────────────────
+// SDK limit (tested): node references are NOT reliably recoverable after
+// DocumentCommand.createConvertToCurves(). Robust approach for groups:
+// re-scan freshly from the stable group reference after each conversion.
 function tryConvertToCurves(doc,node){
     try{
         doc.executeCommand(DocumentCommand.createConvertToCurves(Selection.create(doc,[node])));
@@ -177,7 +172,7 @@ function convertDescendantShapesToCurves(doc,node){
     }
 }
 
-// ── Kontur-Berechnung (Flächen-Warp) ──────────────────────────────────────────
+// ── Contour computation (area warp) ───────────────────────────────────────────
 
 function bzPt(bz,t){const mt=1-t;return{
     x:mt*mt*mt*bz.start.x+3*mt*mt*t*bz.c1.x+3*mt*t*t*bz.c2.x+t*t*t*bz.end.x,
@@ -239,7 +234,7 @@ function buildContourForAngle(formNode, angleDeg, N){
     return{cols,N,uMin,uMax,fromRot,nbb};
 }
 
-// ── Pfad-Modus: Bogenlängen-Kontur mit Tangente + Normale ────────────────────
+// ── Path mode: arc-length contour with tangent + normal ──────────────────────
 
 function buildPathContour(formNode, angleDeg, N){
     const curves=getNodeCurvesSpreadForContour(formNode);if(!curves)return null;
@@ -297,13 +292,7 @@ function buildPathContour(formNode, angleDeg, N){
     return{cols,N,totalLen,fromRot,pathFromRot:pathFromRotNormal,pathFromRotUpright,pathFromRotUprightPlain,nbb,isPath:true};
 }
 
-// ── Mesh mode: Coons patch with curved rows AND columns ──────────────────
-// Unlike buildContourForAngle (only top/bottom per column), here the
-// ENTIRE closed contour is sampled once with cumulative arc length. The
-// four contour points nearest to the four corners of the rotated
-// bounding box define four boundary arcs (top/bottom/left/right). A
-// classic bilinear Coons patch formula interpolates the interior from
-// these - so BOTH grid directions follow the actual contour.
+// ── Mesh mode: Coons patch with curved rows AND columns ──────────────────────
 
 function sampleAtS(samples,totalLen,sTarget){
     let s=((sTarget%totalLen)+totalLen)%totalLen;
@@ -319,11 +308,8 @@ function sampleAtS(samples,totalLen,sTarget){
     }
     return{x:samples[samples.length-1].x,y:samples[samples.length-1].y};
 }
-// Returns a point on the SHORTER of the two possible arcs between sA
-// (t=0) and sB (t=1) along the closed contour - regardless of whether
-// "forward" (increasing s) or "backward" is the shorter path. This
-// makes boundary assignment independent of the base shape's winding
-// direction and curve starting point.
+// Point on the SHORTER of the two arcs between sA and sB on the closed
+// contour - independent of winding direction and curve start point.
 function shortArcPoint(samples,totalLen,sA,sB,t){
     let fwd=sB-sA; if(fwd<0)fwd+=totalLen;
     const bwd=totalLen-fwd;
@@ -364,10 +350,6 @@ function buildMeshContour(formNode, angleDeg, N){
     }
     if(uMax-uMin<1||vMax-vMin<1)return null;
 
-    // Each of the four bounding-box corners gets EXPLICITLY assigned its
-    // nearest contour point (instead of blindly sorting by arc length
-    // and guessing which corner is which). v0=0 corresponds to "top"
-    // (y-down convention), v0=1 to "bottom".
     function nearestS(cx,cy){
         let bestS=0,bestD=Infinity;
         for(const s of samples){
@@ -378,17 +360,17 @@ function buildMeshContour(formNode, angleDeg, N){
     }
     const sTL=nearestS(uMin,vMin), sTR=nearestS(uMax,vMin);
     const sBR=nearestS(uMax,vMax), sBL=nearestS(uMin,vMax);
-    const P00=sampleAtS(samples,totalLen,sTL); // top-left    (u=0,v=0)
-    const P10=sampleAtS(samples,totalLen,sTR); // top-right   (u=1,v=0)
-    const P11=sampleAtS(samples,totalLen,sBR); // bottom-right(u=1,v=1)
-    const P01=sampleAtS(samples,totalLen,sBL); // bottom-left (u=0,v=1)
+    const P00=sampleAtS(samples,totalLen,sTL);
+    const P10=sampleAtS(samples,totalLen,sTR);
+    const P11=sampleAtS(samples,totalLen,sBR);
+    const P01=sampleAtS(samples,totalLen,sBL);
 
     function coonsPoint(uN,vN){
         uN=Math.max(0,Math.min(1,uN));vN=Math.max(0,Math.min(1,vN));
-        const Tu=shortArcPoint(samples,totalLen,sTL,sTR,uN); // top:    u 0->1
-        const Bu=shortArcPoint(samples,totalLen,sBL,sBR,uN); // bottom: u 0->1
-        const Lv=shortArcPoint(samples,totalLen,sTL,sBL,vN); // left:   v 0->1
-        const Rv=shortArcPoint(samples,totalLen,sTR,sBR,vN); // right:  v 0->1
+        const Tu=shortArcPoint(samples,totalLen,sTL,sTR,uN);
+        const Bu=shortArcPoint(samples,totalLen,sBL,sBR,uN);
+        const Lv=shortArcPoint(samples,totalLen,sTL,sBL,vN);
+        const Rv=shortArcPoint(samples,totalLen,sTR,sBR,vN);
         const x=(1-vN)*Tu.x+vN*Bu.x+(1-uN)*Lv.x+uN*Rv.x
                -((1-uN)*(1-vN)*P00.x+uN*(1-vN)*P10.x+(1-uN)*vN*P01.x+uN*vN*P11.x);
         const y=(1-vN)*Tu.y+vN*Bu.y+(1-uN)*Lv.y+uN*Rv.y
@@ -396,11 +378,7 @@ function buildMeshContour(formNode, angleDeg, N){
         return fromRot(x,y);
     }
     // 0-strength reference: straight vertical interpolation between the
-    // ACTUAL top and bottom contour curve (like the Trapezoid method) -
-    // always stays on/inside the base shape, unlike the axis-aligned
-    // bounding-box rectangle (meshIdentity). Keeps the height distortion,
-    // only the length distortion (column curvature) is reduced by
-    // strength.
+    // ACTUAL top and bottom contour (like the Trapezoid method).
     function trapezoidPoint(uN,vN){
         uN=Math.max(0,Math.min(1,uN));vN=Math.max(0,Math.min(1,vN));
         const Tu=shortArcPoint(samples,totalLen,sTL,sTR,uN);
@@ -413,7 +391,7 @@ function buildMeshContour(formNode, angleDeg, N){
     return{isMesh:true,coonsPoint,trapezoidPoint,meshIdentity,uMin,uMax,vMin,vMax,fromRot,nbb};
 }
 
-// ── UV-Mapping + Methoden (Flaechen-Warp) ─────────────────────────────────────
+// ── UV mapping + methods (area warp) ──────────────────────────────────────────
 
 function mapUV(u,v,con){
     const us=Math.max(0,Math.min(1,u))*con.N;
@@ -433,9 +411,7 @@ function applyMethod(u0,v0,method,strength){
     return{u:Math.max(0,Math.min(1,u)),v:Math.max(0,Math.min(1,v))};
 }
 
-// Erweitert sbb virtuell um Anfangs-/End-Offset (in % der Objektbreite).
-// Das Objekt "belegt" dann nur den Bereich [startPct..100-endPct] des
-// 0..1-Scan-Bereichs, der Rest bleibt Leerraum an den Enden.
+// Virtually extends sbb by start/end offset (in % of object width).
 function computeOffsetSbb(sbb,startPct,endPct){
     const so=Math.max(0,Math.min(45,startPct))/100;
     const eo=Math.max(0,Math.min(45,endPct))/100;
@@ -466,7 +442,7 @@ function warpPt(x,y,sbb,con,method,strength,lockX,lockY,pathAlign,meshExtra){
     return mapUV(uf,vf,con);
 }
 
-// ── Adaptives Subdivision ──────────────────────────────────────────────────────
+// ── Adaptive subdivision ──────────────────────────────────────────────────────
 
 function needsSubdivide(bz,epsilon){
     const mx=(bz.start.x+bz.end.x)/2,my=(bz.start.y+bz.end.y)/2;
@@ -494,11 +470,8 @@ function subdivideCurvesAdaptive(curves,epsilon,maxDepth){
     }
     return curves.map(c=>({bzs:c.bzs.flatMap(bz=>rec(bz,0)),isClosed:c.isClosed}));
 }
-// Gleichmaessige (uniforme) Unterteilung JEDES Bezier-Segments in n gleiche
-// Teile, UNABHAENGIG von dessen Kruemmung - im Gegensatz zur adaptiven
-// Unterteilung oben, die gerade Segmente (keine interne Kruemmung) gar
-// nicht unterteilt. Fuegt "Zwischenpunkte" hinzu, die das Warp-Ergebnis
-// bei geraden Kanten (z.B. Rechtecken) deutlich verbessern.
+// Uniform subdivision of EVERY segment into n equal parts regardless of
+// curvature - adds intermediate points that improve straight edges.
 function subdivideUniform(bz,extraPoints){
     if(extraPoints<=0)return[bz];
     const n=extraPoints+1;
@@ -526,7 +499,7 @@ function warpCurves(curves,sbb,con,method,strength,lockX,lockY,pathAlign,meshExt
     })),isClosed:c.isClosed}));
 }
 
-// ── Douglas-Peucker Vereinfachung nach Warp ───────────────────────────────────
+// ── Douglas-Peucker simplification after warp ─────────────────────────────────
 
 function perpDist(pt,a,b){
     const dx=b.x-a.x,dy=b.y-a.y,len=Math.sqrt(dx*dx+dy*dy);
@@ -561,7 +534,7 @@ function simplifyCurves(curves,epsilon){
     });
 }
 
-// ── Fuellungs-Transform mitverzerren (Gradient/Bitmap/Schraffur) ─────────────
+// ── Remap fill transform (gradient/bitmap/hatch) ──────────────────────────────
 
 function computeCurvesBB(curves){
     let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
@@ -605,7 +578,7 @@ function getSrcLocalBB(node){
     return null;
 }
 
-// ── Node-Erzeugung ─────────────────────────────────────────────────────────────
+// ── Node creation ─────────────────────────────────────────────────────────────
 
 function buildPolyCurveNode(doc,curves,fd,pfd,ls){
     const pc=PolyCurve.create(),nof=FillDescriptor.createNone();
@@ -649,10 +622,10 @@ function moveNodeInto(doc,node,tgt){doc.executeCommand(DocumentCommand.createMov
 function moveNodeAfter(doc,node,tgt){doc.executeCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[node]),tgt,MOVE_AFTER,NodeChildType.Main));}
 function dupNode(doc,node){try{doc.executeCommand(DocumentCommand.createTransform(Selection.create(doc,[node]),null,{duplicateNodes:true}));return doc.selection.at(0)?.node||null;}catch(e){return null;}}
 
-// ── Hauptskript ────────────────────────────────────────────────────────────────
+// ── Main script ───────────────────────────────────────────────────────────────
 
 const doc=Document.current;
-if(!doc)throw new Error('Kein Dokument geoeffnet.');
+if(!doc)throw new Error('No document open.');
 const sel=doc.selection;
 
 if(sel.length!==2){
@@ -660,12 +633,12 @@ if(sel.length!==2){
     const col=d.addColumn(),g=col.addGroup('Note');
     g.addStaticText('','Please select exactly 2 objects:');
     g.addStaticText('','  1) Base shape (warp contour)');
-    g.addStaticText('','  2) Object to warp');
+    g.addStaticText('','  2) Object to be warped');
     g.addStaticText('','Selected: '+sel.length+' object(s)');
     g.addStaticText('','');
-    g.addStaticText('','Note: Start script with the Move tool active.');
-    g.addStaticText('','Vector objects will be converted to curves automatically where possible.');
-    g.addStaticText('','(Adjustment layers are included. Masks are ignored.)');
+    g.addStaticText('','Tip: run the script with the Move Tool active.');
+    g.addStaticText('','All vector objects must be converted to curves first.');
+    g.addStaticText('','(Adjustment layers are carried along. Masks are ignored.)');
     col.addGroup('').addButtonSet('', [' OK '], 0);
     d.runModal();
 }else{
@@ -681,8 +654,8 @@ if(sel.length!==2){
     const dTop=(topNode.userDescription||topNode.defaultDescription||'top').substring(0,26);
     const dBot=(botNode.userDescription||botNode.defaultDescription||'bottom').substring(0,26);
 
-    // ── Dialog: 2-column layout, resizable, compact, LIVE preview ───────────
-    const dlg=Dialog.create('Warp into Shape Group v69-EN');
+    // ── Dialog: 2-column layout, resizable, compact, LIVE preview ──────────
+    const dlg=Dialog.create('Warp into Shape Group v71');
     dlg.initialWidth=700;
     dlg.setIsResizable(true);
     const colL=dlg.addColumn(); colL.widthProportion=0.52;
@@ -696,46 +669,46 @@ if(sel.length!==2){
     const btnDelete=gP.addButton(' Delete ');
     for(const b of [btnLoad,btnSave,btnDelete]){try{b.setIsFullWidth(true);}catch(e){}}
 
-    const gR=colL.addGroup('Role Assignment'+(autoRole?' (auto)':''));
+    const gR=colL.addGroup('Role assignment'+(autoRole?' (auto)':''));
     const cboForm=gR.addComboBox('Base shape:',['(top)    '+dTop,'(bottom) '+dBot],defaultFormIdx);
 
-    const gM=colL.addGroup('Warp (Area Mode)');
+    const gM=colL.addGroup('Warp (area mode)');
     const cboMeth=gM.addComboBox('Method:',[
         'Trapezoid','Compressed','Cone/Fan','Barrel/Cushion',
-        'Banner/Flag','Swing Warp','Twirl','Mesh (Coons Patch)',
+        'Banner/Flag','Swing Warp','Twirl','Mesh (Coons patch)',
     ],0);
     const edStr=gM.addUnitValueEditor('Strength:','none',null,1.0,-3.0,3.0);edStr.value=1.0;
-    const chkLockX=gM.addCheckBox('Lock X-axis',false);
-    const chkLockY=gM.addCheckBox('Lock Y-axis',false);
-    const cboMeshExtra=gM.addComboBox('Mesh Extra:',[
+    const chkLockX=gM.addCheckBox('Lock X axis',false);
+    const chkLockY=gM.addCheckBox('Lock Y axis',false);
+    const cboMeshExtra=gM.addComboBox('Mesh extra:',[
         'None','Twirl','Barrel/Cushion','Swing Warp'
     ],0);
-    gM.addStaticText('','Mesh method: Strength = Trapezoid->Mesh blend. Extra active only for Mesh.');
+    gM.addStaticText('','Mesh method: Strength = blend Trapezoid->Mesh. Extra only active with Mesh.');
 
-    const gMod=colL.addGroup('Path Mode');
+    const gMod=colL.addGroup('Path mode');
     const chkPath=gMod.addCheckBox('Arrange along contour',false);
     const cboPathAlign=gMod.addComboBox('Alignment:',[
         'Perpendicular to path',
         'Upright (cosine compression)',
-        'Upright, no compression'
+        'Upright without compression'
     ],0);
     const chkHidePath=gMod.addCheckBox('Hide base shape',false);
     gMod.addStaticText('','No clipping in path mode.');
 
-    const gA=colR.addGroup('Scan Direction');
+    const gA=colR.addGroup('Scan direction');
     const edAngle=gA.addUnitValueEditor('Angle (deg):','none',null,0,-180,180);edAngle.value=0;
 
     const gRes=colR.addGroup('Resolution');
     const edScanRes=gRes.addUnitValueEditor('Res.:','none',null,400,100,2000);edScanRes.value=400;
     const edEpsilon=gRes.addUnitValueEditor('Eps. (px):','none',null,2.0,0.5,20.0);edEpsilon.value=2.0;
     const edSimplify=gRes.addUnitValueEditor('Simplify (px):','none',null,0.0,0.0,10.0);edSimplify.value=0.0;
-    const edOversample=gRes.addUnitValueEditor('Extra Points:','none',null,2,0,5);edOversample.value=2;
+    const edOversample=gRes.addUnitValueEditor('Extra points:','none',null,2,0,5);edOversample.value=2;
 
     const gG=colR.addGroup('Grid');
     const edCols=gG.addUnitValueEditor('Columns:','none',null,12,4,40);edCols.value=12;
     const edRows=gG.addUnitValueEditor('Rows:','none',null,24,4,80);edRows.value=24;
-    const edOffStart=gG.addUnitValueEditor('Start Offset (%):','none',null,0,0,45);edOffStart.value=0;
-    const edOffEnd=gG.addUnitValueEditor('End Offset (%):','none',null,0,0,45);edOffEnd.value=0;
+    const edOffStart=gG.addUnitValueEditor('Start offset (%):','none',null,0,0,45);edOffStart.value=0;
+    const edOffEnd=gG.addUnitValueEditor('End offset (%):','none',null,0,0,45);edOffEnd.value=0;
 
     for(const ed of [edStr,edAngle,edScanRes,edEpsilon,edSimplify,edOversample,edCols,edRows,edOffStart,edOffEnd]){
         try{ed.setIsFullWidth(true);}catch(e){}
@@ -744,22 +717,22 @@ if(sel.length!==2){
     const gStatus=colR.addGroup('Status');
     const stStatus=gStatus.addStaticText('','Ready. Changes are shown live.');
 
-    // ── Hilfsfunktionen ───────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     function getParams(){
         return{
             formIdx:    cboForm.selectedIndex,
             method:     cboMeth.selectedIndex,
-            strength:   Math.max(-3.0,Math.min(3.0,Number(edStr.value)||1.0)),
-            angleDeg:   Math.max(-180,Math.min(180,Number(edAngle.value)||0)),
-            cols:       Math.max(4,Math.min(40,Math.round(Number(edCols.value)||12))),
-            rows:       Math.max(4,Math.min(80,Math.round(Number(edRows.value)||24))),
-            offStart:   Math.max(0,Math.min(45,Number(edOffStart.value)||0)),
-            offEnd:     Math.max(0,Math.min(45,Number(edOffEnd.value)||0)),
-            oversample: Math.max(0,Math.min(5,Math.round(Number(edOversample.value)||0))),
-            scanRes:    Math.max(100,Math.min(2000,Math.round(Number(edScanRes.value)||400))),
-            epsilon:    Math.max(0.5,Math.min(20,Number(edEpsilon.value)||2.0)),
-            simplify:   Math.max(0,Math.min(10,Number(edSimplify.value)||0)),
+            strength:   Math.max(-3.0,Math.min(3.0,numOr(edStr.value,1.0))),
+            angleDeg:   Math.max(-180,Math.min(180,numOr(edAngle.value,0))),
+            cols:       Math.max(4,Math.min(40,Math.round(numOr(edCols.value,12)))),
+            rows:       Math.max(4,Math.min(80,Math.round(numOr(edRows.value,24)))),
+            offStart:   Math.max(0,Math.min(45,numOr(edOffStart.value,0))),
+            offEnd:     Math.max(0,Math.min(45,numOr(edOffEnd.value,0))),
+            oversample: Math.max(0,Math.min(5,Math.round(numOr(edOversample.value,0)))),
+            scanRes:    Math.max(100,Math.min(2000,Math.round(numOr(edScanRes.value,400)))),
+            epsilon:    Math.max(0.5,Math.min(20,numOr(edEpsilon.value,2.0))),
+            simplify:   Math.max(0,Math.min(10,numOr(edSimplify.value,0))),
             lockX:      chkLockX.value===true,
             lockY:      chkLockY.value===true,
             pathMode:   chkPath.value===true,
@@ -885,10 +858,10 @@ if(sel.length!==2){
         const con=getCon(formNode,p);
         if(!con){
             if(classifyLeaf(formNode)==='shape'){
-                const nm=formNode.userDescription||formNode.defaultDescription||'base shape';
-                return{success:false,message:'"'+nm+'" is not yet a curve. Please convert it first via Curves -> Convert to Curves.'};
+                const nm=formNode.userDescription||formNode.defaultDescription||'Base shape';
+                return{success:false,message:'"'+nm+'" is not a curve yet. Please convert to curves first.'};
             }
-            return{success:false,message:'Contour calculation failed (base shape invalid or empty).'};
+            return{success:false,message:'Contour computation failed (base shape invalid or empty).'};
         }
         const sbb=objNode.getSpreadBaseBox(false);
         const tag=objNode[Symbol.toStringTag]||'';
@@ -905,9 +878,9 @@ if(sel.length!==2){
         }
 
         const badName=findFirstShape(objNode);
-        if(badName)return{success:false,message:'"'+badName+'" is not yet a curve. Please convert it first via Curves -> Convert to Curves.'};
+        if(badName)return{success:false,message:'"'+badName+'" is not a curve yet. Please convert via Layer -> Convert to Curves first.'};
         const items=collectAllItems(objNode);
-        if(!items.length)return{success:false,message:'No curve objects found in the object to warp.'};
+        if(!items.length)return{success:false,message:'No curve objects found in the object to be warped.'};
         const resultNodes=buildResultNodes(items,sbb,con,p);
         if(!resultNodes.length)return{success:false,message:'Warp produced no result objects.'};
 
@@ -937,7 +910,7 @@ if(sel.length!==2){
         return{success:true};
     }
 
-    // ── Live-Vorschau ─────────────────────────────────────────────────────────
+    // ── Live preview ──────────────────────────────────────────────────────────
     const posBeforePreview=doc.history.position;
     function updatePreview(){
         try{doc.history.position=posBeforePreview;}catch(e){}
@@ -982,7 +955,7 @@ if(sel.length!==2){
             try{createDirectories(presetDir);}catch(e){}
             const path=presetDir+'/WarpPreset - '+cleanName+'.json';
             try{
-                const f=new File(path,'wb');
+                const f=File.create(path,'wb');
                 f.writeStringAsUtf8(JSON.stringify(getParams(),null,2));
                 f.close();
                 lastLoadedPath=path;

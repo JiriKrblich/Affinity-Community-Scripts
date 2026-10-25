@@ -1,26 +1,10 @@
-// Randomize Anchor Points v9-EN
-// Randomly moves anchor points.
-//
-// NEW in v9: interaction model switched to match "Blur Shadow":
-// - The dialog stays OPEN on "Preview" (the main dialog's native OK/Cancel buttons
-//   control closing; the dialog content additionally has a small button group
-//   "Preview"/"Apply" that selects WHAT should happen when OK is pressed).
-//   Advantage: the dialog can be moved aside during preview to inspect the result
-//   in the document.
-//   - Select "Preview" + OK -> preview is computed/updated, the dialog RE-OPENS
-//     with the same values (still adjustable).
-//   - Select "Apply" + OK -> the last preview result is kept (no re-rolling),
-//     the dialog closes for good.
-//   - Native "Cancel" button -> everything is undone, dialog closes.
-// - Presets now live in the "AffinityScriptPresets" folder on the desktop
-//   (created automatically if needed), with a script prefix in the filename
-//   (RandomizeAnchorPoints_<Name>.json). Save asks for a name via a dialog box;
-//   Load AND Delete both use the native "open file" dialog.
-//
-// (unchanged from v8: additive combination of Linear/Radial/Direction, Direction
-// with its own distance field, percentage of affected points (%), live display,
-// seed for reproducible randomness, values relative to object size (%), don't
-// move handles, point sub-selection support, unentered groups are not expanded.)
+// Randomize Anchor Points v11 (EN)
+// v11: BUGFIX stale preview - "Apply" always kept an existing preview, even when
+//      values were changed afterwards (the Apply branch only calculated without a
+//      preview). The preview now remembers its settings incl. the seed used; if
+//      anything differs on Apply, the preview is undone and recalculated with the
+//      current values (and the displayed seed). Unchanged -> the preview stays.
+// v10: composedSpreadTF() instead of bestTransform() (transformed groups).
 
 (function () {
     const { app } = require('/application');
@@ -32,9 +16,7 @@
     const { File, FileSystemApi } = require('/fs');
 
     const doc = Document.current;
-    if (!doc) {
-        return;
-    }
+    if (!doc) return;
 
     function mulberry32(seed) {
         let a = seed >>> 0;
@@ -46,12 +28,45 @@
         };
     }
 
-    function bestTransform(node) {
-        const l2s = node.localToSpreadTransform;
-        const d = l2s.data;
-        const isId = Math.abs(d[0] - 1) < 0.001 && Math.abs(d[1]) < 0.001 && Math.abs(d[2]) < 0.001 &&
-                     Math.abs(d[3]) < 0.001 && Math.abs(d[4] - 1) < 0.001 && Math.abs(d[5]) < 0.001;
-        return isId ? node.transform : l2s;
+    function composedSpreadTF(node) {
+        const chain = [];
+        let cur = node;
+        while (cur) {
+            const tag = cur[Symbol.toStringTag] || '';
+            if (tag === 'SpreadNode' || tag === 'DocumentNode') break;
+            chain.push(cur.transform);
+            cur = cur.parent;
+        }
+        let m = [1,0,0, 0,1,0];
+        for (let i = 0; i < chain.length; i++) {
+            const d = chain[i].data;
+            const a=d[0],b=d[1],tx=d[2],c=d[3],e=d[4],ty=d[5];
+            m = [
+                m[0]*a + m[1]*c,  m[0]*b + m[1]*e,  m[0]*tx + m[1]*ty + m[2],
+                m[3]*a + m[4]*c,  m[3]*b + m[4]*e,  m[3]*tx + m[4]*ty + m[5],
+            ];
+        }
+        const det = m[0]*m[4] - m[1]*m[3];
+        const inv = Math.abs(det) < 1e-12
+            ? [1,0,0, 0,1,0]
+            : [  m[4]/det, -m[1]/det, (m[1]*m[5]-m[4]*m[2])/det,
+                -m[3]/det,  m[0]/det, (m[3]*m[2]-m[0]*m[5])/det ];
+        return {
+            applyToPoint(pt) {
+                return { x: m[0]*pt.x + m[1]*pt.y + m[2],
+                         y: m[3]*pt.x + m[4]*pt.y + m[5] };
+            },
+            applyToVector(v) {
+                return { x: m[0]*v.x + m[1]*v.y,
+                         y: m[3]*v.x + m[4]*v.y };
+            },
+            inverted: {
+                applyToPoint(pt) {
+                    return { x: inv[0]*pt.x + inv[1]*pt.y + inv[2],
+                             y: inv[3]*pt.x + inv[4]*pt.y + inv[5] };
+                }
+            }
+        };
     }
 
     function getObjectCenterSpread(node) {
@@ -63,14 +78,13 @@
         try {
             const fp = node.transformInterface.focalPoint;
             if (fp.isValid) {
-                const tf = bestTransform(node);
+                const tf = composedSpreadTF(node);
                 return tf.applyToPoint(fp.point);
             }
-        } catch (e) { /* ignore, fall back below */ }
+        } catch (e) { }
         return getObjectCenterSpread(node);
     }
 
-    // Number of anchor points of a node (summed over all curves)
     function countNodeAnchors(node) {
         let total = 0;
         const cc = node.polyCurve.curveCount;
@@ -84,7 +98,6 @@
         return total;
     }
 
-    // Number of eligible (selectable) anchor points for a targetInfo object
     function countEligibleAnchors(t) {
         if (t.anchors === null) return countNodeAnchors(t.node);
         let sum = 0;
@@ -92,9 +105,6 @@
         return sum;
     }
 
-    // Reads the anchor points sub-selected in the Node tool for a selection item.
-    // Returns: null = no point sub-selection present (=> whole object),
-    //          Map<curveID, Set<anchorIndex>> = concrete sub-selection (may be empty).
     function getSelectedAnchorMap(node, item) {
         let cns;
         try {
@@ -104,14 +114,14 @@
         }
         if (!cns || cns.isEmpty) return null;
 
-        const curveIndexMaps = new Map(); // curveID -> Map(nodeID -> anchorIndex)
+        const curveIndexMaps = new Map();
         function getCurveMap(curveID) {
             if (curveIndexMaps.has(curveID)) return curveIndexMaps.get(curveID);
             const curve = node.polyCurve.at(curveID);
             const m = new Map();
             const onCurveIds = [];
             for (let i = 0; i < curve.nodeCount; i++) {
-                if (curve.getNode(i).type.value === 0) onCurveIds.push(i); // 0 = OnCurve
+                if (curve.getNode(i).type.value === 0) onCurveIds.push(i);
             }
             const isClosed = curve.isClosed;
             for (let idx = 0; idx < onCurveIds.length; idx++) {
@@ -126,7 +136,7 @@
         for (let k = 0; k < cns.itemCount; k++) {
             const it = cns.getItem(k);
             const cMap = getCurveMap(it.curveID);
-            if (!cMap.has(it.nodeID)) continue; // not a real anchor (a handle) -> skip
+            if (!cMap.has(it.nodeID)) continue;
             const aIdx = cMap.get(it.nodeID);
             if (!map.has(it.curveID)) map.set(it.curveID, new Set());
             map.get(it.curveID).add(aIdx);
@@ -142,7 +152,6 @@
         return list;
     }
 
-    // 1) capture selection (incl. point sub-selection) BEFORE opening the dialog
     if (doc.selection.length === 0) {
         app.alert('Please select at least one object first.', 'Randomize Anchor Points');
         return;
@@ -154,22 +163,20 @@
         const item = doc.selection.at(i);
         const node = item.node;
         roots.push(node);
-        if (node.polyCurve === undefined) continue; // groups / non-curve objects: no longer recursed into
+        if (node.polyCurve === undefined) continue;
         const anchorMap = getSelectedAnchorMap(node, item);
         if (anchorMap === null) {
-            targetInfos.push({ node: node, anchors: null }); // whole object
+            targetInfos.push({ node: node, anchors: null });
         } else if (anchorMap.size > 0) {
-            targetInfos.push({ node: node, anchors: anchorMap }); // sub-selection
+            targetInfos.push({ node: node, anchors: anchorMap });
         }
-        // else: sub-selection present but empty (e.g. only handles selected) -> skip
     }
 
     if (targetInfos.length === 0) {
-        app.alert('No usable anchor points found.\nEither select objects without a point selection (whole object), or mark individual anchor points in the Node tool.', 'Randomize Anchor Points');
+        app.alert('No selectable anchor points found.\nPlease either select objects without a point selection (whole object) or mark individual anchor points with the Node tool.', 'Randomize Anchor Points');
         return;
     }
 
-    // 2) convert non-mutable shape nodes to curves up front
     const needConversion = targetInfos.filter(t => !(t.node.curvesInterface && t.node.curvesInterface.isMutable));
     let conversionSteps = 0;
     if (needConversion.length > 0) {
@@ -195,7 +202,7 @@
     targetInfos = targetInfos.filter(t => t.node.curvesInterface && t.node.curvesInterface.isMutable);
 
     if (targetInfos.length === 0) {
-        app.alert('The objects could not be converted to editable curves.', 'Randomize Anchor Points');
+        app.alert('The objects could not be converted into editable curves.', 'Randomize Anchor Points');
         if (conversionSteps > 0) {
             for (let i = 0; i < conversionSteps; i++) {
                 if (doc.canUndo) doc.executeCommand(DocumentCommand.createUndo());
@@ -204,8 +211,6 @@
         return;
     }
 
-    // 3) compute centers + object diagonals once from the original geometry
-    //    (stays stable across previews)
     const objCenters = targetInfos.map(t => getObjectCenterSpread(t.node));
     const focalCenters = targetInfos.map(t => getFocalPointSpread(t.node));
     const diags = targetInfos.map(t => {
@@ -220,17 +225,12 @@
     }
     const selectionCenter = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
 
-    // For the live display: total number of eligible points, split into
-    // "manually exactly selected" (unaffected by the percentage) and
-    // "whole object" (affected by the percentage).
     const totalEligibleAnchors = targetInfos.reduce((acc, t) => acc + countEligibleAnchors(t), 0);
     const wholeObjectAnchorCount = targetInfos.filter(t => t.anchors === null).reduce((acc, t) => acc + countNodeAnchors(t.node), 0);
     const manualAnchorCount = totalEligibleAnchors - wholeObjectAnchorCount;
 
-    // 4) core function: build a new, jittered PolyCurve for one node.
-    //    Linear/Radial/Direction are combined ADDITIVELY.
     function buildJitteredCurve(node, params, center, anchorRestriction, rng, keepHandles, percent) {
-        const tf = bestTransform(node);
+        const tf = composedSpreadTF(node);
         const inv = tf.inverted;
         const newPC = PolyCurve.create();
         const curveCount = node.polyCurve.curveCount;
@@ -338,12 +338,10 @@
         return isNaN(n) ? 0 : n;
     }
     function setRadioIndex(rg, idx) {
-        try { rg.selectedIndex = idx; } catch (e) { /* ignore */ }
-        try { rg.value = idx; } catch (e) { /* ignore */ }
+        try { rg.selectedIndex = idx; } catch (e) { }
+        try { rg.value = idx; } catch (e) { }
     }
 
-    // ─── Presets: "AffinityScriptPresets" folder on the desktop (created
-    //     automatically if needed), script prefix in the filename ────────
     const PRESETS_DIR = app.userDesktopPath + '/AffinityScriptPresets';
     const PRESET_PREFIX = 'RandomizeAnchorPoints_';
 
@@ -356,7 +354,7 @@
     function savePresetToDisk(name, dataObj) {
         try {
             FileSystemApi.createDirectories(PRESETS_DIR);
-            const f = new File(presetPath(name), 'w');
+            const f = File.create(presetPath(name), 'w');
             f.writeStringAsUtf8(JSON.stringify(dataObj, null, 2));
             f.close();
             return true;
@@ -388,16 +386,14 @@
         let txt = 'Anchor points in selection: ' + totalEligibleAnchors;
         if (percent < 100 && wholeObjectAnchorCount > 0) {
             const estimated = manualAnchorCount + Math.round(wholeObjectAnchorCount * percent / 100);
-            txt += '\nAt ' + percent + '% approx. ' + estimated + ' affected (' + manualAnchorCount + ' of which are exactly selected, unaffected by the percentage)';
+            txt += '\nAt ' + percent + '% approx. ' + estimated + ' affected (' + manualAnchorCount + ' of them selected exactly, independent of the percentage)';
         }
         return txt;
     }
 
-    // ─── Preview state: unlike Blur Shadow (which creates new nodes), this
-    //     script mutates existing curves -> preview is undone via undoing
-    //     the associated CompoundCommand step, not via deleting nodes. ────
     const posBeforePreview = doc.history.position;
     let hasPreview = false;
+    let previewSig = null;   // v11: settings + seed of the current preview
 
     let lastCenterMode = 0;
     let lastJX = [0, 0], lastJY = [0, 0], lastR = [0, 0], lastD = [0, 0], lastAngle = 0;
@@ -407,71 +403,69 @@
     let lastUsedSeed = null;
     let applyResult = false;
 
+    function makeSig(params, seed) {
+        return JSON.stringify([lastCenterMode, params, lastRelative, lastKeepHandles, lastPercent, seed]);
+    }
+
     while (true) {
         const dlg = Dialog.create('Randomize Anchor Points');
         dlg.initialWidth = 760;
         dlg.setIsResizable(true);
 
         const col1 = dlg.addColumn();
+        const unitT = lastRelative ? UnitType.Percentage : UnitType.Pixel;
+        const suf = lastRelative ? ' (%)' : '';
 
-        const jxLabel = 'Jitter X Min' + (lastRelative ? ' (%)' : '');
-        const gJXMin = col1.addGroup(jxLabel);
-        const edJXMin = gJXMin.addUnitValueEditor(jxLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
+        const gJXMin = col1.addGroup('Jitter X min' + suf);
+        const edJXMin = gJXMin.addUnitValueEditor('Jitter X min' + suf, unitT, unitT, null, -100000, 100000);
         edJXMin.value = lastJX[0];
 
-        const jxMaxLabel = 'Jitter X Max' + (lastRelative ? ' (%)' : '');
-        const gJXMax = col1.addGroup(jxMaxLabel);
-        const edJXMax = gJXMax.addUnitValueEditor(jxMaxLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
+        const gJXMax = col1.addGroup('Jitter X max' + suf);
+        const edJXMax = gJXMax.addUnitValueEditor('Jitter X max' + suf, unitT, unitT, null, -100000, 100000);
         edJXMax.value = lastJX[1];
 
-        const jyLabel = 'Jitter Y Min' + (lastRelative ? ' (%)' : '');
-        const gJYMin = col1.addGroup(jyLabel);
-        const edJYMin = gJYMin.addUnitValueEditor(jyLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
+        const gJYMin = col1.addGroup('Jitter Y min' + suf);
+        const edJYMin = gJYMin.addUnitValueEditor('Jitter Y min' + suf, unitT, unitT, null, -100000, 100000);
         edJYMin.value = lastJY[0];
 
-        const jyMaxLabel = 'Jitter Y Max' + (lastRelative ? ' (%)' : '');
-        const gJYMax = col1.addGroup(jyMaxLabel);
-        const edJYMax = gJYMax.addUnitValueEditor(jyMaxLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
+        const gJYMax = col1.addGroup('Jitter Y max' + suf);
+        const edJYMax = gJYMax.addUnitValueEditor('Jitter Y max' + suf, unitT, unitT, null, -100000, 100000);
         edJYMax.value = lastJY[1];
 
         const col2 = dlg.addColumn();
 
-        const gAngle = col2.addGroup('Angle (Direction)');
-        const edAngle = gAngle.addUnitValueEditor('Angle (Direction)', UnitType.Degree, UnitType.Degree, null, -100000, 100000);
+        const gAngle = col2.addGroup('Angle (direction)');
+        const edAngle = gAngle.addUnitValueEditor('Angle (direction)', UnitType.Degree, UnitType.Degree, null, -100000, 100000);
         edAngle.value = lastAngle;
 
-        const dLabel = 'Distance Min (Direction)' + (lastRelative ? ' (%)' : '');
-        const gDMin = col2.addGroup(dLabel);
-        const edDMin = gDMin.addUnitValueEditor(dLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
+        const gDMin = col2.addGroup('Distance min (direction)' + suf);
+        const edDMin = gDMin.addUnitValueEditor('Distance min (direction)' + suf, unitT, unitT, null, -100000, 100000);
         edDMin.value = lastD[0];
 
-        const dMaxLabel = 'Distance Max (Direction)' + (lastRelative ? ' (%)' : '');
-        const gDMax = col2.addGroup(dMaxLabel);
-        const edDMax = gDMax.addUnitValueEditor(dMaxLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
+        const gDMax = col2.addGroup('Distance max (direction)' + suf);
+        const edDMax = gDMax.addUnitValueEditor('Distance max (direction)' + suf, unitT, unitT, null, -100000, 100000);
         edDMax.value = lastD[1];
 
-        const rLabel = 'Radial Min' + (lastRelative ? ' (%)' : '');
-        const gRMin = col2.addGroup(rLabel);
-        const edRMin = gRMin.addUnitValueEditor(rLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
+        const gRMin = col2.addGroup('Radial min' + suf);
+        const edRMin = gRMin.addUnitValueEditor('Radial min' + suf, unitT, unitT, null, -100000, 100000);
         edRMin.value = lastR[0];
 
-        const rMaxLabel = 'Radial Max' + (lastRelative ? ' (%)' : '');
-        const gRMax = col2.addGroup(rMaxLabel);
-        const edRMax = gRMax.addUnitValueEditor(rMaxLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
+        const gRMax = col2.addGroup('Radial max' + suf);
+        const edRMax = gRMax.addUnitValueEditor('Radial max' + suf, unitT, unitT, null, -100000, 100000);
         edRMax.value = lastR[1];
 
         const col3 = dlg.addColumn();
 
-        const gCenter = col3.addGroup('Center (Radial only)');
-        const rgCenter = gCenter.addRadioGroup('', ['Selection Center', 'Object Center', 'Focal Point']);
+        const gCenter = col3.addGroup('Centre (radial only)');
+        const rgCenter = gCenter.addRadioGroup('', ['Selection centre', 'Object centre', 'Focal point']);
         setRadioIndex(rgCenter, lastCenterMode);
 
-        const gSeed = col3.addGroup('Seed (Random)');
-        const edSeed = gSeed.addUnitValueEditor('Seed (Random)', UnitType.Number, UnitType.Number, null, 0, 999999999);
+        const gSeed = col3.addGroup('Seed (random)');
+        const edSeed = gSeed.addUnitValueEditor('Seed (random)', UnitType.Number, UnitType.Number, null, 0, 999999999);
         edSeed.value = lastSeed;
 
-        const gPercent = col3.addGroup('Percentage of Affected Points (%)');
-        const edPercent = gPercent.addUnitValueEditor('Percentage of Affected Points (%)', UnitType.Percentage, UnitType.Percentage, null, 0, 100);
+        const gPercent = col3.addGroup('Share of affected points (%)');
+        const edPercent = gPercent.addUnitValueEditor('Share of affected points (%)', UnitType.Percentage, UnitType.Percentage, null, 0, 100);
         edPercent.value = lastPercent;
 
         const gLiveCount = col3.addGroup('');
@@ -487,18 +481,16 @@
         cbRelative.value = lastRelative;
 
         const gKeepHandles = col4.addGroup('');
-        const cbKeepHandles = gKeepHandles.addCheckBox('Don\'t move handles (distort curve)', lastKeepHandles);
+        const cbKeepHandles = gKeepHandles.addCheckBox("Don't move handles (distort curve)", lastKeepHandles);
         cbKeepHandles.value = lastKeepHandles;
 
-        // ─── Presets: Save / Load / Delete, fire immediately, dialog stays
-        //     open (like Blur Shadow) ─────────────────────────────────────
         const gPreset = col4.addGroup('Presets');
         const presetSaveBtn = gPreset.addButton('Save preset...');
         const presetLoadBtn = gPreset.addButton('Load preset...');
         const presetDeleteBtn = gPreset.addButton('Delete preset...');
 
         presetSaveBtn.setOnClickHandler(() => {
-            const name = app.prompt('Enter a preset name:', 'Randomize Anchor Points - Save Preset', '');
+            const name = app.prompt('Enter preset name:', 'Randomize Anchor Points - Save preset', '');
             if (!name || !name.trim()) return;
             const data = {
                 jitterXMin: edJXMin.value, jitterXMax: edJXMax.value,
@@ -510,7 +502,7 @@
                 relative: cbRelative.value, keepHandles: cbKeepHandles.value
             };
             if (savePresetToDisk(name, data)) {
-                app.alert('Preset "' + name.trim() + '" saved to:\n' + PRESETS_DIR, 'Randomize Anchor Points');
+                app.alert('Preset "' + name.trim() + '" saved in:\n' + PRESETS_DIR, 'Randomize Anchor Points');
             }
         });
 
@@ -544,9 +536,6 @@
             }
         });
 
-        // ─── Action: 2-item button group selects what should happen when the
-        //     main dialog's NATIVE OK button is pressed. Does NOT close the
-        //     dialog itself. ────────────────────────────────────────────────
         const gAction = col4.addGroup('Action (confirm with OK)');
         const actionBtns = gAction.addButtonSet('', ['Preview', 'Apply'], 0);
 
@@ -564,11 +553,10 @@
         lastSeed = edSeed.value;
 
         if (!result || result.value !== DialogResult.Ok.value) {
-            // Native "Cancel" (or window closed): undo everything
             break;
         }
 
-        const action = actionBtns.selectedIndex; // 0 = Preview, 1 = Apply
+        const action = actionBtns.selectedIndex;
 
         const params = {
             jitterXMin: Math.min(lastJX[0], lastJX[1]),
@@ -582,6 +570,18 @@
             angleDeg: lastAngle
         };
 
+        if (action === 1) {
+            // v11: keep the preview only if settings and displayed seed are unchanged
+            const sigNow = makeSig(params, lastSeed);
+            if (!hasPreview || sigNow !== previewSig) {
+                if (hasPreview) doc.executeCommand(DocumentCommand.createUndo());
+                applyJitter(lastCenterMode, params, lastRelative, lastKeepHandles, lastSeed, lastPercent);
+            }
+            applyResult = true;
+            break;
+        }
+
+        // Preview: with an unchanged seed, roll a new one automatically
         let seedToUse = lastSeed;
         if (lastUsedSeed !== null && seedToUse === lastUsedSeed) {
             seedToUse = seedToUse + 1;
@@ -589,21 +589,12 @@
         lastUsedSeed = seedToUse;
         lastSeed = seedToUse;
 
-        if (action === 1) { // Apply
-            if (!hasPreview) {
-                applyJitter(lastCenterMode, params, lastRelative, lastKeepHandles, seedToUse, lastPercent);
-            }
-            applyResult = true;
-            break;
-        }
-
-        // action === 0 (Preview): undo the previous preview first, then re-roll
         if (hasPreview) {
             doc.executeCommand(DocumentCommand.createUndo());
         }
         applyJitter(lastCenterMode, params, lastRelative, lastKeepHandles, seedToUse, lastPercent);
         hasPreview = true;
-        // re-open the dialog (loop continues)
+        previewSig = makeSig(params, seedToUse);
     }
 
     if (!applyResult) {
@@ -613,8 +604,7 @@
         }
     }
 
-    // best-effort: reselect the objects that were worked on
     try {
         doc.executeCommand(DocumentCommand.createSetSelection(Selection.create(doc, applyResult ? targetInfos.map(t => t.node) : roots)));
-    } catch (e) { /* not critical */ }
+    } catch (e) { }
 })();

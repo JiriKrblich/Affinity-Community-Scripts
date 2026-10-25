@@ -1,12 +1,19 @@
 
 'use strict';
 
-// ── Gradient Tweak v27 EN ─────────────────────────────────────
-// Fixes vs v26:
-// - High-marker-count warning: threshold lowered (100 instead of
-//   150), now also triggers on "Preview" (not only "Apply")
-// - Load preset: app.chooseFile() opens the native file picker
-//   instead of typing a name by hand
+// ── Gradient Tweak v29 EN ─────────────────────────────────────
+// BUGFIX v28: order was wrong — Pass 1 (read + compute gradient)
+// ran BEFORE undoing the previous preview, so with changed
+// parameters the already-modified gradient was used as the new
+// starting point -> effects accumulated (e.g. duplicated/jittered
+// twice). FIX: undo of the previous preview now always happens
+// FIRST, so the guaranteed ORIGINAL gradient of each object is
+// read afterwards.
+//
+// Also includes the v28 multi-object fix: each selected object
+// gets its OWN gradient read, processed independently, and
+// written back individually (node.selfSelection instead of
+// doc.selection).
 
 const { Dialog, DialogResult } = require('/dialog');
 const { Document }             = require('/document');
@@ -18,9 +25,7 @@ const { app }                  = require('/application');
 const { File }                 = require('/fs');
 
 const EPSILON = 0.0001;
-const WARN_THRESHOLD = 100; // colour stop count above which a warning is shown
-
-// ── Seeded PRNG ─────────────────────────────────────────────────
+const WARN_THRESHOLD = 100;
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -32,8 +37,6 @@ function mulberry32(seed) {
   };
 }
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
-
-// ── Read stops ────────────────────────────────────────────────
 
 function readRawStops(gradient) {
   const stops = [];
@@ -52,16 +55,12 @@ function readRawStops(gradient) {
   stops.sort((a, b) => a.position - b.position);
   return stops;
 }
-
 function makeColour(s) {
   if (s.colHandle) return new Colour(s.colHandle);
   const col = Colour.createHSLAf(s.hslaf);
   col.noise = s.noise || 0;
   return col;
 }
-
-// ── HSL normalisation ─────────────────────────────────────────
-
 function normalizeHSL(hsl) {
   if (hsl.l < 0.001 || hsl.l > 0.999)
     return { h: hsl.h, s: 0, l: hsl.l, alpha: hsl.alpha };
@@ -71,9 +70,6 @@ function resolveHue(hsl, partnerHsl) {
   const n = normalizeHSL(hsl);
   return n.s < 0.001 ? { h: partnerHsl.h, s: n.s, l: n.l, alpha: n.alpha } : n;
 }
-
-// ── Colour wheel intermediate stops (max 6, min 6°) ──────────
-
 function colorWheelStops(s1, s2, dir) {
   const MAX_PTS = 6, MIN_FRAC = 6 / 360;
   const h1 = resolveHue(normalizeHSL(s1.hslaf), s2.hslaf);
@@ -100,7 +96,6 @@ function colorWheelStops(s1, s2, dir) {
   }
   return result;
 }
-
 function applyColorWheel(stops, dir) {
   if (dir === 0) return stops.map(s => ({ ...s }));
   const result = [];
@@ -112,19 +107,13 @@ function applyColorWheel(stops, dir) {
   }
   return result;
 }
-
-// ── Duplicate / Mirror (with optional alternating CW/CCW) ──────
-
 function buildStops(rawStops, blendDir, dupCount, doMirror, altCW) {
   if (dupCount <= 1) return applyColorWheel(rawStops, blendDir);
-
   const scale = 1.0 / dupCount;
   const result = [];
-
   for (let rep = 0; rep < dupCount; rep++) {
     const offset   = rep * scale;
     const mirrored = doMirror && (rep % 2 === 1);
-
     let localStops;
     if (mirrored) {
       const nn = rawStops.length;
@@ -137,12 +126,9 @@ function buildStops(rawStops, blendDir, dupCount, doMirror, altCW) {
     } else {
       localStops = rawStops.map(s => ({ ...s }));
     }
-
     let segDir = blendDir;
     if (altCW && mirrored && blendDir !== 0) segDir = -blendDir;
-
     const expanded = applyColorWheel(localStops, segDir);
-
     for (let i = 0; i < expanded.length; i++) {
       const isLast = i === expanded.length - 1;
       let pos = offset + expanded[i].position * scale;
@@ -156,9 +142,6 @@ function buildStops(rawStops, blendDir, dupCount, doMirror, altCW) {
   }
   return result;
 }
-
-// ── Colour stop spacing redistribution ─────────────────────────
-
 function getFMIndices(stops) {
   return stops.map((s, i) => s.colHandle !== null ? i : -1).filter(i => i >= 0);
 }
@@ -219,9 +202,6 @@ function applyRedistribution(stops, exp, jmn, jmx, uj, rng) {
     res = res.map(s => ({...s, position: oMn+(s.position-cMn)/sp*(oMx-oMn)}));
   return res;
 }
-
-// ── Colour jitter (saturation/lightness/alpha per stop) ────────
-
 function applyColourJitter(stops, satPct, lightPct, alphaPct, rng) {
   if (satPct === 0 && lightPct === 0 && alphaPct === 0) return stops;
   return stops.map(s => {
@@ -231,19 +211,11 @@ function applyColourJitter(stops, satPct, lightPct, alphaPct, rng) {
     const aF = 1 + (rng()*2-1) * (alphaPct/100);
     return {
       ...s,
-      hslaf: {
-        h: base.h,
-        s: clamp01(base.s * sF),
-        l: clamp01(base.l * lF),
-        alpha: clamp01(base.alpha * aF)
-      },
+      hslaf: { h: base.h, s: clamp01(base.s*sF), l: clamp01(base.l*lF), alpha: clamp01(base.alpha*aF) },
       colHandle: null
     };
   });
 }
-
-// ── Build FillDescriptor ────────────────────────────────────────
-
 function buildFD(newStops, origFd, origFill) {
   const gi = newStops.map(s => ({
     colour:   makeColour(s),
@@ -256,34 +228,27 @@ function buildFD(newStops, origFd, origFill) {
     origFd.transform, origFd.blendMode, origFd.isAnchoredToSpread);
 }
 
-// ── Detect marked character range ──────────────────────────────
-
 function getMarkedTextRange(doc) {
   if (doc.selection.length === 0) return null;
   const item = doc.selection.at(0);
   const node = item.node;
   if (!node.storyInterface) return null;
-
   let textSel = null;
   for (const s of item.subSelections) {
     if (s[Symbol.toStringTag] === 'TextSelection') { textSel = s; break; }
   }
   if (!textSel || textSel.rangeCount === 0) return null;
-
   const caret  = textSel.caret;
   const anchor = textSel.anchor;
   const startIdx = Math.min(caret, anchor);
   const endIdx   = Math.max(caret, anchor);
   if (endIdx <= startIdx) return null;
-
   return { node, startIdx, endIdx };
 }
-
 function isTextNode(node) {
   const tag = node[Symbol.toStringTag] || '';
   return tag === 'ArtTextNode' || tag === 'FrameTextNode';
 }
-
 function getReadFD(node, usePen, rangeInfo) {
   if (isTextNode(node)) {
     const story = node.storyInterface?.story;
@@ -294,28 +259,23 @@ function getReadFD(node, usePen, rangeInfo) {
   }
   return usePen ? node.penFillDescriptor : node.brushFillDescriptor;
 }
-
-function applyFD(doc, newFd, usePen, rangeInfo) {
+function applyFD(doc, newFd, usePen, rangeInfo, targetNode) {
   if (rangeInfo) {
     const delta = usePen ? StoryDelta.createPenFill(newFd) : StoryDelta.createBrushFill(newFd);
     doc.formatText(delta, doc.selection, false);
   } else if (usePen) {
-    doc.executeCommand(DocumentCommand.createSetPenFill(doc.selection, newFd));
+    doc.executeCommand(DocumentCommand.createSetPenFill(targetNode.selfSelection, newFd));
   } else {
-    doc.executeCommand(DocumentCommand.createSetBrushFill(doc.selection, newFd));
+    doc.executeCommand(DocumentCommand.createSetBrushFill(targetNode.selfSelection, newFd));
   }
 }
 
-// ── Preset directory ────────────────────────────────────────────
-
-function presetsDir() {
-  return app.userDesktopPath + '/AffinityScriptPresets';
-}
+function presetsDir() { return app.userDesktopPath + '/AffinityScriptPresets'; }
 function ensurePresetsDir() {
   try {
     const dom = require('affinity:dom');
     if (dom.FileSystemApi?.createDirectories) dom.FileSystemApi.createDirectories(presetsDir());
-  } catch (e) { /* directory probably already exists */ }
+  } catch (e) {}
 }
 function baseName(path) {
   const parts = path.split(/[\\/]/);
@@ -333,12 +293,10 @@ function showMsg(msg) {
   d.addColumn().addGroup('').addStaticText('', msg);
   d.runModal();
 }
-
-// Marker-count warning: true=proceed, false=cancel
 function checkMarkerWarning(count) {
   if (count <= WARN_THRESHOLD) return true;
   return app.confirm(
-    'The gradient contains ' + count + ' colour stops. ' +
+    'The largest edited gradient contains ' + count + ' colour stops. ' +
     'This may affect performance. Continue anyway?',
     'Many colour stops');
 }
@@ -347,17 +305,21 @@ if (sel.length === 0) {
   showMsg('Please select an object first.');
 } else {
   const rangeInfo = getMarkedTextRange(doc);
-  const node   = rangeInfo ? rangeInfo.node : sel.at(0).node;
-  const isText = isTextNode(node);
+  const targetNodes = rangeInfo ? [rangeInfo.node] : [];
+  if (!rangeInfo) for (let i = 0; i < sel.length; i++) targetNodes.push(sel.at(i).node);
+
+  const firstIsText = isTextNode(targetNodes[0]);
+  const multi = !rangeInfo && targetNodes.length > 1;
 
   const label = {
     srcGrp:    rangeInfo ? 'Gradient source (marked range)'
-             : isText     ? 'Gradient source (Text)'
-             :              'Gradient source',
-    fillOpt:   isText ? 'Text fill (default)' : 'Fill (default)',
-    strokeOpt: isText ? 'Text stroke' : 'Stroke',
-    noFill:    isText ? 'The text fill has no gradient.' : 'The fill has no gradient.',
-    noStroke:  isText ? 'The text stroke has no gradient.' : 'The stroke has no gradient.',
+             : multi      ? 'Gradient source (' + targetNodes.length + ' objects)'
+             : firstIsText ? 'Gradient source (Text)'
+             :               'Gradient source',
+    fillOpt:   firstIsText ? 'Text fill (default)' : 'Fill (default)',
+    strokeOpt: firstIsText ? 'Text stroke' : 'Stroke',
+    noFill:    'None of the selected objects has a fill with a gradient.',
+    noStroke:  'None of the selected objects has a stroke with a gradient.',
   };
 
   const dlg = Dialog.create('Gradient Tweak');
@@ -410,7 +372,9 @@ if (sel.length === 0) {
   const grp6   = col2.addGroup('Randomness');
   const seedEd = grp6.addUnitValueEditor('Seed', 'none', 'none', 1, 0, 999999);
   seedEd.value = 1;
-  grp6.addStaticText('', 'Same seed = reproducible result');
+  grp6.addStaticText('', multi
+    ? 'Same seed per object = reproducible'
+    : 'Same seed = reproducible result');
 
   const grp7        = col2.addGroup('Status');
   const statusText  = grp7.addStaticText('', 'Ready.');
@@ -439,19 +403,16 @@ if (sel.length === 0) {
   function currentParamsKey() {
     return JSON.stringify([
       rgSrc.selectedIndex, rgBlend.selectedIndex, cbAltCW.value,
-      rgDup.selectedIndex, dupEd.value,
-      expEd.value,
+      rgDup.selectedIndex, dupEd.value, expEd.value,
       cbJit.value, jitMinEd.value, jitMaxEd.value,
       cbColJit.value, satJitEd.value, lightJitEd.value, alphaJitEd.value,
       seedEd.value
     ]);
   }
-
   function collectFields() {
     return {
       src: rgSrc.selectedIndex, blend: rgBlend.selectedIndex, altCW: cbAltCW.value,
-      dupMode: rgDup.selectedIndex, dupCount: dupEd.value,
-      exp: expEd.value,
+      dupMode: rgDup.selectedIndex, dupCount: dupEd.value, exp: expEd.value,
       jitOn: cbJit.value, jitMin: jitMinEd.value, jitMax: jitMaxEd.value,
       colJitOn: cbColJit.value, satJit: satJitEd.value, lightJit: lightJitEd.value, alphaJit: alphaJitEd.value,
       seed: seedEd.value
@@ -480,16 +441,11 @@ if (sel.length === 0) {
     alphaJitEd.isEnabled = cbColJit.value;
   }
 
-  // ── Tool buttons ─────────────────────────────────────────────
-
   btnReset.setOnClickHandler(() => {
     for (let i = 0; i < undoCount; i++) doc.undo();
-    undoCount = 0;
-    lastParamsKey = null;
-    lastStopCount = 0;
+    undoCount = 0; lastParamsKey = null; lastStopCount = 0;
     statusText.text = 'Reset to original.';
   });
-
   btnPresetSave.setOnClickHandler(() => {
     const name = app.prompt('Enter preset name:', 'Save preset', '');
     if (!name || !name.trim()) return;
@@ -500,23 +456,16 @@ if (sel.length === 0) {
       f.writeStringAsUtf8(JSON.stringify(collectFields(), null, 2));
       f.close();
       statusText.text = 'Preset saved: ' + name.trim();
-    } catch (e) {
-      statusText.text = 'Error saving: ' + e.message;
-    }
+    } catch (e) { statusText.text = 'Error saving: ' + e.message; }
   });
-
-  // Load preset: native file picker instead of typing a name
   btnPresetLoad.setOnClickHandler(() => {
     const path = app.chooseFile();
     if (!path) return;
     try {
-      const buf  = File.readAll(path);
-      const data = JSON.parse(buf.toString());
+      const data = JSON.parse(File.readAll(path).toString());
       applyFields(data);
       statusText.text = 'Preset loaded: ' + baseName(path);
-    } catch (e) {
-      statusText.text = 'Error loading: ' + e.message;
-    }
+    } catch (e) { statusText.text = 'Error loading: ' + e.message; }
   });
 
   // ── Dialog loop ──────────────────────────────────────────────
@@ -538,6 +487,11 @@ if (sel.length === 0) {
       break;
     }
 
+    // FIX: undo the previous preview FIRST, so the ORIGINAL
+    // gradient is guaranteed to be read afterwards.
+    for (let i = 0; i < undoCount; i++) doc.undo();
+    undoCount = 0;
+
     const blendDir = rgBlend.selectedIndex === 1 ?  1
                    : rgBlend.selectedIndex === 2 ? -1 : 0;
     const dupMode  = rgDup.selectedIndex;
@@ -554,37 +508,42 @@ if (sel.length === 0) {
     const alphaJit   = alphaJitEd.value;
     const seedVal    = Math.round(seedEd.value) || 1;
 
-    const fd = getReadFD(node, usePen, rangeInfo);
-    if (!fd || fd.fill.fillType.value !== 3) {
+    const plans = [];
+    for (const tgt of targetNodes) {
+      const rInfo = rangeInfo && tgt === rangeInfo.node ? rangeInfo : null;
+      const fd = getReadFD(tgt, usePen, rInfo);
+      if (!fd || fd.fill.fillType.value !== 3) continue;
+
+      const origFill = fd.fill;
+      const rawStops = readRawStops(origFill.gradient);
+      const rng = mulberry32(seedVal);
+      let newStops = buildStops(rawStops, blendDir, dupCount, doMirror, altCW);
+      newStops = applyRedistribution(newStops, expVal, jitMin, jitMax, useJit, rng);
+      if (useColJit) newStops = applyColourJitter(newStops, satJit, lightJit, alphaJit, rng);
+
+      const newFd = buildFD(newStops, fd, origFill);
+      plans.push({ node: tgt, newFd, stopCount: newStops.length, rangeInfo: rInfo });
+    }
+
+    if (plans.length === 0) {
       showMsg(usePen ? label.noStroke : label.noFill);
       continue;
     }
 
-    for (let i = 0; i < undoCount; i++) doc.undo();
-    undoCount = 0;
+    const maxStopCount = Math.max(...plans.map(p => p.stopCount));
+    if (!checkMarkerWarning(maxStopCount)) continue;
 
-    const fdFresh  = getReadFD(node, usePen, rangeInfo);
-    const origFill = fdFresh.fill;
-    const rawStops = readRawStops(origFill.gradient);
-
-    const rng = mulberry32(seedVal);
-    let newStops = buildStops(rawStops, blendDir, dupCount, doMirror, altCW);
-    newStops = applyRedistribution(newStops, expVal, jitMin, jitMax, useJit, rng);
-    if (useColJit) newStops = applyColourJitter(newStops, satJit, lightJit, alphaJit, rng);
-
-    // Marker-count warning (Preview AND Apply)
-    if (!checkMarkerWarning(newStops.length)) continue;
-
-    const newFd = buildFD(newStops, fdFresh, origFill);
+    for (const p of plans) {
+      applyFD(doc, p.newFd, usePen, p.rangeInfo, p.node);
+      undoCount++;
+    }
 
     if (action === 0) {
-      applyFD(doc, newFd, usePen, rangeInfo);
-      undoCount     = 1;
       lastParamsKey = nowKey;
-      lastStopCount = newStops.length;
-      statusText.text = newStops.length + ' colour stops after processing.';
+      lastStopCount = maxStopCount;
+      statusText.text = plans.length + ' of ' + targetNodes.length +
+        ' object(s) processed, max ' + maxStopCount + ' colour stops.';
     } else {
-      applyFD(doc, newFd, usePen, rangeInfo);
       break;
     }
   }

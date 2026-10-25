@@ -1,8 +1,21 @@
 'use strict';
 
 /*
- * Numbering-Sequences v4
+ * Numbering-Sequences v5
  * -----------------------
+ * Changes compared to v4c:
+ *  - GUI converted to tabs (pages), following the pattern of "Transform Objects v8":
+ *    on the left, permanently visible: tab selection, preview (text list + status) and presets;
+ *    on the right, two content columns per page. When switching tabs, the groups of the active
+ *    page are shown and all other groups are hidden.
+ *      Tab 1  Sequence            (sequence parameters; date fields in their own group "Date")
+ *      Tab 2  Text & Arrangement  (prefix/suffix/text mode | reading direction/reset)
+ *      Tab 3  Row × Column        (combined labelling, row and column sequence)
+ *  - Date fields (start date, end date, format, placeholder note) now live in their own
+ *    group "Date", which only appears for type "Date".
+ *  - When "Combine Row × Column" is active, tab 1 shows a note instead of the sequence fields.
+ *  Functions/calculation unchanged from v4c (robust history rollback, File.create).
+ *
  * Replaces the text objects inside the selected group(s) with an
  * automatically generated sequence. The text attributes (font, size,
  * colour, ...) of the placeholder objects are fully preserved.
@@ -36,6 +49,28 @@ const { Selection, TextSelection } = require('/selections');
 const { DocumentCommand, CompoundCommandBuilder } = require('/commands');
 const { Dialog, DialogResult } = require('/dialog');
 const { File, FileSystemApi } = require('/fs');
+
+// ============================================================
+// Robust history rollback (v4c)
+// ============================================================
+// 1) Jump via doc.history.position; 2) if that fails (e.g. COMMAND_FAILED when the
+// start position is 0 — document without history) or does not reach the target, step back
+// with history.undo(); 3) warning if the target is not reached.
+function rollbackToPosition(pos) {
+    try {
+        if (doc.history.position !== pos) doc.history.position = pos;
+    } catch (e) {
+        console.log('History jump failed (' + e.message + ') - falling back to step-by-step undo.');
+    }
+    let guard = 0;
+    while (doc.history.position > pos && doc.history.canUndo && guard < 10000) {
+        try { doc.history.undo(); } catch (e) { console.log('Undo error: ' + e.message); break; }
+        guard++;
+    }
+    if (doc.history.position !== pos) {
+        console.log('Warning: history rollback incomplete (position ' + doc.history.position + ' instead of ' + pos + ').');
+    }
+}
 
 // ============================================================
 // Sequence generation
@@ -402,23 +437,42 @@ function applySequence(params) {
 }
 
 // ============================================================
-// Dialog
+// Dialog (v5: tab layout like "Transform Objects v8")
 // ============================================================
+// Left: narrow, permanently visible column (tab selection, preview, presets).
+// Right: two content columns (cA, cB). Each page consists of groups in these two
+// columns; updateFieldVisibility() shows the groups of the active page and hides all others
+// (in addition to the type-/mode-dependent showing/hiding of individual fields).
+
+const PAGE_TITLES = ['1  Sequence', '2  Text & Arrangement', '3  Row × Column'];
+let curPage = 0;
 
 const dlg = Dialog.create('Numbering-Sequences');
-dlg.initialWidth = 1320;
+dlg.initialWidth = 1100;
 dlg.setIsResizable(true);
 
-const col1 = dlg.addColumn(); col1.widthProportion = 1;
-const col2 = dlg.addColumn(); col2.widthProportion = 1;
-const col3 = dlg.addColumn(); col3.widthProportion = 1;
-const col4 = dlg.addColumn(); col4.widthProportion = 1;
+const cNav = dlg.addColumn(); cNav.widthProportion = 1;
+const cA = dlg.addColumn(); cA.widthProportion = 1;
+const cB = dlg.addColumn(); cB.widthProportion = 1;
 
-// -- Column 1: Sequence --
-const gInfo = col1.addGroup('');
-gInfo.addStaticText('', 'Text objects found: ' + textNodesRaw.length);
+// -- Left column (always visible): tabs, preview, presets --
+const presetDir = app.userDesktopPath + '/AffinityScriptPresets';
 
-const gSeq = col1.addGroup('Sequence');
+const gNav = cNav.addGroup('Tabs');
+const rNav = gNav.addRadioGroup('', PAGE_TITLES, 0);
+rNav.selectedIndex = 0;
+gNav.addStaticText('', 'Text objects found: ' + textNodesRaw.length);
+
+const gPreview = cNav.addGroup('Preview');
+const previewText = gPreview.addStaticText('', '');
+const statusText = gPreview.addStaticText('', '');
+
+const gPreset = cNav.addGroup('Presets');
+const btnSave = gPreset.addButton('Save Preset');
+const btnLoad = gPreset.addButton('Load Preset');
+
+// -- Tab 1 "Sequence", column A: sequence --
+const gSeq = cA.addGroup('Sequence');
 const typeCombo = gSeq.addComboBox('Type', TYPE_ITEMS, 0);
 typeCombo.selectedIndex = 0;
 
@@ -430,15 +484,6 @@ endCheck.value = false;
 
 const endEd = gSeq.addUnitValueEditor('End Value', 'none', 'none', 10, -99999, 99999);
 endEd.value = 10; endEd.precision = 0; endEd.setIsFullWidth(true);
-
-const startDateTB = gSeq.addTextBox('Start Date (DD.MM.YYYY)', '');
-startDateTB.text = todayDDMMYYYY(); startDateTB.setIsFullWidth(true);
-
-const endDateTB = gSeq.addTextBox('End Date (DD.MM.YYYY)', '');
-endDateTB.text = todayDDMMYYYY(); endDateTB.setIsFullWidth(true);
-
-const formatTB = gSeq.addTextBox('Format', 'DD.MM.YYYY');
-formatTB.text = 'DD.MM.YYYY'; formatTB.setIsFullWidth(true);
 
 const incEd = gSeq.addUnitValueEditor('Increment', 'none', 'none', 1, 1, 9999);
 incEd.value = 1; incEd.precision = 0; incEd.setIsFullWidth(true);
@@ -458,12 +503,24 @@ caseCheck.value = false;
 const customTB = gSeq.addTextBox('Custom List (comma-separated)', '');
 customTB.text = ''; customTB.setIsFullWidth(true);
 
-const gHint = col1.addGroup('');
-gHint.addStaticText('', 'Note: for Letters/Weekdays/Months/custom list, the start value is the position (1=a resp. Mon resp. Jan). "Use End" makes the sequence repeat cyclically (e.g. 1,2,3,1,2,3,...). "Repeat" repeats each value n times in a row.');
-const dateHint = gHint.addStaticText('', 'Date format placeholders: D/DD=Day, M/MM=Month (number), MMM=Month short, MMMM=Month full, YY/YYYY=Year, WWW=Weekday short, WWWW=Weekday full. Examples: DD.MM.YYYY · YYYY.MM.DD · DD.MMM.YYYY · WWW.DD.MMM.YYYY');
+// -- Tab 1, column B: date (only for type "Date"), notes, mode note --
+const gDate = cB.addGroup('Date');
+const startDateTB = gDate.addTextBox('Start Date (DD.MM.YYYY)', '');
+startDateTB.text = todayDDMMYYYY(); startDateTB.setIsFullWidth(true);
+const endDateTB = gDate.addTextBox('End Date (DD.MM.YYYY)', '');
+endDateTB.text = todayDDMMYYYY(); endDateTB.setIsFullWidth(true);
+const formatTB = gDate.addTextBox('Format', 'DD.MM.YYYY');
+formatTB.text = 'DD.MM.YYYY'; formatTB.setIsFullWidth(true);
+gDate.addStaticText('', 'Date format placeholders: D/DD=Day, M/MM=Month (number), MMM=Month short, MMMM=Month full, YY/YYYY=Year, WWW=Weekday short, WWWW=Weekday full. Examples: DD.MM.YYYY · YYYY.MM.DD · DD.MMM.YYYY · WWW.DD.MMM.YYYY. The increment counts in days here.');
 
-// -- Column 2: Text + Arrangement --
-const gText = col2.addGroup('Text');
+const gHint = cB.addGroup('Note');
+gHint.addStaticText('', 'For Letters/Weekdays/Months/custom list, the start value is the position (1=a resp. Mon resp. Jan). "Use End" makes the sequence repeat cyclically (e.g. 1,2,3,1,2,3,...). "Repeat" repeats each value n times in a row.');
+
+const gCombNote = cB.addGroup('Row × Column mode');
+gCombNote.addStaticText('', 'The mode "Combine Row × Column" is active. Row and column sequences are set in the tab "3  Row × Column".');
+
+// -- Tab 2 "Text & Arrangement": column A = text, column B = arrangement --
+const gText = cA.addGroup('Text');
 const prefixTB = gText.addTextBox('Prefix', '');
 prefixTB.text = ''; prefixTB.setIsFullWidth(true);
 const suffixTB = gText.addTextBox('Suffix', '');
@@ -473,7 +530,7 @@ textModeRadio.selectedIndex = 0;
 const placeholderTB = gText.addTextBox('Placeholder', '{{N}}');
 placeholderTB.text = '{{N}}'; placeholderTB.setIsFullWidth(true);
 
-const gArrange = col2.addGroup('Arrangement (Reading Direction)');
+const gArrange = cB.addGroup('Arrangement (Reading Direction)');
 const arrangeCombo = gArrange.addComboBox('Orientation', ARRANGE_ITEMS, 0);
 arrangeCombo.selectedIndex = 0;
 const hRadio = gArrange.addRadioGroup('Horizontal', ['Left → Right', 'Right → Left'], 0);
@@ -483,8 +540,8 @@ vRadio.selectedIndex = 0;
 const resetCheck = gArrange.addCheckBox('Reset per Row/Column', false);
 resetCheck.value = false;
 
-// -- Column 3: Combined row×column labelling --
-const gCombine = col3.addGroup('Row × Column');
+// -- Tab 3 "Row × Column": column A = mode + row sequence, column B = column sequence --
+const gCombine = cA.addGroup('Row × Column');
 const combinedCheck = gCombine.addCheckBox('Combine Row × Column', false);
 combinedCheck.value = false;
 const sepTB = gCombine.addTextBox('Separator', '');
@@ -513,19 +570,8 @@ function buildAxisGroup(col, title) {
     return { group: g, typeCombo: typeC, startEd: startE, startDateTB: startDateB, formatTB: formatB, incEd: incE, dirRadio: dirR, digitsEd: digitsE, caseCheck: caseC, customTB: customB };
 }
 
-const rowCtrls = buildAxisGroup(col3, 'Row Sequence');
-const colCtrls = buildAxisGroup(col3, 'Column Sequence');
-
-// -- Column 4: Presets + Preview --
-const presetDir = app.userDesktopPath + '/AffinityScriptPresets';
-
-const gPreset = col4.addGroup('Presets');
-const btnSave = gPreset.addButton('Save Preset');
-const btnLoad = gPreset.addButton('Load Preset');
-
-const gPreview = col4.addGroup('Preview');
-const previewText = gPreview.addStaticText('', '');
-const statusText = gPreview.addStaticText('', '');
+const rowCtrls = buildAxisGroup(cA, 'Row Sequence');
+const colCtrls = buildAxisGroup(cB, 'Column Sequence');
 
 // ============================================================
 // Live preview
@@ -600,20 +646,28 @@ function updateAxisVisibility(ctrls) {
     ctrls.caseCheck.isVisible = (t === 1 || t === 2);
 }
 
+// Visibility = active tab AND functional condition (type/mode)
 function updateFieldVisibility() {
     const combined = combinedCheck.value;
-    gSeq.isVisible = !combined;
-    rowCtrls.group.isVisible = combined;
-    colCtrls.group.isVisible = combined;
-    sepTB.isVisible = combined;
-
     const t = typeCombo.selectedIndex;
     const isDate = (t === DATE_SEQ_TYPE);
+    const pg = curPage;
+
+    // Groups per tab
+    gSeq.isVisible = (pg === 0) && !combined;
+    gDate.isVisible = (pg === 0) && !combined && isDate;
+    gHint.isVisible = (pg === 0) && !combined;
+    gCombNote.isVisible = (pg === 0) && combined;
+    gText.isVisible = (pg === 1);
+    gArrange.isVisible = (pg === 1);
+    gCombine.isVisible = (pg === 2);
+    rowCtrls.group.isVisible = (pg === 2) && combined;
+    colCtrls.group.isVisible = (pg === 2) && combined;
+
+    // Fields within the groups
+    sepTB.isVisible = combined;
     startEd.isVisible = !isDate;
-    startDateTB.isVisible = isDate;
     endDateTB.isVisible = isDate && endCheck.value;
-    formatTB.isVisible = isDate;
-    dateHint.isVisible = isDate;
     digitsEd.isVisible = (t === 0);
     customTB.isVisible = (t === 7);
     caseCheck.isVisible = (t === 1 || t === 2);
@@ -631,7 +685,7 @@ function updateFieldVisibility() {
 
 function updatePreview() {
     if (hasPreview) {
-        doc.history.position = posBeforePreview;
+        rollbackToPosition(posBeforePreview);   // v4c: robust (undo fallback)
     } else {
         posBeforePreview = doc.history.position;
     }
@@ -663,6 +717,9 @@ function attachAxisHandlers(ctrls) {
 }
 
 updateFieldVisibility();
+
+// Tab switch: only toggle visibility, no new preview needed
+rNav.setOnValueChangedHandler(() => { curPage = rNav.selectedIndex; updateFieldVisibility(); });
 
 typeCombo.setOnValueChangedHandler(() => { defaultCaseForType(typeCombo.selectedIndex, caseCheck); onChange(); });
 startEd.setOnValueChangedHandler(onChange);
@@ -787,7 +844,7 @@ btnSave.setOnClickHandler(() => {
         try {
             FileSystemApi.createDirectories(presetDir);
             const path = presetDir + '/' + name.trim() + '.json';
-            const f = new File(path, 'wb');
+            const f = File.create(path, 'wb');
             f.writeStringAsUtf8(JSON.stringify(collectState(), null, 2));
             f.close();
             app.alert('Preset saved:\n' + path, 'Numbering-Sequences');
@@ -817,7 +874,7 @@ const result = dlg.runModal();
 
 if (!result || result.value === DialogResult.Cancel.value) {
     if (hasPreview) {
-        doc.history.position = posBeforePreview;
+        rollbackToPosition(posBeforePreview);   // v4c: robust (undo fallback)
     }
 }
 // On OK, the last applied preview remains as the final result.

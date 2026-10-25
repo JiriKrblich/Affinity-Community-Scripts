@@ -939,7 +939,7 @@
       "description": "Gradient Tweak modifies the colour stops of a gradient fill or stroke on a selected object in Affinity Designer or Publisher. It supports regular vector objects, text objects (whole or only a marked character range), and offers extensive colour and spacing tools including presets.",
       "author": "Erhard Otto",
       "email": "erhard.otto@bossmail.de",
-      "version": "3.5.0",
+      "version": "3.5.1",
       "category": "Color",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/gradient-tweak.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/gradient-tweak.js"
@@ -1189,7 +1189,7 @@
       "description": "Randomize Anchor Points is an Affinity script that randomly moves the anchor points of curve objects. Three effects Linear (independent X/Y jitter), Radial (displacement to/from a center point), and Direction can be used simultaneously Control points (bezier handles) are, by default, moved rigidly together with their respective anchor point, so the underlying curve shape isn't damaged by distorted tangents, optionally switchable off. The script respects a partial selection of anchor points made in the Node tool – optionally only a random percentage of them.",
       "author": "Erhard Otto",
       "email": "erhard.otto@bossmail.de",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/RandomizeAnchorPoints.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/RandomizeAnchorPoints.js"
@@ -1211,7 +1211,7 @@
       "description": "Warp into Shape is an Affinity script that fits a vector object or vector group into the contour of any base shape (area warp) or arranges it along that contour (path mode). The script offers seven warp methods, adjustable resolution and detail fidelity, start/end offsets to avoid strong distortion at the edges, a preset system for saving/loading settings, and a genuine live preview: every parameter change updates the result in the document immediately",
       "author": "Erhard Otto",
       "email": "erhard.otto@bossmail.de",
-      "version": "2.1.0",
+      "version": "2.1.1",
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/Warp-into-Shape.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Warp-into-Shape.js"
@@ -1448,7 +1448,7 @@
       "description": "The script converts all containers in the document into groups. For this to work, a group must already exist in the document; if none exists, insert an empty group into the layer stack. The reason for this is that the script cannot currently create groups, and further processing may be complicated by the presence of containers.",
       "author": "Erhard Otto",
       "email": "erhard.otto@bossmail.de",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "category": "Layer",
       "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/containertogroup.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/containertogroup.js"
@@ -1470,7 +1470,7 @@
       "description": "This script replaces the text objects inside a selected group (or a direct multi-selection of text objects) with an automatically generated sequence – for example a running number, a letter sequence, Roman numerals, weekday or month abbreviations, a date sequence with a freely definable format, or a freely defined custom list of values. The text attributes of the placeholder objects are fully preserved (font, size, colour, alignment, etc.) – only the text content itself is replaced. Even when a single object contains multiple differently formatted text sections (e.g. in placeholder mode), the new text inherits the formatting of the section it replaces. The order in which objects are numbered follows their actual position in the document (or, optionally, the layer stacking order) and can be configured for almost any reading direction. Row × Column Enables a combined labelling scheme where every row and every columngets its own, independent sequence. When type “Date” is selected, the fields in the “Sequence” column change and format placeholders (tokens) like Excel are used.",
       "author": "Erhard Otto",
       "email": "erhard.otto@bossmail.de",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "category": "Generator",
       "image":"https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/NumberingSequences.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/NumberingSequences.js"
@@ -1816,6 +1816,105 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/replace-objects-erhard-otto.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replace-objects-erhard-otto.js"
+    },
+    {
+      "id": "weave",
+      "name": "Weave",
+      "description": "Creates interlaced over-under crossings between overlapping objects. Detects crossings automatically or from _VF marker masks, with destructive Boolean cuts or non-destructive masks, configurable crossing detection, and preview.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Effect",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/weave.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/weave.js"
+    },
+    {
+      "id": "text-fill",
+      "name": "Text Fill",
+      "description": "Fills closed shapes, including holes and multiple targets, with repeated text objects using collision-aware word-cloud placement. Supports Artistic Text and words or sentences extracted from Frame Text, weighted source names, size/angle/colour variation, clipping, preview, and presets.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Text",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/text-fill.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/text-fill.js"
+    },
+    {
+      "id": "triangle-fill",
+      "name": "Triangle Fill",
+      "description": "Fills closed vector shapes with a low-poly triangle pattern using refined Delaunay triangulation or a regular triangle grid. Supports holes and separate contours, gradient or colour sampling, HSL jitter, seeded randomness, angle controls, preview, and optional original removal.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Generator",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/triangle-fill.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/triangle-fill.js"
+    },
+    {
+      "id": "blend-morphing",
+      "name": "Blend Morphing",
+      "description": "Creates interpolated objects between selected vector objects, blending geometry, fill, stroke, opacity, and effects. Supports continuous chains across multiple objects, path placement, correspondence controls, preview, and presets. Style Blend for bitmap, mesh, and hatch fills requires exactly two objects.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/blend-morphing.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/blend-morphing.js"
+    },
+    {
+      "id": "object-fill",
+      "name": "Object Fill",
+      "description": "Fills a target object with duplicates from selected source objects using rectangular or radial grids. Includes rotation, size, opacity and position jitter, brightness or radial modulation, colour/gradient transfer, exact-path or alpha containment checks, preview, and presets.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/object-fill.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/object-fill.js"
+    },
+    {
+      "id": "objects-on-nodes",
+      "name": "Objects on Nodes",
+      "description": "Places mapped duplicates from a base group onto curve nodes in a target group, including nested subgroups. Merges nearby nodes using a distance tolerance and supports random, sequential, reverse or ping-pong mapping, colour/rotation/size jitter, preview, and presets.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/objects-on-nodes.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/objects-on-nodes.js"
+    },
+    {
+      "id": "group-morphing-alternative",
+      "name": "Group Morphing Alternative",
+      "description": "Morphs objects from two selected groups pairwise, creating intermediate geometry, fill/gradient, opacity, stroke, rotation, and effects. Organises results by object pairs or time steps in a master group above both sources, with preview and presets. Incompatible fill types switch between source and target fills.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/group-morphing-alternative.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/group-morphing-alternative.js"
+    },
+    {
+      "id": "form-on-path",
+      "name": "Form on Path",
+      "description": "Distributes object duplicates along one or more Bezier paths or their nodes. Includes transform-origin placement, tangent alignment, curvature-based density, cosine scaling, colour interpolation, cumulative transforms, jitter, preview, and JSON presets.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/form-on-path.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/form-on-path.js"
+    },
+    {
+      "id": "object-distortion",
+      "name": "Object Distortion",
+      "description": "Distorts selected vector objects and pixel layers using 13 methods in spread coordinates. Supports transformed groups, repeated or combined effects, falloff curves, method-specific jitter, preview, and presets. Pixel-layer warping uses backward mapping with bilinear interpolation.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Effect",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/object-distortion.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/object-distortion.js"
     }
   ]
 }
