@@ -1601,6 +1601,17 @@
       "category": "Text",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/word-art.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/word-art.js"
+    },
+    {
+      "id": "tangent-snap",
+      "name": "Tangent Snap",
+      "description": "Moves selected elements until their real outlines touch without a gap. Supports external contact and internal tangency inside a container, with Cluster, To Anchor, and Chain arrangements. Works with curves, shapes, text glyphs, and groups, with optional stroke-width handling, separation of overlapping elements, and native live preview.",
+      "author": "WaveF",
+      "email": "wavef@live.com",
+      "version": "0.2.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/tangent-snap.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/tangent-snap.js"
     }
   ]
 }
