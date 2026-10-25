@@ -1654,6 +1654,16 @@
       "category": "Export",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/layer-animator.gif",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/layer-animator.js"
+    },
+    {
+      "id": "join-split-text",
+      "name": "Join & Split Text",
+      "description": "Joins text objects in reading order with configurable separators, optional line joining, hyphenated-word rejoining, and character formatting preservation. Splits text by visible lines (including frame wrapping) or paragraphs while preserving character formatting and line positions. Supports Artistic Text and Frame Text inside groups, output type selection, keeping originals, and a single undo step. Linked frames and rotated, skewed, or flipped text objects are skipped.",
+      "author": "Victor Crespo (3dvic · github.com/vicc3d)",
+      "version": "1.0.3",
+      "category": "Text",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/join-split-text.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/join-split-text.js"
     }
   ]
 }
