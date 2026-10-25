@@ -1664,6 +1664,17 @@
       "category": "Text",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/join-split-text.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/join-split-text.js"
+    },
+    {
+      "id": "concentric-transform-objects",
+      "name": "Concentric Transform Objects",
+      "description": "Progressively changes selected objects according to their distance from a chosen centre. Supports size, rotation, skew, radial offset, transparency, saturation, hue, and stroke width, with configurable strength, progression curves, and inverted falloff. Includes a live preview; Cancel restores the appearance, while preview steps remain in the undo history.",
+      "author": "zaum",
+      "url": "https://github.com/zaum",
+      "version": "1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/concentric-transform-objects.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/concentric-transform-objects.js"
     }
   ]
 }
