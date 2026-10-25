@@ -1579,6 +1579,17 @@
       "category": "Layer",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/select-children.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/select-children.js"
+    },
+    {
+      "id": "freeze",
+      "name": "Freeze",
+      "description": "Toggles selected elements between editable content and a static image snapshot to improve performance. Freezing creates an image layer marked with ❄ and hides the original beneath it. Run again on the snapshot or its nested original to restore editable content. Hidden elements and elements that cannot be rasterised are skipped. Runs without a dialog.",
+      "author": "WaveF",
+      "email": "wavef@live.com",
+      "version": "0.2.1",
+      "category": "Layer",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/freeze.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/freeze.js"
     }
   ]
 }
