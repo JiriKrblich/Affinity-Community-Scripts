@@ -1632,6 +1632,17 @@
       "category": "Layer",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/centre-layer.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/centre-layer.js"
+    },
+    {
+      "id": "perspective-grid-generator",
+      "name": "Perspective Grid Generator",
+      "description": "Generates an editable circular perspective grid with one radial vanishing point or two vanishing points. Configure the grid size, presets, vanishing-point position and separation, line density, angular spread, colours, and line weight. Creates the grid in a container layer on the current spread.",
+      "author": "Erick Ramirez",
+      "email": "Er275050@gmail.com",
+      "version": "0.1.0",
+      "category": "Generator",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/perspective-grid-generator.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/perspective-grid-generator.js"
     }
   ]
 }
