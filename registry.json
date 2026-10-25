@@ -1675,6 +1675,15 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/concentric-transform-objects.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/concentric-transform-objects.js"
+    },
+    {
+      "id": "bleed_path_sq",
+      "name": "Bleed Path (Square Corners)",
+      "description": "Creates a new outline offset 3 mm outward from the selected objects, leaving the originals untouched. Uses mitred corners with a bevel limit and square end caps for open paths. Non-vector objects use their bounding boxes. The result is an unfilled magenta path with a 0.5 pt stroke. Bleed distance and corner style can be changed in the script settings.",
+      "author": "mtbmark67",
+      "version": "0.0.0",
+      "category": "Print",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/bleed_path_sq.js"
     }
   ]
 }
