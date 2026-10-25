@@ -1684,6 +1684,17 @@
       "version": "0.0.0",
       "category": "Print",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/bleed_path_sq.js"
+    },
+    {
+      "id": "scribble",
+      "name": "Scribble",
+      "description": "Generates hatch, continuous zig-zag, cross-hatch, or contour-hatch paths for selected vector shapes and text, including objects inside groups. Assign a Vector Brush to the generated strokes to create the hand-drawn look. Includes per-character patterns, seeded randomness, curvature controls, preview, and JSON presets. Most modes clip paths into the target and convert text to curves; whole-text zig-zag stays unclipped above the editable original.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Effect",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/scribble.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/scribble.js"
     }
   ]
 }
