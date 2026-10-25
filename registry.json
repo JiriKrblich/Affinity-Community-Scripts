@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-10-04",
+  "last_updated": "2026-10-25",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -1557,6 +1557,18 @@
       "version": "0.1",
       "category": "Layout",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/Book-cover-template-maker.js"
+    },
+    {
+      "id": "svg-anim",
+      "name": "SVG Anim",
+      "description": "Configure up to eight animation tracks per element: Fade, Move, Rotate, Scale, Draw stroke, Count number, Clock, and Frames. Save animation settings in element metadata and export the document, current spread, or an artboard as an animated SVG with an embedded or linked player and an optional HTML preview.",
+      "author": "WaveF",
+      "email": "wavef@live.com",
+      "url": "https://minicg.com",
+      "version": "0.2.2",
+      "category": "Export",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/svg-anim.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/svg-anim.js"
     }
   ]
 }
