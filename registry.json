@@ -1706,6 +1706,116 @@
       "category": "Generator",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/gerador-de-calendarios-munplus.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/gerador-de-calendarios-munplus.js"
+    },
+    {
+      "id": "power-duplicate-alternative",
+      "name": "Power Duplicate Alternative",
+      "description": "Creates copies of selected objects with progressive position, rotation, scale, colour, and opacity changes. Each copy is calculated independently from the original. Includes grid layouts, a shared _PD pivot, seeded jitter, target values and easing, preview, and presets.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/power-duplicate-alternative.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/power-duplicate-alternative.js"
+    },
+    {
+      "id": "transform-objects",
+      "name": "Transform Objects",
+      "description": "Transforms objects in sequence using start/end values for size, rotation, offsets, opacity, and HSL colour. Includes geometric and path-based ordering, _PD attractors, sequence patterns, per-row selection, seeded uniform or Gaussian jitter, native preview, and presets.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/transform-objects.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/transform-objects.js"
+    },
+    {
+      "id": "convert-to-gradient",
+      "name": "Convert to Gradient",
+      "description": "Converts solid fills and optional strokes into linear, radial, or elliptical gradients with 2, 3, or 5 stops derived from the original colour. Supports vector objects, groups, and text, geometry-based placement, per-character processing, lightness and saturation controls, seeded variation, preview, and presets.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Color",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/convert-to-gradient.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/convert-to-gradient.js"
+    },
+    {
+      "id": "sort-by-colour",
+      "name": "Sort by Colors",
+      "description": "Clusters selected vector objects by solid fill colour and organises them into named container groups. Supports grouped input, separate hue/saturation/lightness tolerances, automatic tolerance suggestions, grey detection, minimum-area filtering, size and position sorting, and a histogram preview.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bosmail.de",
+      "version": "1.0",
+      "category": "Color",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/sort-by-colour.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/sort-by-colour.js"
+    },
+    {
+      "id": "replace-colours-pro",
+      "name": "Replace Colours PRO",
+      "description": "Maps document colours to a target palette using CIE76 Lab colour distance, optional hue weighting, and generated lightness/saturation variants. Supports vector fills, strokes, gradients, hatches, text colours, and bitmap pixels, with live preview, presets, and an exportable colour mapping log.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Color",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/replace-colours-pro.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replace-colours-pro.js"
+    },
+    {
+      "id": "indexed-colours",
+      "name": "Indexed Colors (Reduction)",
+      "description": "Reduces document colours to a calculated palette with a chosen colour count plus black and white. Processes vector fills and strokes, gradient stops, text colours, and bitmap pixels in RGBA8, RGBA16, or CMYK8. Includes scope controls, HSL colour matching, dithering, live preview, and ASE palette export.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Color",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/indexed-colours.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/indexed-colours.js"
+    },
+    {
+      "id": "colour-transfer",
+      "name": "Color Transfer",
+      "description": "Samples colour and transparency near each target object's centre from a source photo, pixel layer, or vector object, and applies it as solid fill and/or stroke. Supports groups and text, source rendering modes, channel controls, lightness/saturation adjustments, seeded jitter, preview, and presets. Targets outside the source become transparent.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Color",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/colour-transfer.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/colour-transfer.js"
+    },
+    {
+      "id": "randomize-objects-erhard-otto",
+      "name": "Randomize Objects (Erhard Otto)",
+      "description": "Applies seeded random colour and geometry variation to selected objects without transferring content. Adjusts hue, saturation, lightness, and opacity for fills and/or strokes, plus position, rotation, and size. Supports text and gradient colours, optional whole-group geometry handling, preview, and presets.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/randomize-objects-erhard-otto.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/randomize-objects-erhard-otto.js"
+    },
+    {
+      "id": "fill-stroke-transfer",
+      "name": "Fill Stroke Transfer",
+      "description": "Maps objects from a base group to a target group and transfers fills and/or strokes, realigning gradients to target geometry. Includes selectable mapping order, text support, optional colour and geometry jitter, a colour-jitter-only mode, preview, and presets.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/fill-stroke-transfer.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/fill-stroke-transfer.js"
+    },
+    {
+      "id": "replace-objects-erhard-otto",
+      "name": "Replace Objects",
+      "description": "Replaces objects in a target group with mapped duplicates from a base group, fitting each duplicate to the target position and size while keeping base originals intact. Supports mapping sequences, nested groups, colour and geometry jitter, rotation increments, preview, and presets.",
+      "author": "Erhard Otto",
+      "email": "erhard.otto@bossmail.de",
+      "version": "1.0",
+      "category": "Object",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/replace-objects-erhard-otto.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/replace-objects-erhard-otto.js"
     }
   ]
 }
