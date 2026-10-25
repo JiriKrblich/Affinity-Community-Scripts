@@ -1621,6 +1621,17 @@
       "version": "1.0.1",
       "category": "Text",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/findchangebylist-french.js"
+    },
+    {
+      "id": "centre-layer",
+      "name": "Centre Layer",
+      "description": "Centres each selected layer individually, horizontally and vertically, on the current page or spread, excluding bleed. Runs without a dialog.",
+      "author": "BeeVee23",
+      "url": "https://benvost.fr",
+      "version": "1.0.0",
+      "category": "Layer",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/centre-layer.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/centre-layer.js"
     }
   ]
 }
