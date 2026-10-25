@@ -1590,6 +1590,17 @@
       "category": "Layer",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/freeze.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/freeze.js"
+    },
+    {
+      "id": "word-art",
+      "name": "Word Art",
+      "description": "Arranges selected Art Text objects inside or around a key shape by adjusting their size, angle, and position. Packed creates dense word clouds using glyph outlines, Flow arranges readable rows, and Outline places words as rays or along the edge. Includes repeat-to-fill duplicates, seeded randomness, glyph or box collision options, and native live preview.",
+      "author": "WaveF",
+      "email": "wavef@live.com",
+      "version": "0.1.0",
+      "category": "Text",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/word-art.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/word-art.js"
     }
   ]
 }
