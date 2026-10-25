@@ -1643,6 +1643,17 @@
       "category": "Generator",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/perspective-grid-generator.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/perspective-grid-generator.js"
+    },
+    {
+      "id": "layer-animator",
+      "name": "Layer Animator",
+      "description": "Displays unlocked top-level layers in sequence to preview a frame animation, with locked layers kept as static content. Supports choosing an artboard and setting the frame delay. Optionally exports individual frames as PNG, GIF, or JPEG files to a document-named folder on the Desktop, using frame numbers or layer names.",
+      "author": "JamesRandom",
+      "email": "56laconic.sails@icloud.com",
+      "version": "1.0",
+      "category": "Export",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/layer-animator.gif",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/layer-animator.js"
     }
   ]
 }
