@@ -1745,7 +1745,7 @@
       "name": "Sort by Colors",
       "description": "Clusters selected vector objects by solid fill colour and organises them into named container groups. Supports grouped input, separate hue/saturation/lightness tolerances, automatic tolerance suggestions, grey detection, minimum-area filtering, size and position sorting, and a histogram preview.",
       "author": "Erhard Otto",
-      "email": "erhard.otto@bosmail.de",
+      "email": "erhard.otto@bossmail.de",
       "version": "1.0",
       "category": "Color",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/sort-by-colour.jpg",
