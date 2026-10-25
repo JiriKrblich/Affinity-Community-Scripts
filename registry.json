@@ -1612,6 +1612,15 @@
       "category": "Object",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/tangent-snap.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/tangent-snap.js"
+    },
+    {
+      "id": "findchangebylist-french",
+      "name": "FindChangeByList French",
+      "description": "Applies French typography spacing rules to the full text of selected text objects: thin non-breaking spaces around French quotation marks and before punctuation, percent and euro signs; apostrophe and parenthesis spacing; ellipsis normalization; and whitespace cleanup. Protects URLs from changes.",
+      "author": "Siqoya",
+      "version": "1.0.1",
+      "category": "Text",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/findchangebylist-french.js"
     }
   ]
 }
