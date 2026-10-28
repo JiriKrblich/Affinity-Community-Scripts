@@ -1562,10 +1562,10 @@
     {
       "id": "svg-anim",
       "name": "SVG Anim",
-      "description": "Configure up to eight animation tracks per element: Fade, Move, Rotate, Scale, Draw stroke, Count number, Clock, and Frames. Save animation settings in element metadata and export the document, current spread, or an artboard as an animated SVG with an embedded or linked player and an optional HTML preview.",
+      "description": "Configure up to eight animation tracks per element: Fade, Move, Rotate, Scale, Skew, Draw stroke, Count number, Clock, and Frames. Save settings in element metadata, reorder or clear tracks, and import/export complete track setups as JSON presets. Export the document, current spread, or an artboard as an animated SVG with an embedded or linked player and an optional HTML preview.",
       "author": "WaveF",
       "email": "wavef@live.com",
-      "version": "0.2.2",
+      "version": "0.4.1",
       "category": "Export",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/svg-anim.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/svg-anim.js"
