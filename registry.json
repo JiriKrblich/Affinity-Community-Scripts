@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-10-25",
+  "last_updated": "2026-10-28",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -1916,6 +1916,16 @@
       "category": "Effect",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/object-distortion.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/object-distortion.js"
+    },
+    {
+      "id": "polaroid-border",
+      "name": "Contour Polaroid / Polaroid Border",
+      "description": "Adds a Polaroid-style border by enlarging the current spread and moving the existing artwork to make room for the margins. Choose the widest side (bottom, top, left, or right), the thin and wide border thicknesses in pixels, and the border colour. Includes English and French dialog text.",
+      "author": "Jacques Lacerte",
+      "email": "JLacerte69@hotmail.com",
+      "version": "1.0.0",
+      "category": "Effect",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/polaroid-border.js"
     }
   ]
 }
