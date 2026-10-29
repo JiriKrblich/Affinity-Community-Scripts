@@ -1,14 +1,17 @@
 /**
  * name: Centroid & Optical Center Finder
  * description: Calculates and draws the mathematical centroid (Red) and the visual/optical center (Blue) for selected shapes. https://bjango.com/articles/opticaladjustments/
- * version: 1.1
+ * version: 1.2.0
  * author: CrackHub
+ * contributors: zaum
  * @affinity 3.2+
  * Changelog;
  * v1.0 - Once the points are created, the objects remain selected; you can group them using Ctrl+G if you wish.
  * 		- Multiple selection allowed
  * v1.1 - Optionally shifts the selected objects
  * 		- On the rare native dialog failure, fails cleanly (no retry, to avoid an unpredictable double-dialog) and asks you to re-run.
+ * v1.2 - Fixed marker drawing on Affinity 3.3+: PolyCurveNodeDefinition.create argument order changed
+ * 		(lineFill before lineStyle) in the new scripting API.
  */
 "use strict";
 
@@ -434,8 +437,8 @@ function makeCircleDef(cx, cy, radius, brushFill, strokeFill, width) {
   return PolyCurveNodeDefinition.create(
     makeClosedPolyCurve(points),
     brushFill,
-    lineStyle(width),
     strokeFill || brushFill,
+    lineStyle(width),
     transparent,
   );
 }
