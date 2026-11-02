@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-10-29",
+  "last_updated": "2026-11-02",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -1927,6 +1927,18 @@
       "version": "1.0.0",
       "category": "Effect",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/polaroid-border.js"
+    },
+    {
+      "id": "mr-film-grain",
+      "name": "MR Film Grain",
+      "description": "Adds adjustable film grain on a separate tagged layer while preserving existing artwork. Fits the canvas or selected artboard and reopens saved settings on subsequent runs. Includes grain size, variation, sharpness, monochrome/RGB colour, strength, and tonal response controls with live preview. Version 2.0.1 adapts raster layer bit depth to the document. Requires Affinity 3.3+.",
+      "author": "Maxson Richards",
+      "email": "maxsonrichards@gmail.com",
+      "url": "https://www.instagram.com/maxsonrichards/",
+      "version": "2.0.1",
+      "category": "Effect",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/mr-film-grain.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/mr-film-grain.js"
     }
   ]
 }
