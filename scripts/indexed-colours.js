@@ -1,21 +1,17 @@
 
 'use strict';
-// Indexed Colours v16
-// ROOT-CAUSE FIX for incomplete preview rollback in large documents:
-//  * Affinity's undo history is limited in depth (measured: roughly 1070-1080 steps).
-//    v15 wrote every changed fill/stroke/text as its OWN history step, so a document with
-//    > ~1000 changed fills pushed the OLDEST preview steps out of the history — they could
-//    not be rolled back and stayed applied ("preview builds on the previous result",
-//    "cancel leaves objects changed").
-//  * v16 batches ALL vector changes (solid fills, gradient stops, strokes, text fill/outline)
-//    into ONE CompoundCommand = one history step, regardless of the object count.
-//    (Measured on 547 changes: 1 compound step; 4 preview cycles + cancel restored
-//    solids, gradients, hatches and text exactly.) Bitmaps stay separate steps (few, large).
-//  * Robust rollback: setting doc.history.position can fail with COMMAND_FAILED when the
-//    start position is 0 (document without any history yet, e.g. just opened). v16 falls
-//    back to stepping back with history.undo() until the start position is reached, and
-//    logs a warning if it still cannot be reached.
-// All v15 features retained (selection incl. group children, scope computed once,
+// Indexed Colours v17
+// v17 (Affinity 3.3.3):
+//  * gradient.getStop(i).colour already returns a Colour object in 3.3.3;
+//    new Colour(s.colour) threw "expected ColourHandle". Consequences: gradient
+//    colours were silently NOT counted for the palette, and gradients were NOT
+//    remapped (both errors were swallowed). New helper toColour() in
+//    recordGradient() and remapGradientFD().
+//  * ASE export: File.create() instead of new File().
+//  Otherwise unchanged vs v16.
+// v16: ALL vector changes batched into ONE CompoundCommand (= one history step);
+//      robust rollback (falls back to step-wise history.undo() at position 0).
+// All earlier features retained (selection incl. group children, scope computed once,
 // selection restore only via snapshot, bitmap replace via layer.selfSelection, text
 // fill/outline, gradients, dithering, ASE export via Buffer, k-means++, adaptive
 // sampling, live preview).
@@ -35,6 +31,9 @@ const { app }                   = require('/application.js');
 const FMT_RGBA8  = 0;
 const FMT_RGBA16 = 1;
 const FMT_CMYKA8 = 4;
+
+// v17: version-safe wrapping (3.3.3+: stop.colour is already a Colour)
+function toColour(c) { return (c instanceof Colour) ? c : new Colour(c); }
 
 // ─── PRNG ─────────────────────────────────────────────────────────────────────
 function mulberry32(seed) {
@@ -181,7 +180,6 @@ function selectionMatches(doc, nodes) {
     }
     return true;
 }
-// Any selection change after an edit is its own history step → restore only if changed.
 function restoreSelection(doc, selNodes) {
     try {
         if (selNodes && selNodes.length > 0 && !selectionMatches(doc, selNodes)) {
@@ -191,9 +189,6 @@ function restoreSelection(doc, selNodes) {
 }
 
 // ─── Robust history rollback (v16) ────────────────────────────────────────────
-// 1) jump via doc.history.position; 2) if that throws (e.g. COMMAND_FAILED when the
-// start position is 0 — a document without history) or does not reach the target,
-// step back with history.undo(); 3) warn if the target still is not reached.
 function rollbackToPosition(doc, pos) {
     try {
         if (doc.history.position !== pos) doc.history.position = pos;
@@ -230,7 +225,7 @@ function collectVectorColours(layers, fmt, weightMode, skipHidden, skipLocked) {
             const g = fd.fill.gradient;
             for (let i = 0; i < g.stopCount; i++) {
                 const s = g.getStop(i);
-                record(new Colour(s.colour), area / g.stopCount);
+                record(toColour(s.colour), area / g.stopCount);   // v17
             }
         } catch(e) {}
     }
@@ -399,13 +394,12 @@ function buildFinalPalette(computed, fmt) {
 }
 
 // ─── Batch helpers (v16): add commands to ONE compound ────────────────────────
-// Gradient: map each stop to the palette; returns a new FillDescriptor or null if unchanged.
 function remapGradientFD(fd, palette) {
     const g = fd.fill.gradient;
     const newStops = []; let anyChange = false;
     for (let i = 0; i < g.stopCount; i++) {
         const s = g.getStop(i);
-        const col = new Colour(s.colour); const hslaf = col.hslaf;
+        const col = toColour(s.colour); const hslaf = col.hslaf;   // v17
         const p = nearest({h:hslaf.h,s:hslaf.s,l:hslaf.l}, palette);
         if (hslDist({h:hslaf.h,s:hslaf.s,l:hslaf.l}, p.hsl) > 0.001) anyChange = true;
         newStops.push({ colour: Colour.createHSLAf({h:p.hsl.h,s:p.hsl.s,l:p.hsl.l,alpha:hslaf.alpha}), position:s.position, midpoint:s.midpoint });
@@ -496,7 +490,6 @@ function addVectorCommands(builder, doc, layer, palette, fmt) {
     return n;
 }
 
-// ALL vector changes in ONE compound command = ONE history step.
 function applyToVectors(doc, layers, palette, fmt, skipHidden, skipLocked) {
     const builder = CompoundCommandBuilder.create();
     let n = 0;
@@ -615,7 +608,7 @@ function saveAse(palette, fmt) {
         const abuf = Buffer.create(rawBytes.length);
         new Uint8Array(abuf.buffer).set(rawBytes);
         const path = app.userDesktopPath + '/IndexedColours.ase';
-        const f = new File(path, 'wb');
+        const f = File.create(path, 'wb');   // v17
         const written = f.write(abuf, abuf.length);
         f.close();
         if (written !== rawBytes.length) console.log('ASE export warning: wrote ' + written + ' of ' + rawBytes.length + ' bytes.');
@@ -663,7 +656,6 @@ if (!doc) {
     const docFmt  = doc.format ? doc.format.value : FMT_RGBA8;
     const fmtName = docFmt===FMT_RGBA16?'RGBA16':docFmt===FMT_CMYKA8?'CMYK8':'RGBA8';
 
-    // Snapshot selection + scope ONCE, before any edit / preview.
     const originalSelNodes = snapshotSelectionNodes(doc);
     const scopeNodes       = buildScopeNodes(doc, originalSelNodes);
 
@@ -707,7 +699,6 @@ if (!doc) {
     const grpStatus = col2.addGroup('Preview');
     const txStatus  = grpStatus.addStaticText('', 'Ready');
 
-    // Captured BEFORE the handler is attached (handler fires on dialog open).
     const posBeforePreview = doc.history.position;
     let isRunning  = false;
 
@@ -723,7 +714,6 @@ if (!doc) {
         };
     }
 
-    // Roll the document back to its original state AND original selection.
     function rollbackPreview() {
         rollbackToPosition(doc, posBeforePreview);
         restoreSelection(doc, originalSelNodes);
@@ -733,7 +723,7 @@ if (!doc) {
         if (isRunning) return;
         isRunning = true;
         try {
-            rollbackPreview();   // always start from the untouched original
+            rollbackPreview();
 
             const s = getCurrentSettings();
             if (s.selectionOnly && scopeNodes.length === 0) {
@@ -775,7 +765,7 @@ if (!doc) {
     } else {
         const s = getCurrentSettings();
         const doAse = chkAse.value;
-        rollbackPreview();   // clean base → final apply is one clean block
+        rollbackPreview();
 
         if (s.selectionOnly && scopeNodes.length === 0) {
             console.log('Nothing selected – no changes made.');

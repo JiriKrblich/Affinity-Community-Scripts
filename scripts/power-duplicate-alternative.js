@@ -1,18 +1,25 @@
 'use strict';
-// Power Duplicate Alternative EN v4
-// v4 – GUI converted to tabs (pages), following the pattern of "Transform Objects v8":
-//   always visible on the left: tab selector, preview, presets; two columns per page on the right.
-//   Pages: 1 General (incl. grid, pivot display) · 2 Global transform · 3 Local transform ·
-//   4 Scaling · 5 Colour & opacity.
-//   When switching, the groups of the active page are shown and all others hidden
-//   (group.isVisible). All values are kept on hidden pages as well.
-//   Functions, parameters and preset format are unchanged from v3.
-// v3 – two fixes:
-//  1) BUGFIX crash on "Randomize order": shuffleChildrenOrder and moveToTop compared nodes with
-//     "===" (wrappers are never identical -> moving a node before itself -> COMMAND_FAILED).
-//     Now isSameNode().
-//  2) BUGFIX stale preview: on OK the result is recomputed if the settings changed since the
-//     last preview.
+// Power Duplicate Alternative EN v7
+// v7 – robust preview undo: a live test showed that createSetSelection also creates a history
+//   entry – pure counting can therefore leave remnants. Now the difference of
+//   doc.history.position is used (exact); only with a full history the counted steps. Then a
+//   safety net: if the preview group is still there, it is deleted.
+// v6 – performance (result unchanged, compared live against v5: 0 deviations):
+//   • Every copy is first computed purely in JavaScript as ONE total matrix (global + local
+//     rotation/scaling + local radial); pivots (focal point or bounding-box centre) are predicted
+//     without engine queries (getSpreadBaseBox = hull of the transformed baseBox corners).
+//   • All copies of an object are created in ONE compound command; names, HSL fills, opacity,
+//     sorting-in and randomize/reverse as one further compound each.
+//   • Measured: 10 copies 1.9 s → 0.02 s; group with 42 objects ×4 1.5 s → 0.05 s;
+//     60–272 individual commands → 4–5 history steps.
+//   • The preview is undone via the number of its history steps (also works with a full
+//     history); with text formatting it is deleted as before.
+// v5 – Affinity 3.3.3: gradient.getStop(i).colour now already returns a Colour object;
+//   new Colour(stop.colour) produced an invalid colour ("expected ColourHandle") and aborted
+//   the HSL jitter on gradient objects (and with it the whole preview). New helper toColour()
+//   only wraps when needed (works with older and newer Affinity versions).
+// v4 – GUI converted to tabs (pages), following the pattern of "Transform Objects v8".
+// v3 – isSameNode fix (randomize order), OK recomputes when settings changed.
 // v2b: text fill/stroke (GlyphAtts/StoryDelta).
 // FUNDAMENTALLY DIFFERENT COMPUTATION MODEL from "Power Duplicate": no chaining, every copy is
 // duplicated directly from the original object and computed absolutely from Stat./Dyn.; jitter
@@ -22,6 +29,7 @@ const { Document }                   = require('/document');
 const { Dialog, DialogResult }       = require('/dialog');
 const { DocumentCommand,
         AddChildNodesCommandBuilder,
+        CompoundCommandBuilder,
         NodeMoveType, NodeChildType } = require('/commands');
 const { Selection }                  = require('/selections');
 const { ContainerNodeDefinition,
@@ -50,6 +58,8 @@ for (let i = 0; i < initSel.length; i++) {
 if (selectedNodes.length === 0) { app.alert('No duplicatable objects.\n(Only _PD found)','Power Duplicate Alternative EN'); throw new Error('Keine Elternobjekte'); }
 
 function clamp(v,mn,mx){return Math.max(mn,Math.min(mx,v));}
+// v5: version-safe wrapping (3.3.3+: already a Colour)
+function toColour(c){return (c instanceof Colour)?c:new Colour(c);}
 let currentRandom=Math.random;
 function randRange(mn,mx){return mn+currentRandom()*(mx-mn);}
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;};}
@@ -166,7 +176,7 @@ function applyHSLtoFD(fd,dH,dS,dL){
     if(!fd||!fd.fill||!fd.fill.fillType)return null;
     const ft=fd.fill.fillType.value;
     if(ft===2){const hsl=fd.fill.colour.hslaf;return FillDescriptor.createSolid(Colour.createHSLAf({h:((hsl.h+dH/360)%1+1)%1,s:clamp(hsl.s+dS/100,0,1),l:clamp(hsl.l+dL/100,0,1),alpha:hsl.alpha}));}
-    if(ft===3){const g=fd.fill.gradient,ns=[];for(let j=0;j<g.stopCount;j++){const stop=g.getStop(j),hsl=new Colour(stop.colour).hslaf;ns.push({colour:Colour.createHSLAf({h:((hsl.h+dH/360)%1+1)%1,s:clamp(hsl.s+dS/100,0,1),l:clamp(hsl.l+dL/100,0,1),alpha:hsl.alpha}),position:stop.position,midpoint:stop.midpoint});}return FillDescriptor.create(fd.fill.constructor.create(g.constructor.create(ns),fd.fill.gradientFillType),fd.isScaleWithObject,fd.transform,fd.blendMode,fd.isAnchoredToSpread);}
+    if(ft===3){const g=fd.fill.gradient,ns=[];for(let j=0;j<g.stopCount;j++){const stop=g.getStop(j),hsl=toColour(stop.colour).hslaf;ns.push({colour:Colour.createHSLAf({h:((hsl.h+dH/360)%1+1)%1,s:clamp(hsl.s+dS/100,0,1),l:clamp(hsl.l+dL/100,0,1),alpha:hsl.alpha}),position:stop.position,midpoint:stop.midpoint});}return FillDescriptor.create(fd.fill.constructor.create(g.constructor.create(ns),fd.fill.gradientFillType),fd.isScaleWithObject,fd.transform,fd.blendMode,fd.isAnchoredToSpread);}
     return null;
 }
 
@@ -294,9 +304,9 @@ function buildDialog(p){
     dlg.initialWidth=1000;dlg.setIsResizable(true);
 
     // Left: narrow, always-visible column; right: two content columns per page
-    const cNav=dlg.addColumn();cNav.widthProportion=0.8;cNav.paddingFactor=0.3;
-    const cA=dlg.addColumn();cA.widthProportion=1;cA.paddingFactor=0.3;
-    const cB=dlg.addColumn();cB.widthProportion=1;cB.paddingFactor=0.3;
+    const cNav=dlg.addColumn();cNav.widthProportion=0.8;cNav.paddingFactor=2.0;
+    const cA=dlg.addColumn();cA.widthProportion=1;cA.paddingFactor=2.0;
+    const cB=dlg.addColumn();cB.widthProportion=1;cB.paddingFactor=2.0;
 
     const gNav=cNav.addGroup('Tabs');
     const rNav=gNav.addRadioGroup('',['1  General','2  Global transform','3  Local transform','4  Scaling','5  Colour & opacity'],0);
@@ -370,7 +380,83 @@ function buildDialog(p){
     return{dlg,btnSave,btnLoad,btnDel,btnPreview,readParams,applyParams};
 }
 
+// ── v6: performance ──────────────────────────────────────────────────────────
+// Affine 2D matrices as [a,b,c,d,e,f]: x'=a*x+b*y+c, y'=d*x+e*y+f. mMul(A,B) = B first, then A.
+function mMul(A,B){return[A[0]*B[0]+A[1]*B[3],A[0]*B[1]+A[1]*B[4],A[0]*B[2]+A[1]*B[5]+A[2],A[3]*B[0]+A[4]*B[3],A[3]*B[1]+A[4]*B[4],A[3]*B[2]+A[4]*B[5]+A[5]];}
+function mInv(M){const det=M[0]*M[4]-M[1]*M[3];if(Math.abs(det)<1e-12)return[1,0,0,0,1,0];const a=M[4]/det,b=-M[1]/det,d=-M[3]/det,e=M[0]/det;return[a,b,-(a*M[2]+b*M[5]),d,e,-(d*M[2]+e*M[5])];}
+function mApply(M,x,y){return{x:M[0]*x+M[1]*y+M[2],y:M[3]*x+M[4]*y+M[5]};}
+function mTr(tx,ty){return[1,0,tx,0,1,ty];}
+function mAbout(cx,cy,L){return mMul(mTr(cx,cy),mMul(L,mTr(-cx,-cy)));}
+function mRot(r){const c=Math.cos(r),s=Math.sin(r);return[c,-s,0,s,c,0];}
+function mScale(sx,sy){return[sx,0,0,0,sy,0];}
+function mToTransform(M){const t=Transform.createIdentity();const d=t.data;for(let k=0;k<6;k++)d[k]=M[k];return t;}
+// Spread matrix of a node across the whole parent chain
+function spreadMat(node){const d=node.transform.data;let m=[d[0],d[1],d[2],d[3],d[4],d[5]];let p=node.parent;while(p){const q=p.transform.data;m=mMul([q[0],q[1],q[2],q[3],q[4],q[5]],m);p=p.parent;}return m;}
+function frameMat(node){try{return node.parent?spreadMat(node.parent):[1,0,0,0,1,0];}catch(e){return[1,0,0,0,1,0];}}
+// Prediction of getRC()/getTFArr() without engine calls. Verified live (deviation 0.000):
+// getSpreadBaseBox = axis-aligned hull of the transformed local baseBox corners
+// (also for rotated/scaled groups).
+function makeRCModel(node){
+    let B=null;try{const b=node.baseBox;B={x:b.x,y:b.y,w:b.width,h:b.height};}catch(e){}
+    let fp=null;try{const f=node.transformInterface.focalPoint;if(f.isValid)fp={x:f.point.x,y:f.point.y};}catch(e){}
+    return{
+        rc(M,F){   // M = spread matrix, F = spread matrix of the container the node currently sits in
+            if(fp){const own=mMul(mInv(F),M);return mApply(own,fp.x,fp.y);}   // as in v5: node.transform.applyToPoint(fp)
+            if(B){let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+                for(const [x,y] of [[B.x,B.y],[B.x+B.w,B.y],[B.x,B.y+B.h],[B.x+B.w,B.y+B.h]]){const p=mApply(M,x,y);x0=Math.min(x0,p.x);x1=Math.max(x1,p.x);y0=Math.min(y0,p.y);y1=Math.max(y1,p.y);}
+                return{x:(x0+x1)/2,y:(y0+y1)/2};}
+            return{x:0,y:0};
+        },
+        own(M,F){return mMul(mInv(F),M);}
+    };
+}
+// Order changes (randomize/reverse) as a command list: the stacking is simulated in JS so that
+// all moves fit into ONE compound command (same sequence as v5).
+function reverseMoves(group,cb){
+    const arr=[];for(const ch of group.children)arr.push(ch);if(arr.length<=1)return 0;
+    const sim=arr.slice();let n=0;
+    for(let i=1;i<arr.length;i++){const ff=sim[0];if(!ff)break;
+        cb.addCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[arr[i]]),ff,NodeMoveType.Before,NodeChildType.Main));n++;
+        const at=sim.findIndex(x=>x.isSameNode(arr[i]));sim.splice(at,1);sim.unshift(arr[i]);}
+    return n;
+}
+function shuffleMoves(group,cb){
+    const arr=[];for(const ch of group.children)arr.push(ch);if(arr.length<=1)return 0;
+    const sim=arr.slice();
+    for(let i=arr.length-1;i>0;i--){const j=Math.floor(currentRandom()*(i+1));const tmp=arr[i];arr[i]=arr[j];arr[j]=tmp;}
+    let n=0;
+    for(let i=arr.length-1;i>=0;i--){
+        const first=sim[0];
+        if(!first||first.isSameNode(arr[i]))continue;
+        cb.addCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[arr[i]]),first,NodeMoveType.Before,NodeChildType.Main));n++;
+        const at=sim.findIndex(x=>x.isSameNode(arr[i]));sim.splice(at,1);sim.unshift(arr[i]);
+    }
+    return n;
+}
+// Collect HSL changes as commands (text needs formatText and is handled separately)
+function collectHSL(dupNode,origNode,dH,dS,dL,chF,chS,cb,textJobs){
+    let n=0;
+    if(dupNode.isGroupNode&&!isTextNode(dupNode)){
+        const dc=[],oc=[];for(const ch of dupNode.children)dc.push(ch);for(const ch of origNode.children)oc.push(ch);
+        const len=Math.min(dc.length,oc.length);
+        for(let i=0;i<len;i++)n+=collectHSL(dc[i],oc[i],dH,dS,dL,chF,chS,cb,textJobs);
+        return n;
+    }
+    for(const usePen of [false,true]){
+        if(usePen?!chS:!chF)continue;
+        const fd=getFDFromNode(origNode,usePen);if(!fd)continue;
+        const nf=applyHSLtoFD(fd,dH,dS,dL);if(!nf)continue;
+        if(isTextNode(dupNode)){textJobs.push({node:dupNode,fd:nf,usePen});continue;}
+        const sel=Selection.create(doc,[dupNode]);
+        cb.addCommand(usePen?DocumentCommand.createSetPenFill(sel,nf):DocumentCommand.createSetBrushFill(sel,nf));n++;
+    }
+    return n;
+}
+
 function performDuplicate(params,isPreview,autoCombinedBB){
+    let steps=0,textEdits=0;
+    function ex(cmd){doc.executeCommand(cmd);steps++;}
+    function exCB(cb,n){if(n>0){doc.executeCommand(cb.createCommand());steps++;}}
     currentRandom = params.fixedSeed ? mulberry32((params.seed>>>0)||1) : Math.random;
     const count=Math.max(1,Math.round(params.count)),reverse=params.reverse,allowNeg=params.allowNegativeScale??false,scaleFirst=params.scaleBeforeRotation??false,lockAspect=params.lockAspect??false;
     const gridCols0=Math.max(0,Math.round(params.gridCols||0));
@@ -386,7 +472,7 @@ function performDuplicate(params,isPreview,autoCombinedBB){
     let pdIdx=1; for(const l of doc.layers.all){if((l.userDescription||'').match(/^Power-Duplicate-Alt_\d+$/))pdIdx++;}
     const outerDef=ContainerNodeDefinition.create('Power-Duplicate-Alt_'+pdIdx);
     const ob=AddChildNodesCommandBuilder.create();ob.addContainerNode(outerDef);
-    const outerCmd=ob.createCommand(false);doc.executeCommand(outerCmd);
+    const outerCmd=ob.createCommand(false);ex(outerCmd);
     const outerGroup=outerCmd.newNodes[0]; if(!outerGroup) return null;
     let markerNode=null;const subGroups=[];
 
@@ -395,11 +481,8 @@ function performDuplicate(params,isPreview,autoCombinedBB){
         const baseName=(parent.userDescription||parent.defaultDescription||('Obj_'+pi)).replace(/\s+/g,'_');
         const pgDef=ContainerNodeDefinition.create(baseName+'_Group');
         const pgb=AddChildNodesCommandBuilder.create();pgb.addContainerNode(pgDef);pgb.setInsertionTarget(outerGroup);pgb.setInsertionMode(1);
-        const pgCmd=pgb.createCommand(false);doc.executeCommand(pgCmd);
+        const pgCmd=pgb.createCommand(false);ex(pgCmd);
         const pgGrp=pgCmd.newNodes[0];if(!pgGrp)continue;subGroups.push(pgGrp);
-        const cpCmd=DocumentCommand.createTransform(Selection.create(doc,[parent]),null,{duplicateNodes:true});
-        doc.executeCommand(cpCmd);const pCopy=cpCmd.newNodes[0];
-        if(pCopy){try{doc.executeCommand(DocumentCommand.createSetDescription(Selection.create(doc,[pCopy]),baseName+'_0'));}catch(e){}doc.executeCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[pCopy]),pgGrp,NodeMoveType.Inside,NodeChildType.Main));}
         const pBB=getNodeBB(parent);
         const origW=pBB?pBB.width:100,origH=pBB?pBB.height:100;
         const pCx=pBB?pBB.x+origW/2:globalCx,pCy=pBB?pBB.y+origH/2:globalCy;
@@ -410,6 +493,11 @@ function performDuplicate(params,isPreview,autoCombinedBB){
         const gRadBaseDir=distToGlobal>0?Math.atan2(pCy-globalCy,pCx-globalCx):0;
         const origOpac=(parent.globalOpacity!==undefined)?parent.globalOpacity:1.0;
 
+        // Phase A: every copy computed purely in JS as a total matrix (same random sequence as v5).
+        // While being transformed, every copy sits in the original's container (F0).
+        const model=makeRCModel(parent);
+        const F0=frameMat(parent),P0=spreadMat(parent);
+        const plan=[];
         for(let stepNum=1;stepNum<=count;stepNum++){
             let gX_N,gY_N,gRot_N,gRad_N;
             if(gridCols>0){
@@ -451,61 +539,95 @@ function performDuplicate(params,isPreview,autoCombinedBB){
             const sL=absoluteColorValue(params.lum,stepNum,count);
             const sO=absoluteColorValue(params.opac,stepNum,count);
 
-            const dupCmd=DocumentCommand.createTransform(Selection.create(doc,[parent]),null,{duplicateNodes:true});
-            doc.executeCommand(dupCmd);const dup=dupCmd.newNodes[0];if(!dup)continue;
-            const dupSel=Selection.create(doc,[dup]);
-            try{doc.executeCommand(DocumentCommand.createSetDescription(dupSel,baseName+'_'+stepNum));}catch(e){}
-
+            let M=P0,T=[1,0,0,0,1,0];
+            const app_=(Ti)=>{M=mMul(Ti,M);T=mMul(Ti,T);};
             if(Math.abs(radG)>0.0001||Math.abs(gRad_N)>0.0001||Math.abs(gX_N)>0.001||Math.abs(gY_N)>0.001){
                 const flatDx=Math.cos(gDir)*gRad_N+gX_N, flatDy=Math.sin(gDir)*gRad_N+gY_N;
-                const tf=Transform.createTranslate(flatDx,flatDy)
-                    .multiply(Transform.createTranslate(globalCx,globalCy))
-                    .multiply(Transform.createRotate(radG))
-                    .multiply(Transform.createTranslate(-globalCx,-globalCy));
-                doc.executeCommand(DocumentCommand.createTransform(dupSel,tf));
+                app_(mMul(mTr(flatDx,flatDy),mAbout(globalCx,globalCy,mRot(radG))));
             }
-
             const needsRot=Math.abs(dLRotR)>0.0001;
             const needsScale=Math.abs(fScX-1)>0.001||Math.abs(fScY-1)>0.001;
             if(scaleFirst){
-                if(needsScale){const rcS=getRC(dup);const tf=Transform.createTranslate(rcS.x,rcS.y).multiply(Transform.createScale(fScX,fScY)).multiply(Transform.createTranslate(-rcS.x,-rcS.y));doc.executeCommand(DocumentCommand.createTransform(dupSel,tf));}
-                if(needsRot){const rcR=getRC(dup);const tf=Transform.createTranslate(rcR.x,rcR.y).multiply(Transform.createRotate(dLRotR)).multiply(Transform.createTranslate(-rcR.x,-rcR.y));doc.executeCommand(DocumentCommand.createTransform(dupSel,tf));}
+                if(needsScale){const rcS=model.rc(M,F0);app_(mAbout(rcS.x,rcS.y,mScale(fScX,fScY)));}
+                if(needsRot){const rcR=model.rc(M,F0);app_(mAbout(rcR.x,rcR.y,mRot(dLRotR)));}
             } else {
-                if(needsRot){const rcR=getRC(dup);const tf=Transform.createTranslate(rcR.x,rcR.y).multiply(Transform.createRotate(dLRotR)).multiply(Transform.createTranslate(-rcR.x,-rcR.y));doc.executeCommand(DocumentCommand.createTransform(dupSel,tf));}
-                if(needsScale){const rcS=getRC(dup);let fScX_use=fScX;if(allowNeg&&needsRot){const m=getTFArr(dup);fScX_use=clampShearFactor(fScX,fScY,dLRotR,m);}const tf=Transform.createTranslate(rcS.x,rcS.y).multiply(Transform.createScale(fScX_use,fScY)).multiply(Transform.createTranslate(-rcS.x,-rcS.y));doc.executeCommand(DocumentCommand.createTransform(dupSel,tf));}
+                if(needsRot){const rcR=model.rc(M,F0);app_(mAbout(rcR.x,rcR.y,mRot(dLRotR)));}
+                if(needsScale){const rcS=model.rc(M,F0);let fScX_use=fScX;if(allowNeg&&needsRot){const m=model.own(M,F0);fScX_use=clampShearFactor(fScX,fScY,dLRotR,m);}app_(mAbout(rcS.x,rcS.y,mScale(fScX_use,fScY)));}
             }
             if(Math.abs(lRad_N)>0.0001){
                 const lDir=lRadBaseDir+dLRotR;
-                const lrx=Math.cos(lDir)*lRad_N, lry=Math.sin(lDir)*lRad_N;
-                doc.executeCommand(DocumentCommand.createTransform(dupSel,Transform.createTranslate(lrx,lry)));
+                app_(mTr(Math.cos(lDir)*lRad_N,Math.sin(lDir)*lRad_N));
             }
-
-            if((sH!==0||sS!==0||sL!==0)&&(params.changeFill||params.changeStroke)) applyHSLChange(dup,sH,sS,sL,params.changeFill,params.changeStroke,parent);
-            if(sO!==0){try{doc.executeCommand(DocumentCommand.createSetOpacity(dupSel,clamp(origOpac+sO/100,0,1)));}catch(e){}}
-            doc.executeCommand(DocumentCommand.createMoveNodes(dupSel,pgGrp,NodeMoveType.Inside,NodeChildType.Main));
+            plan.push({stepNum,T,sH,sS,sL,sO});
         }
-        if(params.shuffleOrder) shuffleChildrenOrder(pgGrp);
-        else if(reverse) reverseChildrenOrder(pgGrp);
+
+        // Phase B: creation with few commands.
+        // 1) all copies (original copy _0 + steps) as ONE compound; newNodes in command order.
+        const cb1=CompoundCommandBuilder.create();
+        cb1.addCommand(DocumentCommand.createTransform(Selection.create(doc,[parent]),Transform.createIdentity(),{duplicateNodes:true}));
+        for(const st of plan)cb1.addCommand(DocumentCommand.createTransform(Selection.create(doc,[parent]),mToTransform(st.T),{duplicateNodes:true}));
+        const c1=cb1.createCommand();doc.executeCommand(c1);steps++;
+        let nn=[];try{nn=c1.newNodes.toArray?c1.newNodes.toArray():Array.from(c1.newNodes);}catch(e){nn=[];}
+        if(nn.length!==plan.length+1)throw new Error('Copies: '+nn.length+' instead of '+(plan.length+1));
+        // 2) names, colours, opacity and sorting-in as ONE compound (same sequence as v5)
+        const cb2=CompoundCommandBuilder.create();let n2=0;const textJobs=[];
+        const pCopy=nn[0];
+        try{cb2.addCommand(DocumentCommand.createSetDescription(Selection.create(doc,[pCopy]),baseName+'_0'));n2++;}catch(e){}
+        cb2.addCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[pCopy]),pgGrp,NodeMoveType.Inside,NodeChildType.Main));n2++;
+        for(let k=0;k<plan.length;k++){
+            const st=plan[k],dup=nn[k+1];const dupSel=Selection.create(doc,[dup]);
+            try{cb2.addCommand(DocumentCommand.createSetDescription(dupSel,baseName+'_'+st.stepNum));n2++;}catch(e){}
+            if((st.sH!==0||st.sS!==0||st.sL!==0)&&(params.changeFill||params.changeStroke)) n2+=collectHSL(dup,parent,st.sH,st.sS,st.sL,params.changeFill,params.changeStroke,cb2,textJobs);
+            if(st.sO!==0){try{cb2.addCommand(DocumentCommand.createSetOpacity(dupSel,clamp(origOpac+st.sO/100,0,1)));n2++;}catch(e){}}
+            cb2.addCommand(DocumentCommand.createMoveNodes(dupSel,pgGrp,NodeMoveType.Inside,NodeChildType.Main));n2++;
+        }
+        exCB(cb2,n2);
+        // text fills (formatText is not a compound command)
+        for(const j of textJobs){setFDOnNode(j.node,j.fd,j.usePen);textEdits++;}
+        // 3) order within the sub-group
+        const cb3=CompoundCommandBuilder.create();let n3=0;
+        if(params.shuffleOrder) n3=shuffleMoves(pgGrp,cb3);
+        else if(reverse) n3=reverseMoves(pgGrp,cb3);
+        exCB(cb3,n3);
     }
-    if(params.shuffleOrder&&subGroups.length>1) shuffleChildrenOrder(outerGroup);
-    else if(reverse&&subGroups.length>1) reverseChildrenOrder(outerGroup);
+    const cb4=CompoundCommandBuilder.create();let n4=0;
+    if(params.shuffleOrder&&subGroups.length>1) n4=shuffleMoves(outerGroup,cb4);
+    else if(reverse&&subGroups.length>1) n4=reverseMoves(outerGroup,cb4);
+    exCB(cb4,n4);
     if(isPreview){
-        try{const r=bbDiag*0.05/2;const mDef=ShapeNodeDefinition.create(ShapeEllipse.create(),{x:globalCx-r,y:globalCy-r,width:r*2,height:r*2},FillDescriptor.createSolid(Colour.createHSLAf({h:0,s:1,l:0.5,alpha:1})),null,null,null);mDef.userDescription='__PD_Marker__';const mb=AddChildNodesCommandBuilder.create();mb.addShapeNode(mDef);mb.setInsertionTarget(outerGroup);mb.setInsertionMode(1);const mc=mb.createCommand(false);doc.executeCommand(mc);markerNode=mc.newNodes[0];if(markerNode)moveToTop(markerNode,outerGroup);}catch(e){console.log('Marker error:'+e);}
+        try{const r=bbDiag*0.05/2;const mDef=ShapeNodeDefinition.create(ShapeEllipse.create(),{x:globalCx-r,y:globalCy-r,width:r*2,height:r*2},FillDescriptor.createSolid(Colour.createHSLAf({h:0,s:1,l:0.5,alpha:1})),null,null,null);mDef.userDescription='__PD_Marker__';const mb=AddChildNodesCommandBuilder.create();mb.addShapeNode(mDef);mb.setInsertionTarget(outerGroup);mb.setInsertionMode(1);const mc=mb.createCommand(false);ex(mc);markerNode=mc.newNodes[0];if(markerNode){let first=null;for(const ch of outerGroup.children){first=ch;break;}if(first&&!first.isSameNode(markerNode))ex(DocumentCommand.createMoveNodes(Selection.create(doc,[markerNode]),first,NodeMoveType.Before,NodeChildType.Main));}}catch(e){console.log('Marker error:'+e);}
     }
-    return{outerGroup,markerNode};
+    return{outerGroup,markerNode,steps,textEdits};
 }
 
 const combinedBB=getCombinedBB(selectedNodes);
 const{dlg,btnSave,btnLoad,btnDel,btnPreview,readParams,applyParams}=buildDialog(DEF);
-let previewGroup=null,previewMarker=null;
+let previewGroup=null,previewMarker=null,previewSteps=0,previewText=0,previewDelta=0;
 let previewKey=null;   // v3: settings of the last shown preview
-function cleanupPreview(){if(previewGroup){try{previewGroup.delete();}catch(e){}previewGroup=null;previewMarker=null;}previewKey=null;}
+// v7: the preview is undone via the difference of doc.history.position (exact, covers every
+// history entry); only with a full history via the counted steps. Then a safety net: if the
+// preview group is still there, it is deleted.
+function nodeExists(n){ if(!n) return false; try{ for(const l of doc.layers.all){ if(l.isSameNode(n)) return true; } }catch(e){} return false; }
+function cleanupPreview(){
+    if(previewGroup){
+        // The position difference is exact (also covers SetSelection/formatText); only with a full
+        // history (position does not rise, or too little) the counted steps are used.
+        const n=(previewDelta>0&&previewDelta>=previewSteps)?previewDelta:previewSteps;
+        const exact=(previewDelta>0&&previewDelta>=previewSteps)||previewText===0;
+        if(exact&&n>0){ try{ for(let i=0;i<n;i++) doc.history.undo(); }catch(e){} }
+        // Safety net: if the preview is still there, it is deleted
+        if(nodeExists(previewGroup)){ try{previewGroup.delete();}catch(e){} }
+        previewGroup=null;previewMarker=null;
+    }
+    previewSteps=0;previewText=0;previewDelta=0;previewKey=null;
+}
 function deleteMarkerOnly(){if(previewMarker){try{previewMarker.delete();}catch(e){}previewMarker=null;}}
 function doPreview(){
     cleanupPreview();
     const p=readParams();
-    const r=performDuplicate(p,true,combinedBB);
-    if(r){previewGroup=r.outerGroup;previewMarker=r.markerNode;previewKey=JSON.stringify(p);}
+    let r=null;const pos0=doc.history.position;
+    try{ r=performDuplicate(p,true,combinedBB); }catch(e){ console.log('Error: '+e.message); }
+    if(r){previewGroup=r.outerGroup;previewMarker=r.markerNode;previewSteps=r.steps;previewText=r.textEdits;previewDelta=doc.history.position-pos0;previewKey=JSON.stringify(p);}
 }
 try{
     btnPreview.setOnClickHandler(()=>doPreview());

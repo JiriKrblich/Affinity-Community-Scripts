@@ -1,18 +1,21 @@
 
 'use strict';
 // ═══════════════════════════════════════════════════════════════════════════
-//  Container Layer to Group  –  v6 (English)
+//  Container Layer to Group  –  v7 (English)
 //
-//  New in v6 (vs. v5):
-//   • Safeguard for the duplicate (mode A): the script reads the new duplicate
-//     from doc.selection. If what it reads is not plausible (the template
-//     itself, the container itself, not a real non-symbol GroupNode), NOTHING
-//     is deleted: the duplicate is rolled back via the history position and
-//     the run is aborted cleanly. (v5 would have deleted the children of the
-//     wrong node in that case.)
-//   • The original selection is saved before the run and restored afterwards
-//     (nodes that were converted/deleted in the meantime are skipped).
-//   • The completion message reports the number actually converted.
+//  New in v7 (Affinity 3.3.3):
+//   • FIX stacking order: in 3.3.3 NodeMoveType.Inside appends an object ON TOP
+//     (verified live: first A, then B moved in -> B on top). v6 moved the
+//     children in reverse (last one first), which completely reversed the
+//     stacking order of the contents in the new group. Children are now moved
+//     in original order (bottom-most first) -> stacking is preserved.
+//   • Mode B: the new clipping rectangle is taken directly from the command's
+//     newNodes (fallback: last child of the container as before).
+//   • Mode A: rolling back an implausible duplicate uses a robust rollback
+//     (history position 0 otherwise throws COMMAND_FAILED).
+//
+//  v6: duplicate safeguard, selection saved/restored, completion message
+//      reports the number actually converted.
 //
 //  Mode A – real group (if at least one NON-symbol GroupNode exists):
 //    Duplicates an existing, normal GroupNode as a template, empties the
@@ -24,10 +27,8 @@
 //    children as clipping masks → release via right-click → Release Clipping Mask
 //
 //  IMPORTANT: Affinity symbols are GroupNodes (defaultDescription="Symbol").
-//  They are NEVER used as a duplicate template (linked instances, conflict /
-//  deadlock risk when emptying) and NEVER searched recursively (their internal
-//  structure belongs to the master). As CHILDREN of a container, symbol
-//  instances are moved along normally (pure position change).
+//  They are NEVER used as a duplicate template and NEVER searched recursively.
+//  As CHILDREN of a container, symbol instances are moved along normally.
 // ═══════════════════════════════════════════════════════════════════════════
 
 const { app }                     = require('/application');
@@ -55,13 +56,19 @@ if (!doc) {
     throw new Error('Abort');
 }
 
+// v7: robust rollback (position 0 throws COMMAND_FAILED)
+function rollbackTo(pos) {
+    if (doc.history.position === pos) return;
+    try { doc.history.position = pos; } catch (e) { /* undo loop below */ }
+    let guard = 0;
+    while (doc.history.position > pos && guard++ < 100000) doc.history.undo();
+}
+
 // ── Selection helpers ─────────────────────────────────────────────────────
 function snapshotSelectionNodes() {
     try { return doc.selection.nodes.toArray(); } catch (e) { return []; }
 }
 
-// Restores the selection. Nodes that no longer exist (e.g. deleted
-// containers) are skipped.
 function restoreSelection(nodes) {
     if (!nodes || nodes.length === 0) return;
     try {
@@ -90,11 +97,10 @@ for (const l of doc.layers.all) {
 }
 
 // ── Collect all ContainerNodes (recursive, top-down) ──────────────────────
-// Do not descend into symbol instances — their structure belongs to the master.
 function collectContainers(layersColl, result) {
     for (const node of layersColl) {
         if (node.isContainerNode) result.push(node);
-        if (isSymbolGroup(node)) continue; // symbol: treat as leaf, no recursion
+        if (isSymbolGroup(node)) continue;
         if (node.children) collectContainers(node.children, result);
     }
 }
@@ -115,7 +121,6 @@ function addLeft(grp, text) {
 const dlg = Dialog.create('Container Layer to Group');
 dlg.initialWidth = 500;
 
-// Left column: container list
 const colL = dlg.addColumn();
 colL.paddingFactor = 0.3;
 
@@ -135,7 +140,6 @@ if (allContainers.length === 0) {
         addLeft(grpList, `… +${allContainers.length - 16} more`);
 }
 
-// Right column: mode + hint + buttons
 const colR = dlg.addColumn();
 colR.paddingFactor = 0.3;
 colR.widthProportion = 1.1;
@@ -170,7 +174,6 @@ if (userAborted || allContainers.length === 0) {
     const noFill           = FillDescriptor.createNone();
     const containersToConv = [...allContainers].reverse();  // bottom-up
 
-    // v6: save the original selection (before any edit)
     const originalSelNodes = snapshotSelectionNodes();
 
     let converted = 0;
@@ -178,6 +181,7 @@ if (userAborted || allContainers.length === 0) {
 
     for (const container of containersToConv) {
 
+        // children in iteration order (3.3.3: bottom to top)
         const children = [];
         for (const ch of container.children) children.push(ch);
 
@@ -189,8 +193,6 @@ if (userAborted || allContainers.length === 0) {
 
         if (modeA) {
             // ── Mode A: real GroupNode via duplicate trick ───────────────
-            // (templateGroup is guaranteed NOT a symbol, see search above)
-
             const posBeforeDup = doc.history.position;
 
             doc.executeCommand(
@@ -199,12 +201,9 @@ if (userAborted || allContainers.length === 0) {
                 )
             );
 
-            // The duplicate is read as the new selection (duplicating sets the
-            // selection to the duplicate — confirmed by test).
             let dup = null;
             try { dup = doc.selection.at(0).node; } catch (e) { dup = null; }
 
-            // v6 safeguard: plausibility check BEFORE anything is deleted.
             let plausible = !!dup && !!dup.isGroupNode && !isSymbolGroup(dup);
             if (plausible) {
                 try { if (dup.isSameNode(templateGroup)) plausible = false; } catch (e) { plausible = false; }
@@ -214,8 +213,7 @@ if (userAborted || allContainers.length === 0) {
             }
 
             if (!plausible) {
-                // Roll back the duplicate, delete nothing, abort cleanly.
-                try { doc.history.position = posBeforeDup; } catch (e) { /* ignore */ }
+                rollbackTo(posBeforeDup);   // v7: robust
                 abortReason = `The duplicate for "${name}" could not be identified unambiguously (unexpected selection after duplicating).`;
                 break;
             }
@@ -246,17 +244,20 @@ if (userAborted || allContainers.length === 0) {
             const bldr = AddChildNodesCommandBuilder.create();
             bldr.addShapeNode(rectDef);
             bldr.setInsertionTarget(container);
-            doc.executeCommand(bldr.createCommand(false, NodeChildType.Main));
+            const rectCmd = bldr.createCommand(false, NodeChildType.Main);
+            doc.executeCommand(rectCmd);
 
-            for (const ch of container.children) targetNode = ch;
+            // v7: directly from newNodes; fallback: last child as before
+            try { targetNode = rectCmd.newNodes[0] || null; } catch (e) { targetNode = null; }
+            if (!targetNode) { for (const ch of container.children) targetNode = ch; }
         }
 
         // ── Move children into target node ───────────────────────────────
-        // (symbol instances among the children are only POSITIONED here,
-        //  not duplicated/emptied — harmless)
+        // v7: in original order (bottom-most first). Inside appends on top,
+        //     so the stacking order is preserved.
         const childType = modeA ? NodeChildType.Main : NodeChildType.Enclosure;
 
-        for (let i = children.length - 1; i >= 0; i--) {
+        for (let i = 0; i < children.length; i++) {
             doc.executeCommand(
                 DocumentCommand.createMoveNodes(
                     children[i].selfSelection,
@@ -302,7 +303,6 @@ if (userAborted || allContainers.length === 0) {
         converted++;
     }
 
-    // v6: restore the selection (also after an abort)
     restoreSelection(originalSelNodes);
 
     const total = containersToConv.length;

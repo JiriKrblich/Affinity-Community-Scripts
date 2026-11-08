@@ -1,23 +1,17 @@
-// Triangle Fill (v16)
+// Triangle Fill (v17)
 // Fills a selected closed vector shape completely with triangles.
 //
-// CHANGES v16:
-// - ANGLE BAND: "Min" and "Max" now BOTH refer to the SMALLEST angle of each
-//   triangle (band [Min..Max]). Min stays the hard limit (refinement). NEW: Max
-//   is now actively pursued too - triangles whose smallest angle is above Max
-//   (too regular) are deformed by moving INNER points with a seeded random
-//   displacement (topology stays, no triangle is flipped, Min is never violated).
-//   Triangles consisting only of boundary points cannot be changed this way and
-//   are counted as outside the band in the final message. Still ignored in grid mode.
-// - MULTIPLE GROUPS: the preview used to be reset through the undo history
-//   (history.position / undo loop). That depends on the state of the document
-//   history and occasionally left old preview groups behind. All created
-//   preview groups are now tracked and deleted explicitly - independent of the
-//   history. Half-built groups (error while building) are removed as well.
+// CHANGES v17:
+// - Affinity 3.3.3: gradient.getStop(i).colour now already returns a Colour object;
+//   new Colour(s.colour) threw "expected ColourHandle". The error was caught in
+//   makeFillSampler() -> with a gradient source shape ALL triangles became grey.
+//   New helper toColour() only wraps when needed. Otherwise unchanged from v16.
+//
+// v16: angle band [Min..Max] for the smallest angle; preview groups tracked and
+//      deleted explicitly (instead of history rollback).
 // v15: rollback hardening, recalculation on OK if settings changed.
-// v14: Blur-Shadow dialog concept (preview/preset buttons, native OK/Cancel),
-//      preset prefix "DF_" (identical to the German version, presets are
-//      interchangeable), delete preset.
+// v14: Blur-Shadow dialog concept, preset prefix "DF_" (identical to the German
+//      version, presets are interchangeable), delete preset.
 //
 // LIMITATIONS:
 // - No true constrained Delaunay with edge recovery.
@@ -37,14 +31,15 @@
     const { FillDescriptor, GradientFill, GradientFillType, BlendMode } = require('/fills');
     const { Colour, Gradient } = require('/colours');
 
+    // v17: version-safe wrapping (3.3.3+: stop.colour is already a Colour)
+    function toColour(c) { return (c instanceof Colour) ? c : new Colour(c); }
+
     const doc = Document.current;
     if (!doc) {
         app.alert('No document open.', 'Triangle Fill');
         return;
     }
 
-    // Rollback via history - only still used for the initial curve conversion
-    // on Cancel (preview groups are deleted explicitly).
     function rollbackTo(pos) {
         if (doc.history.position === pos) return;
         try { doc.history.position = pos; } catch (e) { /* position 0: undo loop below */ }
@@ -52,7 +47,6 @@
         while (doc.history.position > pos && guard++ < 100000) doc.history.undo();
     }
 
-    // v16: track all created preview groups and delete them explicitly.
     const createdGroups = [];
     function clearCreatedGroups() {
         for (const g of createdGroups) {
@@ -330,10 +324,6 @@
         return placed;
     }
 
-    // v16: angle band [minA..maxA] for the SMALLEST angle of each triangle.
-    // Triangles with smallest angle > maxA (too regular) are deformed by moving one
-    // of their INNER vertices (seeded). Topology stays, no flips, no triangle drops
-    // below minA (unless it already was below).
     function relaxIntoBand(kept, boundarySet, minA, maxA, rng) {
         const n = kept.length;
         const inc = new Map();
@@ -490,8 +480,6 @@
         }
 
         const kept = Array.from(keptSet, t => tri.ptsOf(t));
-
-        // v16: actively pursue the upper limit of the angle band.
         const relaxedMoves = relaxIntoBand(kept, boundarySet, opts.minAngle, opts.maxAngleTarget, rng);
 
         const st = bandStats(kept, opts.minAngle, opts.maxAngleTarget);
@@ -598,7 +586,7 @@
             const stops = [];
             for (let i = 0; i < g.stopCount; i++) {
                 const s = g.getStop(i);
-                stops.push({ pos: s.position, hsl: new Colour(s.colour).hslaf });
+                stops.push({ pos: s.position, hsl: toColour(s.colour).hslaf });
             }
             stops.sort((a, b) => a.pos - b.pos);
             function sampleAt(t) {
@@ -680,7 +668,7 @@
         const gCmd = gBldr.createCommand(false);
         doc.executeCommand(gCmd);
         const group = gCmd.newNodes[0];
-        createdGroups.push(group); // v16: track immediately, even if a later build step fails
+        createdGroups.push(group);
 
         doc.executeCommand(DocumentCommand.createMoveNodes(group.selfSelection, srcNode, NodeMoveType.After, NodeChildType.Main));
         const compTf = group.transform.inverted;
@@ -841,9 +829,9 @@
 
     const gAngle = col1.addGroup('Smallest angle per triangle');
     const edMinA = gAngle.addUnitValueEditor('Min (deg)', 'none', 'none', null, 3, 55);
-    edMinA.value = 10;
+    edMinA.value = 30;
     const edMaxA = gAngle.addUnitValueEditor('Max (deg)', 'none', 'none', null, 5, 60);
-    edMaxA.value = 30;
+    edMaxA.value = 45;
     gAngle.addStaticText('', 'Band for the SMALLEST angle of each triangle. Not in grid mode.');
 
     const gInner = col1.addGroup('Inner points');
@@ -925,7 +913,6 @@
     let lastRes = null;
     let lastGroup = null;
 
-    // v16: explicit deletion of all preview groups instead of history rollback.
     function undoPreview() {
         clearCreatedGroups();
         hasPreview = false;
@@ -957,7 +944,7 @@
             hasPreview = true;
             previewKey = previewKeyOf(params);
         } catch (e) {
-            clearCreatedGroups(); // do not leave a half-built group behind
+            clearCreatedGroups();
             hasPreview = false;
             app.alert('Preview failed: ' + e.message, 'Triangle Fill');
         }
@@ -993,7 +980,6 @@
         return;
     }
 
-    // The accepted group stays - no longer tracked as a preview.
     createdGroups.length = 0;
 
     const finalParams = readParams();

@@ -1,4 +1,4 @@
-// Randomize Objects v11 (EN)
+// Randomize Objects v12 (EN)
 // Applies random jitter directly to the currently selected objects (a group of objects OR
 // single objects, also mixed). There is NO transfer between two groups - each object keeps
 // its own shape/fill/stroke, only the values are varied randomly:
@@ -9,17 +9,13 @@
 // v2-v8: selection reset, "treat group as one object", one runModal(), presets subfolder,
 //        text support (GlyphAtts/StoryDelta).
 // v9:  safe rollback at history position 0, OK recalculates when settings changed.
+// v10: a pass is ONE history step (CompoundCommand).
+// v11: GUI split into tabs (pages), as in "Transform Objects" v8.
 //
-// v10: A pass is now ONE history step. Affinity's undo history is limited to roughly
-//      1070 steps; so far every object created 1-3 steps of its own, so with large
-//      selections the oldest preview steps dropped out of the history and were no longer
-//      reverted. All fills, strokes, text colours (createFormatText) and transforms now run
-//      in one CompoundCommand.
-//
-// v11: GUI split into tabs (pages), as in "Transform Objects" v8: on the left a permanently
-//      visible column (tab selection, info, preview and presets), on the right two columns per
-//      page. The groups of the active page are shown, all others hidden (group.isVisible).
-//      Pages: 1 General, 2 Colour jitter, 3 Geometry jitter. Functions unchanged from v10.
+// v12: Affinity 3.3.3 - gradient.getStop(i).colour now already returns a Colour object;
+//      new Colour(st.colour) produced an invalid colour ("expected ColourHandle"), so objects
+//      with a gradient fill/stroke were silently skipped. New helper toColour() only wraps
+//      when needed (works with older and newer Affinity versions).
 (function () {
     const { Document } = require('/document');
     const { Selection } = require('/selections');
@@ -53,6 +49,9 @@
             run() { if (count > 0) doc.executeCommand(builder.createCommand()); return count; }
         };
     }
+
+    // v12: version-safe wrapping (3.3.3+: already a Colour)
+    function toColour(c) { return (c instanceof Colour) ? c : new Colour(c); }
 
     // ---------- Helpers ----------
     let rngFunc = Math.random;
@@ -128,7 +127,7 @@
             const stops = [];
             for (let i = 0; i < g.stopCount; i++) {
                 const st = g.getStop(i);
-                const col = new Colour(st.colour);
+                const col = toColour(st.colour);
                 stops.push({ colour: jitterHSL(col, dh, ds, dl, da), position: st.position, midpoint: st.midpoint });
             }
             const nf = GradientFill.create(Gradient.create(stops), fill.gradientFillType);
@@ -264,9 +263,6 @@
     const initialCount = initialTargets.length;
 
     // ---------- Dialog (v11: tabbed GUI) ----------
-    // On the left a narrow, permanently visible column (tab selection, info, preview, presets),
-    // on the right two content columns. Each page consists of groups in these two columns;
-    // when switching, the groups of the active page are shown and all others hidden.
     const PAGE_TITLES = ['1  General', '2  Colour jitter', '3  Geometry jitter'];
     const dlg = Dialog.create(TITLE);
     dlg.initialWidth = 1000;
@@ -283,7 +279,6 @@
         try {
             for (let k = 0; k < PAGES.length; k++) for (const g of PAGES[k]) g.isVisible = (k === i);
         } catch (e) {
-            // Fallback: hiding not possible -> leave everything visible
             pagedOK = false;
             try { for (const pg of PAGES) for (const g of pg) g.isVisible = true; } catch (e2) { /* ignore */ }
         }

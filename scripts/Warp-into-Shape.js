@@ -1,26 +1,15 @@
 'use strict';
-// Warp into Shape Group v71-EN
-// New in v71:
-// - FIX Strength = 0: getParams() used "Number(edStr.value)||1.0".
-//   Since 0 is "falsy" in JavaScript, strength 0 was silently replaced
-//   by the fallback 1.0 - result at 0 was identical to 1, while e.g.
-//   0.2 correctly produced an intermediate result.
-//   All numeric dialog fields are now read via numOr(), which falls
-//   back to the default ONLY for NaN/Infinity.
+// Shape in Warp Group v73 (EN)
+// New compared to v72:
+// - BUGFIX Affinity 3.3.3: Colour.createRGBA8() now expects ONE object {r,g,b,alpha}
+//   instead of four numbers. The call Colour.createRGBA8(77,77,77,255) for the grid
+//   colour threw "expected RGBA8 Object" -> the build aborted, no warp group.
+//   Now RGBA8(77,77,77,255) (factory function, older + newer versions).
 //
-// Earlier changes (v70):
-// - FIX preset saving: File.create(path, mode) instead of the deprecated
-//   new File(path, mode).
-//
-// Earlier changes (v69):
-// - FIX for new Affinity version: PolyCurveNodeDefinition.create()
-//   parameter order corrected (curve, brushFill, lineFill, lineStyle,
-//   transparencyFill).
-//
-// Earlier changes (v68):
-// 1. FIX mesh method at reduced strength: the 0-strength reference is
-//    "trapezoidPoint" instead of the bounding-box rectangle.
-// 2. New "mesh extra" distortion: Twirl, Barrel/Cushion and Swing Warp.
+// v72: rollback at position 0 (rollbackTo with undo loop); top/bottom detection via
+//      isSameNode(). v71: numOr(). v70: File.create(). v69: PolyCurveNodeDefinition
+//      argument order. v68: mesh method at reduced strength, mesh extra.
+// Preset files ("WarpPreset - <name>.json") are exchangeable with the German version.
 
 const { Document }                    = require('/document');
 const { DocumentCommand,
@@ -33,15 +22,13 @@ const { ContainerNodeDefinition,
 const { FillDescriptor }              = require('/fills');
 const { CurveBuilder, PolyCurve, Transform } = require('/geometry');
 const { LineStyleDescriptor }         = require('/linestyle');
-const { Colour }                      = require('/colours');
+const { Colour, RGBA8 }               = require('/colours');
 const { File, createDirectories }     = require('/fs');
 const { app }                         = require('/application');
 
 const MOVE_INSIDE = 2;
 const MOVE_AFTER  = 0;
 
-// Reads a numeric value; falls back to def ONLY for NaN/Infinity
-// (not for 0 - unlike "x||def").
 function numOr(v,def){const n=Number(v);return Number.isFinite(n)?n:def;}
 
 // ── Transform ─────────────────────────────────────────────────────────────────
@@ -144,9 +131,6 @@ function autoDetectRoles(nodeA, nodeB){
 }
 
 // ── Automatic curve conversion ────────────────────────────────────────────────
-// SDK limit (tested): node references are NOT reliably recoverable after
-// DocumentCommand.createConvertToCurves(). Robust approach for groups:
-// re-scan freshly from the stable group reference after each conversion.
 function tryConvertToCurves(doc,node){
     try{
         doc.executeCommand(DocumentCommand.createConvertToCurves(Selection.create(doc,[node])));
@@ -172,7 +156,7 @@ function convertDescendantShapesToCurves(doc,node){
     }
 }
 
-// ── Contour computation (area warp) ───────────────────────────────────────────
+// ── Contour calculation (area warp) ───────────────────────────────────────────
 
 function bzPt(bz,t){const mt=1-t;return{
     x:mt*mt*mt*bz.start.x+3*mt*mt*t*bz.c1.x+3*mt*t*t*bz.c2.x+t*t*t*bz.end.x,
@@ -234,7 +218,7 @@ function buildContourForAngle(formNode, angleDeg, N){
     return{cols,N,uMin,uMax,fromRot,nbb};
 }
 
-// ── Path mode: arc-length contour with tangent + normal ──────────────────────
+// ── Path mode ─────────────────────────────────────────────────────────────────
 
 function buildPathContour(formNode, angleDeg, N){
     const curves=getNodeCurvesSpreadForContour(formNode);if(!curves)return null;
@@ -292,7 +276,7 @@ function buildPathContour(formNode, angleDeg, N){
     return{cols,N,totalLen,fromRot,pathFromRot:pathFromRotNormal,pathFromRotUpright,pathFromRotUprightPlain,nbb,isPath:true};
 }
 
-// ── Mesh mode: Coons patch with curved rows AND columns ──────────────────────
+// ── Mesh mode: Coons patch ────────────────────────────────────────────────────
 
 function sampleAtS(samples,totalLen,sTarget){
     let s=((sTarget%totalLen)+totalLen)%totalLen;
@@ -308,8 +292,6 @@ function sampleAtS(samples,totalLen,sTarget){
     }
     return{x:samples[samples.length-1].x,y:samples[samples.length-1].y};
 }
-// Point on the SHORTER of the two arcs between sA and sB on the closed
-// contour - independent of winding direction and curve start point.
 function shortArcPoint(samples,totalLen,sA,sB,t){
     let fwd=sB-sA; if(fwd<0)fwd+=totalLen;
     const bwd=totalLen-fwd;
@@ -377,8 +359,6 @@ function buildMeshContour(formNode, angleDeg, N){
                -((1-uN)*(1-vN)*P00.y+uN*(1-vN)*P10.y+(1-uN)*vN*P01.y+uN*vN*P11.y);
         return fromRot(x,y);
     }
-    // 0-strength reference: straight vertical interpolation between the
-    // ACTUAL top and bottom contour (like the Trapezoid method).
     function trapezoidPoint(uN,vN){
         uN=Math.max(0,Math.min(1,uN));vN=Math.max(0,Math.min(1,vN));
         const Tu=shortArcPoint(samples,totalLen,sTL,sTR,uN);
@@ -391,7 +371,7 @@ function buildMeshContour(formNode, angleDeg, N){
     return{isMesh:true,coonsPoint,trapezoidPoint,meshIdentity,uMin,uMax,vMin,vMax,fromRot,nbb};
 }
 
-// ── UV mapping + methods (area warp) ──────────────────────────────────────────
+// ── UV mapping + methods ──────────────────────────────────────────────────────
 
 function mapUV(u,v,con){
     const us=Math.max(0,Math.min(1,u))*con.N;
@@ -411,7 +391,6 @@ function applyMethod(u0,v0,method,strength){
     return{u:Math.max(0,Math.min(1,u)),v:Math.max(0,Math.min(1,v))};
 }
 
-// Virtually extends sbb by start/end offset (in % of object width).
 function computeOffsetSbb(sbb,startPct,endPct){
     const so=Math.max(0,Math.min(45,startPct))/100;
     const eo=Math.max(0,Math.min(45,endPct))/100;
@@ -470,8 +449,6 @@ function subdivideCurvesAdaptive(curves,epsilon,maxDepth){
     }
     return curves.map(c=>({bzs:c.bzs.flatMap(bz=>rec(bz,0)),isClosed:c.isClosed}));
 }
-// Uniform subdivision of EVERY segment into n equal parts regardless of
-// curvature - adds intermediate points that improve straight edges.
 function subdivideUniform(bz,extraPoints){
     if(extraPoints<=0)return[bz];
     const n=extraPoints+1;
@@ -499,7 +476,7 @@ function warpCurves(curves,sbb,con,method,strength,lockX,lockY,pathAlign,meshExt
     })),isClosed:c.isClosed}));
 }
 
-// ── Douglas-Peucker simplification after warp ─────────────────────────────────
+// ── Douglas-Peucker simplification ────────────────────────────────────────────
 
 function perpDist(pt,a,b){
     const dx=b.x-a.x,dy=b.y-a.y,len=Math.sqrt(dx*dx+dy*dy);
@@ -534,7 +511,7 @@ function simplifyCurves(curves,epsilon){
     });
 }
 
-// ── Remap fill transform (gradient/bitmap/hatch) ──────────────────────────────
+// ── Warp the fill transform as well ───────────────────────────────────────────
 
 function computeCurvesBB(curves){
     let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
@@ -590,7 +567,8 @@ function buildPolyCurveNode(doc,curves,fd,pfd,ls){
 }
 
 function buildGridNode(doc,con,cols,rows,method,strength,lockX,lockY,pathAlign,meshExtra){
-    const nof=FillDescriptor.createNone(),gFD=FillDescriptor.createSolid(Colour.createRGBA8(77,77,77,255));
+    // v73: RGBA8() factory instead of Colour.createRGBA8(r,g,b,a) (3.3.3 expects an object there)
+    const nof=FillDescriptor.createNone(),gFD=FillDescriptor.createSolid(RGBA8(77,77,77,255));
     const ls=LineStyleDescriptor.createDefault(),pc=PolyCurve.create();
     const S=60;
     function gPt(u0,v0){
@@ -615,7 +593,7 @@ function buildGridNode(doc,con,cols,rows,method,strength,lockX,lockY,pathAlign,m
     for(let ri=0;ri<=rows;ri++){const v=ri/rows,cb=new CurveBuilder();cb.begin(gPt(0,v));for(let ci2=1;ci2<=S;ci2++)cb.lineTo(gPt(ci2/S,v));pc.addCurve(cb.createCurve());}
     const def=PolyCurveNodeDefinition.create(pc,nof,gFD,ls,nof);
     const gb=AddChildNodesCommandBuilder.create(doc);gb.addPolyCurveNode(def);doc.executeCommand(gb.createCommand());
-    const gn=doc.selection.at(0).node;try{gn.userDescription='Warp Grid';}catch(e){}return gn;
+    const gn=doc.selection.at(0).node;try{gn.userDescription='Warp grid';}catch(e){}return gn;
 }
 
 function moveNodeInto(doc,node,tgt){doc.executeCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[node]),tgt,MOVE_INSIDE,NodeChildType.Main));}
@@ -628,34 +606,44 @@ const doc=Document.current;
 if(!doc)throw new Error('No document open.');
 const sel=doc.selection;
 
+// v72: safe rollback - "doc.history.position = 0" throws COMMAND_FAILED.
+function rollbackTo(pos){
+    if(doc.history.position===pos)return true;
+    try{doc.history.position=pos;}catch(e){/* position 0: undo loop below */}
+    let guard=0;
+    while(doc.history.position>pos&&guard++<100000)doc.history.undo();
+    return doc.history.position===pos;
+}
+
 if(sel.length!==2){
-    const d=Dialog.create('Warp into Shape Group');
+    const d=Dialog.create('Shape in Warp Group');
     const col=d.addColumn(),g=col.addGroup('Note');
     g.addStaticText('','Please select exactly 2 objects:');
     g.addStaticText('','  1) Base shape (warp contour)');
     g.addStaticText('','  2) Object to be warped');
     g.addStaticText('','Selected: '+sel.length+' object(s)');
     g.addStaticText('','');
-    g.addStaticText('','Tip: run the script with the Move Tool active.');
+    g.addStaticText('','Note: run the script with the Move tool active.');
     g.addStaticText('','All vector objects must be converted to curves first.');
     g.addStaticText('','(Adjustment layers are carried along. Masks are ignored.)');
     col.addGroup('').addButtonSet('', [' OK '], 0);
     d.runModal();
 }else{
     const nodeA=sel.at(0).node,nodeB=sel.at(1).node;
-    let idxA=0,idxB=0,idx=0;
-    for(const l of doc.layers.all){if(l===nodeA)idxA=idx;if(l===nodeB)idxB=idx;idx++;}
-    const[topNode,botNode]=idxA<idxB?[nodeA,nodeB]:[nodeB,nodeA];
+    // v72: layer order via isSameNode (wrappers are never identical)
+    let idxA=-1,idxB=-1,idx=0;
+    for(const l of doc.layers.all){if(idxA<0&&l.isSameNode(nodeA))idxA=idx;if(idxB<0&&l.isSameNode(nodeB))idxB=idx;idx++;}
+    // doc.layers.all runs from bottom to top: higher index = further up
+    const[topNode,botNode]=idxA>idxB?[nodeA,nodeB]:[nodeB,nodeA];
 
     const autoRole=autoDetectRoles(nodeA,nodeB);
     let defaultFormIdx=0;
-    if(autoRole&&autoRole.formNode===botNode) defaultFormIdx=1;
+    if(autoRole&&autoRole.formNode.isSameNode(botNode)) defaultFormIdx=1;
 
     const dTop=(topNode.userDescription||topNode.defaultDescription||'top').substring(0,26);
     const dBot=(botNode.userDescription||botNode.defaultDescription||'bottom').substring(0,26);
 
-    // ── Dialog: 2-column layout, resizable, compact, LIVE preview ──────────
-    const dlg=Dialog.create('Warp into Shape Group v71');
+    const dlg=Dialog.create('Shape in Warp Group v73');
     dlg.initialWidth=700;
     dlg.setIsResizable(true);
     const colL=dlg.addColumn(); colL.widthProportion=0.52;
@@ -674,23 +662,23 @@ if(sel.length!==2){
 
     const gM=colL.addGroup('Warp (area mode)');
     const cboMeth=gM.addComboBox('Method:',[
-        'Trapezoid','Compressed','Cone/Fan','Barrel/Cushion',
-        'Banner/Flag','Swing Warp','Twirl','Mesh (Coons patch)',
+        'Trapezoid','Squeezed','Cone/Fan','Barrel/Pincushion',
+        'Banner/Flag','Swing warp','Twirl','Mesh (Coons patch)',
     ],0);
     const edStr=gM.addUnitValueEditor('Strength:','none',null,1.0,-3.0,3.0);edStr.value=1.0;
     const chkLockX=gM.addCheckBox('Lock X axis',false);
     const chkLockY=gM.addCheckBox('Lock Y axis',false);
     const cboMeshExtra=gM.addComboBox('Mesh extra:',[
-        'None','Twirl','Barrel/Cushion','Swing Warp'
+        'None','Twirl','Barrel/Pincushion','Swing warp'
     ],0);
-    gM.addStaticText('','Mesh method: Strength = blend Trapezoid->Mesh. Extra only active with Mesh.');
+    gM.addStaticText('','Mesh method: strength = blend trapezoid->mesh. Extra only active with mesh.');
 
     const gMod=colL.addGroup('Path mode');
     const chkPath=gMod.addCheckBox('Arrange along contour',false);
     const cboPathAlign=gMod.addComboBox('Alignment:',[
         'Perpendicular to path',
-        'Upright (cosine compression)',
-        'Upright without compression'
+        'Upright (cosine squeeze)',
+        'Upright without squeeze'
     ],0);
     const chkHidePath=gMod.addCheckBox('Hide base shape',false);
     gMod.addStaticText('','No clipping in path mode.');
@@ -716,8 +704,6 @@ if(sel.length!==2){
 
     const gStatus=colR.addGroup('Status');
     const stStatus=gStatus.addStaticText('','Ready. Changes are shown live.');
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     function getParams(){
         return{
@@ -768,7 +754,7 @@ if(sel.length!==2){
     let conCache=null,cacheSig='';
     function getCon(formNode,params){
         const isMesh=params.method===7;
-        const sig=JSON.stringify([formNode.userDescription||'_',params.angleDeg,params.scanRes,params.pathMode,isMesh]);
+        const sig=JSON.stringify([formNode.userDescription||'_',params.formIdx,params.angleDeg,params.scanRes,params.pathMode,isMesh]);
         if(conCache&&cacheSig===sig)return conCache;
         cacheSig=sig;
         conCache=params.pathMode
@@ -859,15 +845,15 @@ if(sel.length!==2){
         if(!con){
             if(classifyLeaf(formNode)==='shape'){
                 const nm=formNode.userDescription||formNode.defaultDescription||'Base shape';
-                return{success:false,message:'"'+nm+'" is not a curve yet. Please convert to curves first.'};
+                return{success:false,message:'"'+nm+'" is not a curve yet. Please convert it to curves first.'};
             }
-            return{success:false,message:'Contour computation failed (base shape invalid or empty).'};
+            return{success:false,message:'Contour calculation failed (base shape invalid or empty).'};
         }
         const sbb=objNode.getSpreadBaseBox(false);
         const tag=objNode[Symbol.toStringTag]||'';
 
         if(tag==='ImageNode'||tag==='RasterNode'||tag==='PixelNode'){
-            const grpDef=ContainerNodeDefinition.create('Warp Group');
+            const grpDef=ContainerNodeDefinition.create('Warp group');
             const gb2=AddChildNodesCommandBuilder.create(doc);gb2.setInsertionTargetSelection(Selection.create(doc,[formNode]));gb2.addContainerNode(grpDef);doc.executeCommand(gb2.createCommand());
             let mainGrp=null;const ns=doc.selection;for(let i=0;i<ns.length;i++){const n=ns.at(i).node;if(n.isGroupNode||n.isContainerNode){mainGrp=n;break;}}
             if(mainGrp){moveNodeInto(doc,formNode,mainGrp);moveNodeInto(doc,objNode,formNode);}
@@ -882,16 +868,16 @@ if(sel.length!==2){
         const items=collectAllItems(objNode);
         if(!items.length)return{success:false,message:'No curve objects found in the object to be warped.'};
         const resultNodes=buildResultNodes(items,sbb,con,p);
-        if(!resultNodes.length)return{success:false,message:'Warp produced no result objects.'};
+        if(!resultNodes.length)return{success:false,message:'The warp produced no result objects.'};
 
         const gNode=buildGridNode(doc,con,p.cols,p.rows,em,p.strength,p.lockX,p.lockY,p.pathMode?p.pathAlign:0,p.meshExtra);
-        const subDef=ContainerNodeDefinition.create('Warp Content');
+        const subDef=ContainerNodeDefinition.create('Warp content');
         const gbS=AddChildNodesCommandBuilder.create(doc);gbS.addContainerNode(subDef);doc.executeCommand(gbS.createCommand());
         const subGrp=doc.selection.at(0).node;
         moveNodeInto(doc,gNode,subGrp);
         for(const n of resultNodes)moveNodeInto(doc,n,subGrp);
 
-        const grpDef=ContainerNodeDefinition.create('Warp Group');
+        const grpDef=ContainerNodeDefinition.create('Warp group');
         const gb2=AddChildNodesCommandBuilder.create(doc);gb2.setInsertionTargetSelection(Selection.create(doc,[formNode]));gb2.addContainerNode(grpDef);doc.executeCommand(gb2.createCommand());
         let mainGrp=null;const ns=doc.selection;for(let i=0;i<ns.length;i++){const n=ns.at(i).node;if(n.isGroupNode||n.isContainerNode){mainGrp=n;break;}}
 
@@ -912,8 +898,14 @@ if(sel.length!==2){
 
     // ── Live preview ──────────────────────────────────────────────────────────
     const posBeforePreview=doc.history.position;
+    let rollbackFailed=false;
     function updatePreview(){
-        try{doc.history.position=posBeforePreview;}catch(e){}
+        // v72: safe rollback; on failure do not stack another preview
+        if(!rollbackTo(posBeforePreview)){
+            rollbackFailed=true;
+            try{stStatus.setText('The preview could not be reset - please cancel.');}catch(e){}
+            return;
+        }
         try{
             const res=doFullBuild(getParams());
             if(res&&res.success){
@@ -943,12 +935,12 @@ if(sel.length!==2){
             loadedPresetName=baseName(path);
             stPreset.setText('Loaded: '+loadedPresetName);
         }catch(e){
-            stPreset.setText('Error loading: '+baseName(path));
+            stPreset.setText('Error while loading: '+baseName(path));
         }
         updatePreview();
     });
     btnSave.setOnClickHandler(()=>{
-        const name=app.prompt('Enter preset name:','Save preset','My Preset');
+        const name=app.prompt('Enter preset name:','Save preset','My preset');
         if(name&&name.trim()){
             const cleanName=name.trim();
             const presetDir=app.userDesktopPath+'/AffinityScriptPresets';
@@ -962,7 +954,7 @@ if(sel.length!==2){
                 loadedPresetName=cleanName;
                 stPreset.setText('Saved: '+loadedPresetName);
             }catch(e){
-                stPreset.setText('Error saving: '+cleanName);
+                stPreset.setText('Error while saving: '+cleanName);
             }
         }
     });
@@ -978,7 +970,7 @@ if(sel.length!==2){
             lastLoadedPath=null;
             loadedPresetName='(no preset loaded)';
         }catch(e){
-            stPreset.setText('Error deleting: '+loadedPresetName);
+            stPreset.setText('Error while deleting: '+loadedPresetName);
         }
     });
     dlg.setOnControlValueChangedHandler(()=>{updatePreview();});
@@ -988,6 +980,8 @@ if(sel.length!==2){
     const result=dlg.runModal();
     const cancelled = !result || result.value!==DialogResult.Ok.value;
     if(cancelled){
-        try{doc.history.position=posBeforePreview;}catch(e){}
+        if(!rollbackTo(posBeforePreview)||rollbackFailed){
+            app.alert('The preview could not be fully reset.\nPlease check the original state with Edit > Undo.','Shape in Warp Group');
+        }
     }
 }

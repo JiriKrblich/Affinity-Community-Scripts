@@ -1,12 +1,16 @@
 'use strict';
-// BLEND MORPHING v115-EN
-// English GUI version of Überblendung (Morphing) v115. Logic identical,
-// including: the composedSpreadTF fix (v113), the stale-preview-on-OK fix
-// (v114), and the tab-based GUI (v115) — pattern matching "Transform
-// Objects v8": a persistent left navigation column (tab radio group,
-// Preview, Presets) with two content columns whose groups are shown/hidden
-// per active tab via .isVisible. 4 tabs: Objects & Method / Blend & Colour /
-// Rotation & Path / Correspondence & Locks.
+// BLEND MORPHING v118-EN
+// v118: FIX gradient position in Style Blend: gradient fills (and strokes) were written with
+//       spread coordinates as the LOCAL fill transform. For intermediate objects with their own
+//       node transform (mesh branch: rotation + translation) Affinity applied that transform once
+//       more -> the gradient ended up outside the object (measured live).
+//       New: the gradient geometry is set in spread space – like bitmap/hatch (anchor, set
+//       transform, release). The second gradient axis is preserved as well (elliptical gradients
+//       keep their shape).
+// v117: stacking order (Affinity 3.3.3) via stackInOrder().
+// v116: toColour() for gradient stops (3.3.3). v115: tab GUI. v114: stale preview on OK.
+// v113: composedSpreadTF (full parent chain).
+// English GUI version of Überblendung (Morphing) v118. Logic identical.
 
 const { Dialog, DialogResult } = require('/dialog.js');
 const { Document } = require('/document.js');
@@ -123,7 +127,10 @@ function bbCenter(node){try{const bb=node.getSpreadBaseBox(false);return{x:bb.x+
 function getSpreadGeomViaAnchor(doc,node){const wasAnchored=node.brushFillDescriptor.isAnchoredToSpread;if(!wasAnchored)doc.setBrushFillIsAnchoredToSpread(true,node,{applyToAllFills:false},false);const tr=node.brushFillDescriptor.transform;const g={v1x:tr.xAxis.x,v1y:tr.xAxis.y,v2x:tr.yAxis.x,v2y:tr.yAxis.y,ox:tr.origin.x,oy:tr.origin.y};if(!wasAnchored)doc.setBrushFillIsAnchoredToSpread(false,node,{applyToAllFills:false},false);return g;}
 function getPenSpreadGeomViaAnchor(doc,node){try{const pfd=node.penFillDescriptor;if(!pfd||!pfd.fill)return null;const wasAnchored=pfd.isAnchoredToSpread;if(!wasAnchored)doc.setPenFillIsAnchoredToSpread(true,node,{applyToAllFills:false},false);const tr=node.penFillDescriptor.transform;const g={v1x:tr.xAxis.x,v1y:tr.xAxis.y,v2x:tr.yAxis.x,v2y:tr.yAxis.y,ox:tr.origin.x,oy:tr.origin.y};if(!wasAnchored)doc.setPenFillIsAnchoredToSpread(false,node,{applyToAllFills:false},false);return g;}catch(e){return null;}}
 function spreadGeomToTransform(ox,oy,v1x,v1y,v2x,v2y){const newTr=Transform.createIdentity();const d=newTr.data;d[0]=v1x;d[3]=v1y;d[1]=v2x;d[4]=v2y;d[2]=ox;d[5]=oy;return newTr;}
-function makeRelativeGradFD(fd,sourceNode,targetBBCenter,totalAngleRad){const sGeom=fdToSpreadGeom(fd,sourceNode);const srcBBC=bbCenter(sourceNode);let newGeom={p0x:targetBBCenter.x+(sGeom.p0x-srcBBC.x),p0y:targetBBCenter.y+(sGeom.p0y-srcBBC.y),v1x:sGeom.v1x,v1y:sGeom.v1y,v2x:sGeom.v2x,v2y:sGeom.v2y};if(totalAngleRad&&Math.abs(totalAngleRad)>0.0001){const cosR=Math.cos(totalAngleRad),sinR=Math.sin(totalAngleRad);newGeom=rotateGeom(newGeom,targetBBCenter.x,targetBBCenter.y,cosR,sinR);}return FillDescriptor.create(fd.fill,false,makeTrFromGeom(newGeom),fd.blendMode,false);}
+// v118: returns the gradient geometry in SPREAD space (origin transferred relative to the object
+//       centre, optionally rotated about the target centre). It is written via setFDWithSpreadGeom /
+//       setPenFDWithSpreadGeom so that Affinity itself converts it into the target's local system.
+function relGradSpreadGeom(fd,sourceNode,targetBBCenter,totalAngleRad){const sGeom=fdToSpreadGeom(fd,sourceNode);const srcBBC=bbCenter(sourceNode);let g={p0x:targetBBCenter.x+(sGeom.p0x-srcBBC.x),p0y:targetBBCenter.y+(sGeom.p0y-srcBBC.y),v1x:sGeom.v1x,v1y:sGeom.v1y,v2x:sGeom.v2x,v2y:sGeom.v2y};if(totalAngleRad&&Math.abs(totalAngleRad)>0.0001){g=rotateGeom(g,targetBBCenter.x,targetBBCenter.y,Math.cos(totalAngleRad),Math.sin(totalAngleRad));}return g;}
 function getLocalBB(node){let lx0=1e9,lx1=-1e9,ly0=1e9,ly1=-1e9;try{const pc=node.curvesInterface.polyCurve;for(let ci=0;ci<pc.curveCount;ci++){for(const nd of pc.at(ci).nodes){lx0=Math.min(lx0,nd.position.x);lx1=Math.max(lx1,nd.position.x);ly0=Math.min(ly0,nd.position.y);ly1=Math.max(ly1,nd.position.y);}}}catch(e){}if(lx0>lx1){const bb=node.getSpreadBaseBox(false);return{x:bb.x,y:bb.y,w:bb.width,h:bb.height};}return{x:lx0,y:ly0,w:lx1-lx0,h:ly1-ly0};}
 function setMeshFDForTarget(meshFD,dstNode){const lb=getLocalBB(dstNode);const newTr=Transform.createIdentity();const d=newTr.data;d[0]=lb.w;d[3]=0;d[1]=0;d[4]=lb.h;d[2]=lb.x;d[5]=lb.y;stableBrushWrite(dstNode,meshFD.cloneWithNewTransform(newTr));}
 function setMeshPenFDForTarget(meshFD,dstNode){const lb=getLocalBB(dstNode);const newTr=Transform.createIdentity();const d=newTr.data;d[0]=lb.w;d[3]=0;d[1]=0;d[4]=lb.h;d[2]=lb.x;d[5]=lb.y;stablePenWrite(dstNode,meshFD.cloneWithNewTransform(newTr));}
@@ -138,8 +145,8 @@ function setBitmapFDForTarget(doc,fd,srcNode,refNode,dstNode,tE,rotateFill,guiAn
 function setBitmapPenFDForTarget(doc,fd,srcNode,refNode,dstNode,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin){const srcGeom=getPenSpreadGeomViaAnchor(doc,srcNode);if(!srcGeom)return;const ro=getPenRefOrigin(doc,refNode);const newOx=ro?(invertOrigin?lerp(ro.ox,srcGeom.ox,tE):lerp(srcGeom.ox,ro.ox,tE)):srcGeom.ox;const newOy=ro?(invertOrigin?lerp(ro.oy,srcGeom.oy,tE):lerp(srcGeom.oy,ro.oy,tE)):srcGeom.oy;const{v1x,v1y,v2x,v2y}=applyRotToGeom(srcGeom,guiAngleRad,alphaA,alphaB,tE,rotateFill,alphaSrc);setPenFDWithSpreadGeom(doc,fd,dstNode,newOx,newOy,v1x,v1y,v2x,v2y);}
 function setHatchFDForTarget(doc,fd,srcNode,refNode,dstNode,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin){const srcGeom=getSpreadGeomViaAnchor(doc,srcNode);const ro=getRefOrigin(doc,refNode);const newOx=ro?(invertOrigin?lerp(ro.ox,srcGeom.ox,tE):lerp(srcGeom.ox,ro.ox,tE)):srcGeom.ox;const newOy=ro?(invertOrigin?lerp(ro.oy,srcGeom.oy,tE):lerp(srcGeom.oy,ro.oy,tE)):srcGeom.oy;const{v1x,v1y,v2x,v2y}=applyRotToGeom(srcGeom,guiAngleRad,alphaA,alphaB,tE,rotateFill,alphaSrc);setFDWithSpreadGeom(doc,fd,dstNode,newOx,newOy,v1x,v1y,v2x,v2y);}
 function setHatchPenFDForTarget(doc,fd,srcNode,refNode,dstNode,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin){const srcGeom=getPenSpreadGeomViaAnchor(doc,srcNode);if(!srcGeom)return;const ro=getPenRefOrigin(doc,refNode);const newOx=ro?(invertOrigin?lerp(ro.ox,srcGeom.ox,tE):lerp(srcGeom.ox,ro.ox,tE)):srcGeom.ox;const newOy=ro?(invertOrigin?lerp(ro.oy,srcGeom.oy,tE):lerp(srcGeom.oy,ro.oy,tE)):srcGeom.oy;const{v1x,v1y,v2x,v2y}=applyRotToGeom(srcGeom,guiAngleRad,alphaA,alphaB,tE,rotateFill,alphaSrc);setPenFDWithSpreadGeom(doc,fd,dstNode,newOx,newOy,v1x,v1y,v2x,v2y);}
-function setFillOnTargetM2(doc,sourceFD,sourceNode,targetNode,srcSpreadBB,dstSpreadBB,refNode,tE,rotateFill,guiAngleRad,fpx,fpy,alphaA,alphaB,alphaSrc,invertOrigin){const ft=sourceFD.fill.fillType.value;try{if(ft===FillType.Gradient.value){const tbc=bbCenter(targetNode);let totalRot=guiAngleRad;if(rotateFill){const ai=slerpAngle(alphaA,alphaB,tE);totalRot+=(ai-alphaSrc);}stableBrushWrite(targetNode,makeRelativeGradFD(sourceFD,sourceNode,tbc,totalRot));}else if(ft===4){setBitmapFDForTarget(doc,sourceFD,sourceNode,refNode,targetNode,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin);}else if(ft===6){setHatchFDForTarget(doc,sourceFD,sourceNode,refNode,targetNode,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin);}else if(ft===5){setMeshFDForTarget(sourceFD,targetNode);}else{stableBrushWrite(targetNode,sourceFD);}}catch(e){try{stableBrushWrite(targetNode,sourceFD);}catch(e2){}}}
-function setPenFDForTarget(doc,sourcePFD,sourceNode,refNode,targetNode,wt,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin){if(wt<=0||!sourcePFD||!sourcePFD.fill)return;const ft=sourcePFD.fill.fillType.value;try{if(ft===FillType.Gradient.value){const tbc=bbCenter(targetNode);let totalRot=guiAngleRad;if(rotateFill){const ai=slerpAngle(alphaA,alphaB,tE);totalRot+=(ai-alphaSrc);}stablePenWrite(targetNode,makeRelativeGradFD(sourcePFD,sourceNode,tbc,totalRot));}else if(ft===4){setBitmapPenFDForTarget(doc,sourcePFD,sourceNode,refNode,targetNode,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin);}else if(ft===6){setHatchPenFDForTarget(doc,sourcePFD,sourceNode,refNode,targetNode,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin);}else if(ft===5){setMeshPenFDForTarget(sourcePFD,targetNode);}else{stablePenWrite(targetNode,sourcePFD);}}catch(e){try{stablePenWrite(targetNode,sourcePFD);}catch(e2){}}}
+function setFillOnTargetM2(doc,sourceFD,sourceNode,targetNode,srcSpreadBB,dstSpreadBB,refNode,tE,rotateFill,guiAngleRad,fpx,fpy,alphaA,alphaB,alphaSrc,invertOrigin){const ft=sourceFD.fill.fillType.value;try{if(ft===FillType.Gradient.value){const tbc=bbCenter(targetNode);let totalRot=guiAngleRad;if(rotateFill){const ai=slerpAngle(alphaA,alphaB,tE);totalRot+=(ai-alphaSrc);}const g=relGradSpreadGeom(sourceFD,sourceNode,tbc,totalRot);setFDWithSpreadGeom(doc,sourceFD,targetNode,g.p0x,g.p0y,g.v1x,g.v1y,g.v2x,g.v2y);}else if(ft===4){setBitmapFDForTarget(doc,sourceFD,sourceNode,refNode,targetNode,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin);}else if(ft===6){setHatchFDForTarget(doc,sourceFD,sourceNode,refNode,targetNode,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin);}else if(ft===5){setMeshFDForTarget(sourceFD,targetNode);}else{stableBrushWrite(targetNode,sourceFD);}}catch(e){try{stableBrushWrite(targetNode,sourceFD);}catch(e2){}}}
+function setPenFDForTarget(doc,sourcePFD,sourceNode,refNode,targetNode,wt,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin){if(wt<=0||!sourcePFD||!sourcePFD.fill)return;const ft=sourcePFD.fill.fillType.value;try{if(ft===FillType.Gradient.value){const tbc=bbCenter(targetNode);let totalRot=guiAngleRad;if(rotateFill){const ai=slerpAngle(alphaA,alphaB,tE);totalRot+=(ai-alphaSrc);}const g=relGradSpreadGeom(sourcePFD,sourceNode,tbc,totalRot);setPenFDWithSpreadGeom(doc,sourcePFD,targetNode,g.p0x,g.p0y,g.v1x,g.v1y,g.v2x,g.v2y);}else if(ft===4){setBitmapPenFDForTarget(doc,sourcePFD,sourceNode,refNode,targetNode,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin);}else if(ft===6){setHatchPenFDForTarget(doc,sourcePFD,sourceNode,refNode,targetNode,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin);}else if(ft===5){setMeshPenFDForTarget(sourcePFD,targetNode);}else{stablePenWrite(targetNode,sourcePFD);}}catch(e){try{stablePenWrite(targetNode,sourcePFD);}catch(e2){}}}
 function applyStyleForMethod2(doc,sourceNode,refNode,targetNode,wInterp,sourceLs,nodeOpacity,applyFX,srcBB,dstBB,tE,rotateFill,guiAngleRad,fpx,fpy,alphaA,alphaB,alphaSrc,invertOrigin){const fd=sourceNode.brushFillDescriptor;doc.executeCommand(DocumentCommand.createSetOpacity(Selection.create(doc,[targetNode]),nodeOpacity));if(wInterp>0){if(sourceLs){try{doc.executeCommand(DocumentCommand.createSetLineStyleDescriptor(Selection.create(doc,[targetNode]),sourceLs));}catch(e){}}targetNode.lineWeightPts=wInterp;try{const pfd=sourceNode.penFillDescriptor;if(pfd&&pfd.fill){setPenFDForTarget(doc,pfd,sourceNode,refNode,targetNode,wInterp,tE,rotateFill,guiAngleRad,alphaA,alphaB,alphaSrc,invertOrigin);}}catch(e){}}else{targetNode.lineWeightPts=0;}if(applyFX)applyFXFromNode(doc,sourceNode,targetNode);setFillOnTargetM2(doc,fd,sourceNode,targetNode,srcBB,dstBB,refNode,tE,rotateFill,guiAngleRad,fpx,fpy,alphaA,alphaB,alphaSrc,invertOrigin);}
 
 function sampleC(c,nodeTF,cnt){const pts=[];let bz=[];try{bz=c.beziers.toArray();}catch(e){}if(bz.length>0){const pb=Math.max(2,Math.floor(cnt/bz.length));for(const b of bz){for(let si=0;si<pb;si++){const t=si/pb,mt=1-t;const lx=mt*mt*mt*b.start.x+3*mt*mt*t*b.c1.x+3*mt*t*t*b.c2.x+t*t*t*b.end.x;const ly=mt*mt*mt*b.start.y+3*mt*mt*t*b.c1.y+3*mt*t*t*b.c2.y+t*t*t*b.end.y;const p=applyTFtoPoint(nodeTF,lx,ly);if(isFinite(p.x)&&isFinite(p.y))pts.push(p);}}}if(!pts.length){for(const nd of c.nodes){const p=applyTFtoPoint(nodeTF,nd.position.x,nd.position.y);if(isFinite(p.x)&&isFinite(p.y))pts.push(p);}}return pts;}
@@ -218,11 +225,12 @@ function buildPathSamplerFromNode(pathNode){
 function rgba8ToHsl(r,g,b,alpha){r/=255;g/=255;b/=255;const max=Math.max(r,g,b),min=Math.min(r,g,b);let h=0,s=0;const l=(max+min)/2;if(max!==min){const d=max-min;s=l>0.5?d/(2-max-min):d/(max+min);switch(max){case r:h=((g-b)/d+(g<b?6:0))/6;break;case g:h=((b-r)/d+2)/6;break;case b:h=((r-g)/d+4)/6;break;}}return{h,s,l,alpha:(alpha!=null?alpha:255)/255};}
 function mkCol(hsl,noise){const col=Colour.createHSLAf(hsl);try{col.noise=noise||0;}catch(e){}return col;}
 function r8(r,g,b,a){return RGBA8(r,g,b,a!=null?a:255);}
+function toColour(c){return (c instanceof Colour)?c:new Colour(c);}
 function cToRGBA(c){try{if(c instanceof Colour)return c.rgba8;return new Colour(c).rgba8;}catch(e){return{r:0,g:0,b:0,alpha:255};}}
 function rgba8Eq(a,b){return a.r===b.r&&a.g===b.g&&a.b===b.b&&a.alpha===b.alpha;}
-function readSt(grad,i){const s=grad.getStop(i);const col=new Colour(s.colour);const rgba8=col.rgba8;let hsl,noise=0;try{hsl=col.hslaf;}catch(e){hsl=rgba8ToHsl(rgba8.r,rgba8.g,rgba8.b,rgba8.alpha*255);}try{noise=col.noise||0;}catch(e){}return{position:s.position,midpoint:s.midpoint!=null?s.midpoint:0.5,noise,hsl,rgba8,origColour:new Colour(s.colour)};}
+function readSt(grad,i){const s=grad.getStop(i);const col=toColour(s.colour);const rgba8=col.rgba8;let hsl,noise=0;try{hsl=col.hslaf;}catch(e){hsl=rgba8ToHsl(rgba8.r,rgba8.g,rgba8.b,rgba8.alpha*255);}try{noise=col.noise||0;}catch(e){}return{position:s.position,midpoint:s.midpoint!=null?s.midpoint:0.5,noise,hsl,rgba8,origColour:toColour(s.colour)};}
 function readStops(gf){const g=gf.gradient,st=[];for(let i=0;i<g.stopCount;i++)st.push(readSt(g,i));st.sort((a,b)=>a.position-b.position);return st;}
-function origStops(gf){const g=gf.gradient,r=[];for(let i=0;i<g.stopCount;i++){const s=g.getStop(i);r.push({colour:new Colour(s.colour),position:s.position,midpoint:s.midpoint!=null?s.midpoint:0.5});}return r;}
+function origStops(gf){const g=gf.gradient,r=[];for(let i=0;i<g.stopCount;i++){const s=g.getStop(i);r.push({colour:toColour(s.colour),position:s.position,midpoint:s.midpoint!=null?s.midpoint:0.5});}return r;}
 function colStops(rgba){const hsl=rgba8ToHsl(rgba.r,rgba.g,rgba.b,rgba.alpha);return[{position:0,midpoint:0.5,noise:0,hsl,rgba8:rgba},{position:1,midpoint:0.5,noise:0,hsl,rgba8:rgba}];}
 function normHsl(h){if(h.l<0.001||h.l>0.999)return{...h,s:0};return h;}
 function resHue(h,p){const n=normHsl(h);if(n.s<0.001)return{...n,h:p.h};return n;}
@@ -278,18 +286,29 @@ function buildGeomNodeMesh(doc,cdA,cdB,nC,fpA,fpB,t,dm,dexp,rotDeg,fullTurns,rot
     const fpInterp=pivotPoint(fpA,fpB,easedFrac,lockPivot,spiralMode,spiralTurns,spiralBulge,pathMode,pathSampler,pathFrac,rotFrac);
     return{nn,tE,guiAngleRad,meshAlpha,spreadCx,spreadCy,fpInterp};
 }
-function makeGroup(doc,allNs,gName,nodeA,nodeB){
+// v117: explicit stacking - bottomToTop[0] at the very bottom, last element on top.
+// NodeMoveType.After places the moved object ABOVE the reference object (verified live).
+function stackInOrder(doc,bottomToTop){
+    for(let i=1;i<bottomToTop.length;i++){
+        const n=bottomToTop[i],ref=bottomToTop[i-1];
+        if(!n||!ref)continue;
+        try{doc.executeCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[n]),ref,NodeMoveType.After,NodeChildType.Main));}catch(e){}
+    }
+}
+function makeGroup(doc,allNs,gName,nodeA,nodeB,bottomToTop){
     const gb2=AddChildNodesCommandBuilder.create();gb2.addContainerNode(ContainerNodeDefinition.create(gName));gb2.setInsertionTargetSelection(Selection.create(doc,allNs));const gc=gb2.createCommand(false);doc.executeCommand(gc);const grp=gc.newNodes[0];if(!grp)return null;
     try{grp.userDescription=gName;}catch(e){}
     doc.executeCommand(DocumentCommand.createMoveNodes(Selection.create(doc,allNs),grp,NodeMoveType.Inside,NodeChildType.Main));
+    if(bottomToTop)stackInOrder(doc,bottomToTop);
     let topNode=nodeA;for(const l of doc.layers.all){if(l.isSameNode(nodeA)){topNode=nodeA;break;}if(l.isSameNode(nodeB)){topNode=nodeB;break;}}
     try{doc.executeCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[grp]),topNode,NodeMoveType.After,NodeChildType.Main));}catch(e){}
     return grp;
 }
-function makeGroupChain(doc,allNs,gName,sourceNodes){
+function makeGroupChain(doc,allNs,gName,sourceNodes,bottomToTop){
     const gb2=AddChildNodesCommandBuilder.create();gb2.addContainerNode(ContainerNodeDefinition.create(gName));gb2.setInsertionTargetSelection(Selection.create(doc,allNs));const gc=gb2.createCommand(false);doc.executeCommand(gc);const grp=gc.newNodes[0];if(!grp)return null;
     try{grp.userDescription=gName;}catch(e){}
     doc.executeCommand(DocumentCommand.createMoveNodes(Selection.create(doc,allNs),grp,NodeMoveType.Inside,NodeChildType.Main));
+    if(bottomToTop)stackInOrder(doc,bottomToTop);
     let topNode=sourceNodes[0];
     for(const l of doc.layers.all){
         let found=false;
@@ -352,7 +371,7 @@ function createBlend(doc,infoA,infoB,steps,cm,rotDeg,fullTurns,rotDm,rotExp,dm,d
         for(let i=1;i<=steps;i++){const nn=mkNode(i/(steps+1),i,nA+'\u2192'+nB+' ['+i+']');if(nn)morphs.push(nn);}
         const rawB=mkNode(1,steps+1,nB+' ['+(steps+1)+']');if(!rawB){restore();return{error:'Error B'};}
         const allNs=[rawB,...morphs.slice().reverse(),rawA];
-        const grp=makeGroup(doc,allNs,gName,infoA.node,infoB.node);if(!grp){restore();return{error:'Error group'};}
+        const grp=makeGroup(doc,allNs,gName,infoA.node,infoB.node,[rawA,...morphs,rawB]);if(!grp){restore();return{error:'Error group'};}
         restore();return{grp};
     }else{
         const allNs=[];
@@ -385,7 +404,7 @@ function createBlend(doc,infoA,infoB,steps,cm,rotDeg,fullTurns,rotDm,rotExp,dm,d
                 resA.nn.userDescription=la;allNs.push(resA.nn);
             }
         }
-        const grp=makeGroup(doc,allNs,gName,infoA.node,infoB.node);if(!grp){restore();return{error:'Error group'};}
+        const grp=makeGroup(doc,allNs,gName,infoA.node,infoB.node,allNs.slice());if(!grp){restore();return{error:'Error group'};}
         restore();return{grp};
     }
 }
@@ -461,7 +480,7 @@ function createChainBlend(doc,infoList,steps,cm,rotDeg,fullTurns,rotDm,rotExp,dm
         prevEndNode=segEndNode;
         restoreSeg();
     }
-    const grp=makeGroupChain(doc,allNs.slice().reverse(),gName,infoList.map(x=>x.node));
+    const grp=makeGroupChain(doc,allNs.slice().reverse(),gName,infoList.map(x=>x.node),allNs.slice());
     if(!grp)return{error:'Error creating group'};
     return{grp};
 }
@@ -540,11 +559,7 @@ if(!doc){console.log('No document open.');} else {
         const pathNode=findPathObject(doc,chain.map(x=>x.node));
         const pathSampler=buildPathSamplerFromNode(pathNode);
 
-        // --- Dialog restructured into tabs (pattern: "Transform Objects v8").
-        // Left: persistent navigation column (tab radio group, Preview,
-        // Presets). Right: two content columns (cA, cB) whose groups are
-        // shown/hidden per active tab via a PAGES mapping + .isVisible.
-        const dlg=Dialog.create('Blend Morphing v115-EN');dlg.initialWidth=1000;dlg.setIsResizable(true);
+        const dlg=Dialog.create('Blend Morphing v118-EN');dlg.initialWidth=1000;dlg.setIsResizable(true);
         const cNav=dlg.addColumn();cNav.widthProportion=0.85;
         const cA=dlg.addColumn();cA.widthProportion=1;
         const cB=dlg.addColumn();cB.widthProportion=1;
@@ -559,7 +574,6 @@ if(!doc){console.log('No document open.');} else {
             catch(e){pagedOK=false;try{for(const pg of PAGES)for(const g of pg)g.isVisible=true;}catch(e2){}}
         }
 
-        // --- Navigation column (always visible): tabs, Preview, Presets
         const gNav=cNav.addGroup('Tabs');
         const rNav=gNav.addRadioGroup('',PAGE_NAMES,0);
         const gPrevNav=cNav.addGroup('Preview');
@@ -570,7 +584,6 @@ if(!doc){console.log('No document open.');} else {
         const btnPresetLoad=gPs.addButton('📂 Load');
         const btnPresetDelete=gPs.addButton('🗑 Delete');
 
-        // --- Tab 1: Objects & Method
         const go=pageGroup(0,cA,isChain?'Chain ('+chain.length+' objects)':'Selected Objects');
         let tA,tB,tChain;
         if(!isChain){
@@ -586,12 +599,10 @@ if(!doc){console.log('No document open.');} else {
         const rbM=gm.addRadioGroup('',['Standard  (shape + style interpolated)','Style Blend  (style fixed, opacity transitions)'],0);
         const tWarn=gm.addStaticText('',isChain?'ℹ Chain: only "Standard" method supports chains (3+ objects).':'');
 
-        // --- Tab 2: Blend & Colour
         const gbx=pageGroup(1,cA,'Blend');const tbS=gbx.addTextBox('Intermediate steps:','5');
         const gd=pageGroup(1,cA,'Position / Opacity Curve');const rbD=gd.addRadioGroup('Spacing:',['Linear','Inward','Outward','S-Curve'],0);const tbE=gd.addTextBox('Exponent:','2.0');
         const gc2=pageGroup(1,cB,'Colour Blend (Standard only)');const rbC=gc2.addRadioGroup('Mode:',['Linear (HSL)','Colour wheel CW','Colour wheel CCW','RGB (direct)'],0);
 
-        // --- Tab 3: Rotation & Path
         const gr=pageGroup(2,cA,'Rotation');
         const tbR=gr.addTextBox('Increment (degrees):','0');
         const tbFT=gr.addTextBox('Full turns:','0');
@@ -610,7 +621,6 @@ if(!doc){console.log('No document open.');} else {
         const cbUsePath=gsp.addCheckBox('Follow path object (name starting with "_")',pathNode!=null);
         const tPath=gsp.addStaticText('',pathNode?('✓ Path found: '+(pathNode.userDescription||pathNode.defaultDescription)+(isChain?' — chain distributes evenly across the whole path':'')):'No path object found (vector named starting with "_")');
 
-        // --- Tab 4: Correspondence & Locks
         const gk=pageGroup(3,cA,'Curve Correspondence');
         const cbAutoAlign=gk.addCheckBox('Automatic start point alignment',true);
         const tbSampleRes=gk.addTextBox('Sample resolution:','40');

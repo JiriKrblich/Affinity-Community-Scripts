@@ -1,19 +1,18 @@
 
 'use strict';
 
-// ── Gradient Tweak v29 EN ─────────────────────────────────────
-// BUGFIX v28: order was wrong — Pass 1 (read + compute gradient)
-// ran BEFORE undoing the previous preview, so with changed
-// parameters the already-modified gradient was used as the new
-// starting point -> effects accumulated (e.g. duplicated/jittered
-// twice). FIX: undo of the previous preview now always happens
-// FIRST, so the guaranteed ORIGINAL gradient of each object is
-// read afterwards.
+// ── Gradient Tweak v30 EN ─────────────────────────────────────
+// BUGFIX v30 (Affinity 3.3.3): gradient.getStop(i).colour now
+// already returns a ready Colour object. The previously required
+// new Colour(stop.colour) wraps that object again as a "handle"
+// -> any access (noise, hslaf) throws
+// "TypeError: expected ColourHandle".
+// FIX: helper toColour() only wraps when needed — works with
+// both older AND newer Affinity versions.
+// Also: preset saving switched to File.create().
 //
-// Also includes the v28 multi-object fix: each selected object
-// gets its OWN gradient read, processed independently, and
-// written back individually (node.selfSelection instead of
-// doc.selection).
+// BUGFIX v28: the previous preview is ALWAYS undone first, then
+// the guaranteed ORIGINAL gradient is read.
 
 const { Dialog, DialogResult } = require('/dialog');
 const { Document }             = require('/document');
@@ -38,11 +37,16 @@ function mulberry32(seed) {
 }
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 
+// v30: version-safe wrapping (3.3.3+: already a Colour)
+function toColour(c) {
+  return (c instanceof Colour) ? c : new Colour(c);
+}
+
 function readRawStops(gradient) {
   const stops = [];
   for (let i = 0; i < gradient.stopCount; i++) {
     const s   = gradient.getStop(i);
-    const col = new Colour(s.colour);
+    const col = toColour(s.colour);
     stops.push({
       position:   s.position,
       midpoint:   (s.midpoint   != null) ? s.midpoint   : 0.5,
@@ -56,7 +60,7 @@ function readRawStops(gradient) {
   return stops;
 }
 function makeColour(s) {
-  if (s.colHandle) return new Colour(s.colHandle);
+  if (s.colHandle) return toColour(s.colHandle);
   const col = Colour.createHSLAf(s.hslaf);
   col.noise = s.noise || 0;
   return col;
@@ -205,7 +209,7 @@ function applyRedistribution(stops, exp, jmn, jmx, uj, rng) {
 function applyColourJitter(stops, satPct, lightPct, alphaPct, rng) {
   if (satPct === 0 && lightPct === 0 && alphaPct === 0) return stops;
   return stops.map(s => {
-    const base = s.colHandle ? new Colour(s.colHandle).hslaf : s.hslaf;
+    const base = s.colHandle ? toColour(s.colHandle).hslaf : s.hslaf;
     const sF = 1 + (rng()*2-1) * (satPct/100);
     const lF = 1 + (rng()*2-1) * (lightPct/100);
     const aF = 1 + (rng()*2-1) * (alphaPct/100);
@@ -296,7 +300,7 @@ function showMsg(msg) {
 function checkMarkerWarning(count) {
   if (count <= WARN_THRESHOLD) return true;
   return app.confirm(
-    'The largest edited gradient contains ' + count + ' colour stops. ' +
+    'The largest processed gradient contains ' + count + ' colour stops. ' +
     'This may affect performance. Continue anyway?',
     'Many colour stops');
 }
@@ -312,14 +316,14 @@ if (sel.length === 0) {
   const multi = !rangeInfo && targetNodes.length > 1;
 
   const label = {
-    srcGrp:    rangeInfo ? 'Gradient source (marked range)'
+    srcGrp:    rangeInfo ? 'Gradient source (selected range)'
              : multi      ? 'Gradient source (' + targetNodes.length + ' objects)'
-             : firstIsText ? 'Gradient source (Text)'
+             : firstIsText ? 'Gradient source (text)'
              :               'Gradient source',
     fillOpt:   firstIsText ? 'Text fill (default)' : 'Fill (default)',
     strokeOpt: firstIsText ? 'Text stroke' : 'Stroke',
-    noFill:    'None of the selected objects has a fill with a gradient.',
-    noStroke:  'None of the selected objects has a stroke with a gradient.',
+    noFill:    'No selected object has a gradient fill.',
+    noStroke:  'No selected object has a gradient stroke.',
   };
 
   const dlg = Dialog.create('Gradient Tweak');
@@ -336,7 +340,7 @@ if (sel.length === 0) {
   const grp1    = col1.addGroup('Colour Blending');
   const rgBlend = grp1.addRadioGroup('',
     ['Linear', 'Colour wheel CW', 'Colour wheel CCW'], 0);
-  const cbAltCW = grp1.addCheckBox('Alternate CW/CCW on mirror', false);
+  const cbAltCW = grp1.addCheckBox('Alternate CW/CCW when mirroring', false);
 
   const grp2  = col1.addGroup('Duplicates');
   const dupEd = grp2.addUnitValueEditor('Count', 'none', 'none', 2, 2, 32);
@@ -359,7 +363,7 @@ if (sel.length === 0) {
   jitMinEd.isEnabled = false;
   jitMaxEd.isEnabled = false;
 
-  const grp5      = col2.addGroup('Colour Stops - Colour Jitter');
+  const grp5      = col2.addGroup('Colour stops - Colour jitter');
   const cbColJit  = grp5.addCheckBox('Enable colour jitter', false);
   const satJitEd  = grp5.addUnitValueEditor('Saturation %', 'none', 'none', 0, -100, 100);
   satJitEd.value = 0;
@@ -369,7 +373,7 @@ if (sel.length === 0) {
   alphaJitEd.value = 0;
   satJitEd.isEnabled = false; lightJitEd.isEnabled = false; alphaJitEd.isEnabled = false;
 
-  const grp6   = col2.addGroup('Randomness');
+  const grp6   = col2.addGroup('Random');
   const seedEd = grp6.addUnitValueEditor('Seed', 'none', 'none', 1, 0, 999999);
   seedEd.value = 1;
   grp6.addStaticText('', multi
@@ -380,7 +384,7 @@ if (sel.length === 0) {
   const statusText  = grp7.addStaticText('', 'Ready.');
 
   const grpTools     = col2.addGroup('Tools');
-  const btnReset      = grpTools.addButton('Reset (Original)');
+  const btnReset      = grpTools.addButton('Reset (original)');
   const btnPresetSave = grpTools.addButton('Save preset');
   const btnPresetLoad = grpTools.addButton('Load preset');
 
@@ -451,8 +455,8 @@ if (sel.length === 0) {
     if (!name || !name.trim()) return;
     try {
       ensurePresetsDir();
-      const path = presetsDir() + '/GradientTweak_' + name.trim() + '.json';
-      const f = new File(path, 'wb');
+      const path = presetsDir() + '/VerlaufsTweek_' + name.trim() + '.json';
+      const f = File.create(path, 'wb');
       f.writeStringAsUtf8(JSON.stringify(collectFields(), null, 2));
       f.close();
       statusText.text = 'Preset saved: ' + name.trim();
@@ -487,8 +491,6 @@ if (sel.length === 0) {
       break;
     }
 
-    // FIX: undo the previous preview FIRST, so the ORIGINAL
-    // gradient is guaranteed to be read afterwards.
     for (let i = 0; i < undoCount; i++) doc.undo();
     undoCount = 0;
 
@@ -542,7 +544,7 @@ if (sel.length === 0) {
       lastParamsKey = nowKey;
       lastStopCount = maxStopCount;
       statusText.text = plans.length + ' of ' + targetNodes.length +
-        ' object(s) processed, max ' + maxStopCount + ' colour stops.';
+        ' object(s) processed, max. ' + maxStopCount + ' colour stops.';
     } else {
       break;
     }

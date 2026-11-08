@@ -1,23 +1,18 @@
 
 'use strict';
 // ═══════════════════════════════════════════════════════════════════════════════
-// Replace Colours PRO (v23) — English version of "Farben ersetzen PRO v23"
+// Replace Colours PRO (v24) — English version of "Farben ersetzen PRO v24"
 //
-// Changes vs. v22:
-//  - Robust rollback: doc.history.position = … can fail with COMMAND_FAILED when the start
-//    position is 0 (a document without any history yet, e.g. just opened). v23 falls back
-//    to stepping back with history.undo() until the start position is reached, and logs a
-//    warning if it cannot be reached.
-// From v22 (cause of "hatch / gradient is not reset"):
-//  Affinity's undo history is limited in depth (measured: roughly 1070-1080 steps). v19-v21
-//  wrote every fill as its own history step; in large documents the OLDEST preview steps
-//  (gradients, hatches) dropped out of the history and stayed changed. v22+ batches all
-//  fill / stroke / text changes into ONE CompoundCommand (= one history step), processes
-//  every object only once, and verifies/heals hatches AND gradients after every rollback
-//  against a snapshot taken when the dialog opens.
-// Bitmaps are still written as separate steps (few, large objects).
-// Unchanged: selection snapshot (restored only if changed), OK applies fresh, Lab ΔE
-// matching, presets, mapping export.
+// Changes vs. v23 (Affinity 3.3.3):
+//  - Gradient stops already return a Colour object in 3.3.3; new Colour(s.colour) threw
+//    "expected ColourHandle". Consequences: "Replace gradient fills" silently did nothing,
+//    and the gradient snapshot/self-heal after rollback was ineffective.
+//    New: toColour() in snapshotFills(), verifyFills() and addGradientCommand().
+//  - File.create() instead of new File() for preset save and mapping export.
+//  Otherwise unchanged vs. v23.
+// v23: robust rollback (falls back to step-wise history.undo() at position 0).
+// v22: all fill/stroke/text changes in ONE CompoundCommand; hatches and gradients are
+//      verified/healed after every rollback against a snapshot.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const { Document }                            = require('/document');
@@ -29,6 +24,9 @@ const { DocumentCommand, CompoundCommandBuilder } = require('/commands');
 const { StoryDelta }                          = require('/storydelta');
 const { File, FileSystemApi }                 = require('/fs');
 const { app }                                 = require('/application');
+
+// v24: version-safe wrapping (3.3.3+: stop.colour is already a Colour)
+function toColour(c){return (c instanceof Colour)?c:new Colour(c);}
 
 // ─── Byte/string helper ────────────────────────────────────────────────────────
 function bufferToStr(buf){const arr=new Uint8Array(buf);let s='';for(let i=0;i<arr.length;i++)s+=String.fromCharCode(arr[i]);return s;}
@@ -126,7 +124,7 @@ function getPresetPath(){return app.userDesktopPath+'\\'+PRESET_DIR_NAME+'\\'+PR
 function savePreset(settings){
     try{
         FileSystemApi.createDirectories(app.userDesktopPath+'\\'+PRESET_DIR_NAME);
-        const f=new File(getPresetPath(),'wb');
+        const f=File.create(getPresetPath(),'wb');   // v24
         f.writeStringAsUtf8(JSON.stringify(settings));
         f.close();return true;
     }catch(e){console.log('savePreset error: '+e);return false;}
@@ -138,7 +136,7 @@ function exportMapping(mappingLines){
     try{
         FileSystemApi.createDirectories(app.userDesktopPath+'\\'+PRESET_DIR_NAME);
         const path=app.userDesktopPath+'\\'+PRESET_DIR_NAME+'\\ReplaceColours_mapping_'+Date.now()+'.json';
-        const f=new File(path,'wb');
+        const f=File.create(path,'wb');   // v24
         f.writeStringAsUtf8(JSON.stringify(mappingLines,null,2));
         f.close();return path;
     }catch(e){console.log('exportMapping error: '+e);return null;}
@@ -195,7 +193,6 @@ function collectLeafNodes(node,out){
     if(node.isGroupNode){try{for(const ch of node.children)collectLeafNodes(ch,out);}catch(e){}return;}
     out.push(node);
 }
-// Removes selected nodes that already have a selected ancestor.
 function dropNodesWithSelectedAncestor(nodes){
     return nodes.filter(n=>{
         let p;try{p=n.parent;}catch(e){p=null;}
@@ -210,7 +207,6 @@ function dropNodesWithSelectedAncestor(nodes){
 }
 function collectTargetNodes(doc,scope,selNodes){
     if(scope==='all'){
-        // doc.layers.all already contains ALL descendants (incl. group children) → non-groups only.
         return Array.from(doc.layers.all).filter(n=>!n.isGroupNode);
     }
     let top;
@@ -256,9 +252,6 @@ function leafCountOf(nodes){
 }
 
 // ─── Robust history rollback (v23) ────────────────────────────────────────────
-// 1) jump via doc.history.position; 2) if that throws (e.g. COMMAND_FAILED when the start
-// position is 0 — a document without history) or does not reach the target, step back with
-// history.undo(); 3) warn if the target still is not reached.
 function rollbackToPosition(doc,pos){
     try{
         if(doc.history.position!==pos)doc.history.position=pos;
@@ -297,7 +290,7 @@ function snapshotFills(doc){
             }else if(ft===FillType.Gradient.value){
                 gradient.push({node:l,
                                stops:f.gradient.stops.map(s=>({position:s.position,midpoint:s.midpoint,smoothness:s.smoothness,
-                                                               colour:rgbaObj(new Colour(s.colour).rgba8)}))});
+                                                               colour:rgbaObj(toColour(s.colour).rgba8)}))});
             }
         }catch(e){}
     }
@@ -329,7 +322,7 @@ function verifyFills(doc,snap){
             let same=cur.length===s.stops.length;
             if(same){
                 for(let i=0;i<cur.length;i++){
-                    if(!sameRgba(rgbaObj(new Colour(cur[i].colour).rgba8),s.stops[i].colour)||Math.abs(cur[i].position-s.stops[i].position)>1e-6){same=false;break;}
+                    if(!sameRgba(rgbaObj(toColour(cur[i].colour).rgba8),s.stops[i].colour)||Math.abs(cur[i].position-s.stops[i].position)>1e-6){same=false;break;}
                 }
             }
             if(same)continue;
@@ -396,7 +389,7 @@ function addGradientCommand(builder,doc,node,findTarget,tol,mappingLog){
         if(!f||!f.fillType||f.fillType.value!==FillType.Gradient.value)return 0;
         let changed=false;
         const newStops=f.gradient.stops.map(s=>{
-            const rgba=new Colour(s.colour).rgba8;
+            const rgba=toColour(s.colour).rgba8;   // v24
             const t=findTarget(rgba.r,rgba.g,rgba.b,tol);
             if(t){
                 changed=true;
@@ -417,7 +410,7 @@ function addHatchCommand(builder,doc,node,findTarget,tol,mappingLog){
     try{
         const fd=node.brushFillDescriptor;if(!fd)return 0;const f=fd.fill;
         if(!f||!f.fillType||f.fillType.value!==FillType.Hatch.value)return 0;
-        const nf=f.clone();                 // edit the clone, the original fill stays untouched
+        const nf=f.clone();
         let changed=false;
         if(f.penColour){
             const rgba=f.penColour.rgba8;
@@ -438,8 +431,6 @@ function addHatchCommand(builder,doc,node,findTarget,tol,mappingLog){
     }catch(e){console.log('hatch:'+e);return 0;}
 }
 
-// Text: fill AND stroke (glyph attributes of the first character), via createFormatText
-// in the same compound. Only single-colour text per object is reliably supported.
 function addTextCommands(builder,node,findTarget,tol,mappingLog){
     let n=0;
     try{
@@ -447,7 +438,7 @@ function addTextCommands(builder,node,findTarget,tol,mappingLog){
         if(!story||story.length===0)return 0;
         const atts=story.getGlyphAtts(0);
         const bf=atts.brushFill;
-        if(bf&&bf.fill&&bf.fill.fillType&&bf.fill.fillType.value===FillType.Solid.value){
+        if(bf&&bf.fill&&bf.fill.fillType&&bf.fill.fillType.value===FillType.Solid.value&&bf.fill.colour){
             const rgba=bf.fill.colour.rgba8;
             const t=findTarget(rgba.r,rgba.g,rgba.b,tol);
             if(t){
@@ -458,7 +449,7 @@ function addTextCommands(builder,node,findTarget,tol,mappingLog){
             }
         }
         const pf=atts.penFill;
-        if(pf&&pf.fill&&pf.fill.fillType&&pf.fill.fillType.value===FillType.Solid.value){
+        if(pf&&pf.fill&&pf.fill.fillType&&pf.fill.fillType.value===FillType.Solid.value&&pf.fill.colour){
             const rgba=pf.fill.colour.rgba8;
             const t=findTarget(rgba.r,rgba.g,rgba.b,tol);
             if(t){
@@ -473,8 +464,6 @@ function addTextCommands(builder,node,findTarget,tol,mappingLog){
 }
 
 // ─── Replace everything ───────────────────────────────────────────────────────
-// Bitmaps as separate steps; ALL other changes in ONE compound command
-// (= one history step, regardless of the number of objects).
 function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWeight,
                     includeStroke,includeGradient,includeHatch,includeText,mappingLog){
     if(!palette||!palette.length)return{count:0};
@@ -484,10 +473,8 @@ function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWei
     const nodes=collectTargetNodes(doc,scope,selNodes);
     let count=0;
 
-    // Phase 1: bitmap (own steps)
     for(const n of nodes){if(n.rasterInterface){count+=replaceRaster(doc,n,findTarget,tol,mappingLog);}}
 
-    // Phase 2: everything else batched
     const builder=CompoundCommandBuilder.create();
     let batched=0;
     for(const n of nodes){
@@ -523,8 +510,6 @@ function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWei
 
     const preset=loadPreset();
 
-    // Save selection, history start position and hatch/gradient start colours ONCE —
-    // before the dialog and before any edit.
     const selNodes=snapshotSelectionNodes(doc);
     const posBeforePreview=doc.history.position;
     const fillSnap=snapshotFills(doc);
@@ -611,8 +596,6 @@ function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWei
         return idx===1?'selection':idx===2?'activeLayer':'all';
     }
 
-    // Rollback to the original state. A preview run is now only one or two history steps deep;
-    // afterwards hatches and gradients are verified against the snapshot.
     function rollbackPreview(){
         rollbackToPosition(doc,posBeforePreview);
         verifyFills(doc,fillSnap);
@@ -637,7 +620,7 @@ function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWei
     function updatePreview(){
         if(updateGuard)return;updateGuard=true;
         try{
-            rollbackPreview();   // always start from the untouched original
+            rollbackPreview();
 
             if(!swPrev.value){txStat.text='Preview off.';txMap.text='';return;}
             const pal=getCurrentPalette();
@@ -658,7 +641,6 @@ function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWei
                 :'Preview: no matches. '+expanded.length+' target colours.';
             txMap.text=formatMappingSummary(mappingLog);
         }catch(e){
-            // Partial edits must not remain after an error.
             rollbackPreview();
             txStat.text='Error: '+e.message;txMap.text='';
         }
@@ -711,7 +693,6 @@ function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWei
     }
 
     if(result&&result.value===DialogResult.Ok.value){
-        // Discard the preview, then apply fresh with the final settings.
         rollbackPreview();
         const pal=getCurrentPalette();
         const scope=currentScope();

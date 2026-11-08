@@ -1,4 +1,4 @@
-// Transfer Fills and Strokes v20
+// Transfer Fills and Strokes v22
 // Transfers fills and/or strokes from a "base" group (fewer objects) to a "target" group
 // (more objects), including HSL colour jitter and optional geometry jitter.
 // v2-v8: anchor undo, bitmap jitter in JS, subgroups, opacity jitter, seed, presets,
@@ -7,20 +7,19 @@
 // v14-v16: line style via command, undoToBase() via single undo steps (safe at position 0 too).
 // v17: text objects (text->text always, shape->text optional, text->shape never).
 // v18: OK recalculates when settings changed.
+// v19: a pass is ONE history step (CompoundCommand).
+// v20: GUI split into tabs (pages), as in "Transform Objects" v8.
+// v21: Affinity 3.3.3 - toColour() for gradient stops.
 //
-// v19: A pass is now ONE history step. Affinity's undo history is limited to roughly
-//      1070 steps; so far every target object created 1-5 steps of its own (fill, stroke,
-//      line style, blend mode, geometry), so with large groups the oldest preview steps
-//      dropped out of the history and were no longer reverted. All changes now run in one
-//      CompoundCommand (text via createFormatText).
-//
-// v20: GUI split into tabs (pages), as in "Transform Objects" v8: on the left a permanently
-//      visible column (tab selection, info, preview and presets), on the right two columns per
-//      page. The groups of the active page are shown, all others hidden (group.isVisible).
-//      Pages: 1 Transfer & assignment, 2 Colour jitter, 3 Geometry jitter, 4 Options. The
-//      former combined group "More options" is split into three groups (More options, Text,
-//      Matching) for this - the checkboxes themselves are unchanged. Functions unchanged
-//      from v19.
+// v22: FIX gradient/bitmap position for text and anchored fills:
+//      - text->text and shape->text copied the source fill transform unchanged
+//        -> the gradient sat at the source position (outside the target).
+//      - shape->shape with a source fill ANCHORED to the spread was wrongly mapped like a
+//        local fill.
+//      New: second mapping path via spread space (source spread box -> target spread box).
+//      Shape targets get the result converted back into their local system (not anchored,
+//      as before); text gets the fill anchored (as in "Convert to Gradient").
+//      Normal shape->shape transfer is unchanged.
 (function () {
     const { Document } = require('/document');
     const { Selection } = require('/selections');
@@ -37,7 +36,6 @@
     const doc = Document.current;
     if (!doc) { app.alert('No document open.', TITLE); return; }
 
-    // v19: collects commands for ONE CompoundCommand (an empty compound throws INVALID_OP)
     function makeBatch() {
         const builder = CompoundCommandBuilder.create();
         let count = 0;
@@ -46,6 +44,8 @@
             run() { if (count > 0) doc.executeCommand(builder.createCommand()); return count; }
         };
     }
+
+    function toColour(c) { return (c instanceof Colour) ? c : new Colour(c); }
 
     // ---------- Helpers ----------
     let rngFunc = Math.random;
@@ -90,7 +90,6 @@
         if (usePen) return node.hasPenFill ? node.penFillDescriptor : null;
         return node.hasBrushFill ? node.brushFillDescriptor : null;
     }
-    // v19: add the command to the compound instead of executing it (text via createFormatText)
     function addFDCommand(batch, node, fd, usePen) {
         if (isTextNode(node)) {
             const delta = usePen ? StoryDelta.createPenFill(fd) : StoryDelta.createBrushFill(fd);
@@ -110,7 +109,7 @@
     }
 
     function jitterHSL(col, dh, ds, dl, da) {
-        const h = col.hslaf;
+        const h = toColour(col).hslaf;
         return Colour.createHSLAf({
             h: wrap01(h.h + dh / 360),
             s: clamp01(h.s + ds / 100),
@@ -122,10 +121,10 @@
     function getFirstHue(fill) {
         if (!fill) return null;
         const ft = fill.fillType.value;
-        if (ft === FillType.Solid.value) return fill.colour.hslaf.h;
+        if (ft === FillType.Solid.value) return toColour(fill.colour).hslaf.h;
         if (ft === FillType.Gradient.value) {
             if (fill.gradient.stopCount === 0) return null;
-            return new Colour(fill.gradient.getStop(0).colour).hslaf.h;
+            return toColour(fill.gradient.getStop(0).colour).hslaf.h;
         }
         return null;
     }
@@ -134,7 +133,7 @@
         if (!fill) return null;
         const ft = fill.fillType.value;
         if (ft === FillType.Solid.value) {
-            const h = fill.colour.hslaf;
+            const h = toColour(fill.colour).hslaf;
             return { avgS: h.s, avgL: h.l };
         }
         if (ft === FillType.Gradient.value) {
@@ -142,7 +141,7 @@
             if (g.stopCount === 0) return null;
             let sumS = 0, sumL = 0;
             for (let i = 0; i < g.stopCount; i++) {
-                const hh = new Colour(g.getStop(i).colour).hslaf;
+                const hh = toColour(g.getStop(i).colour).hslaf;
                 sumS += hh.s; sumL += hh.l;
             }
             return { avgS: sumS / g.stopCount, avgL: sumL / g.stopCount };
@@ -174,6 +173,7 @@
         return { dh: dhOut, ds: dsOut, dl: dlOut };
     }
 
+    // ---------- Mapping in LOCAL space (shape -> shape, not anchored) ----------
     function remapTransform(srcTr, srcBB, dstBB, preserveAspect) {
         const ox = (srcTr.origin.x - srcBB.x) / (srcBB.width || 1);
         const oy = (srcTr.origin.y - srcBB.y) / (srcBB.height || 1);
@@ -205,6 +205,78 @@
         d[0] = srcTr.xAxis.x; d[3] = srcTr.xAxis.y;
         d[1] = srcTr.yAxis.x; d[4] = srcTr.yAxis.y;
         return nt;
+    }
+
+    // ---------- v22: mapping in SPREAD space (text / anchored source) ----------
+    function tfData(node) { const d = node.transform.data; return [d[0], d[1], d[2], d[3], d[4], d[5]]; }
+    function composeM(A, B) { // first A, then B
+        return [B[0]*A[0]+B[1]*A[3], B[0]*A[1]+B[1]*A[4], B[0]*A[2]+B[1]*A[5]+B[2],
+                B[3]*A[0]+B[4]*A[3], B[3]*A[1]+B[4]*A[4], B[3]*A[2]+B[4]*A[5]+B[5]];
+    }
+    function nodeToSpreadM(node) {
+        let m = tfData(node), p = node.parent;
+        while (p) { try { m = composeM(m, tfData(p)); } catch (e) { break; } p = p.parent; }
+        return m;
+    }
+    function invertM(m) {
+        const det = m[0] * m[4] - m[1] * m[3];
+        if (Math.abs(det) < 1e-12) return null;
+        return [ m[4]/det, -m[1]/det, (m[1]*m[5]-m[4]*m[2])/det,
+                -m[3]/det,  m[0]/det, (m[3]*m[2]-m[0]*m[5])/det ];
+    }
+    function applyM(m, x, y) { return { x: m[0]*x + m[1]*y + m[2], y: m[3]*x + m[4]*y + m[5] }; }
+    function geomFromTr(tr) {
+        return { ox: tr.origin.x, oy: tr.origin.y, v1x: tr.xAxis.x, v1y: tr.xAxis.y, v2x: tr.yAxis.x, v2y: tr.yAxis.y };
+    }
+    function mapGeom(m, g) {
+        const o = applyM(m, g.ox, g.oy), p1 = applyM(m, g.ox + g.v1x, g.oy + g.v1y), p2 = applyM(m, g.ox + g.v2x, g.oy + g.v2y);
+        return { ox: o.x, oy: o.y, v1x: p1.x - o.x, v1y: p1.y - o.y, v2x: p2.x - o.x, v2y: p2.y - o.y };
+    }
+    function geomToTransform(g) {
+        const t = Transform.createIdentity(); const d = t.data;
+        d[0] = g.v1x; d[3] = g.v1y; d[1] = g.v2x; d[4] = g.v2y; d[2] = g.ox; d[5] = g.oy;
+        return t;
+    }
+    function spreadGeomOfFD(fd, node) {
+        const g = geomFromTr(fd.transform);
+        return fd.isAnchoredToSpread ? g : mapGeom(nodeToSpreadM(node), g);
+    }
+    function remapGeomBB(g, srcBB, dstBB, preserveAspect, tile) {
+        if (tile) {
+            const sCx = srcBB.x + srcBB.width / 2, sCy = srcBB.y + srcBB.height / 2;
+            const dCx = dstBB.x + dstBB.width / 2, dCy = dstBB.y + dstBB.height / 2;
+            return { ox: dCx + (g.ox - sCx), oy: dCy + (g.oy - sCy), v1x: g.v1x, v1y: g.v1y, v2x: g.v2x, v2y: g.v2y };
+        }
+        const sw = srcBB.width || 1, sh = srcBB.height || 1;
+        let dw = dstBB.width, dh = dstBB.height, dx0 = dstBB.x, dy0 = dstBB.y;
+        if (preserveAspect) {
+            const scale = Math.min(dstBB.width / sw, dstBB.height / sh);
+            dw = sw * scale; dh = sh * scale;
+            dx0 = dstBB.x + (dstBB.width - dw) / 2;
+            dy0 = dstBB.y + (dstBB.height - dh) / 2;
+        }
+        return {
+            ox: dx0 + (g.ox - srcBB.x) / sw * dw, oy: dy0 + (g.oy - srcBB.y) / sh * dh,
+            v1x: g.v1x / sw * dw, v1y: g.v1y / sh * dh,
+            v2x: g.v2x / sw * dw, v2y: g.v2y / sh * dh
+        };
+    }
+    function buildFDSpread(srcFD, srcNode, dstNode, jitteredFill, bitmapMode, preserveAspect, transferBlend, dstOwnBlend, dstIsText) {
+        const blendMode = transferBlend ? srcFD.blendMode : dstOwnBlend;
+        if (jitteredFill.fillType.value === FillType.Solid.value) {
+            return FillDescriptor.createSolid(jitteredFill.colour, blendMode);
+        }
+        const tile = jitteredFill.fillType.value === FillType.Bitmap.value && bitmapMode === 1;
+        const srcBB = srcNode.getSpreadBaseBox(false), dstBB = dstNode.getSpreadBaseBox(false);
+        const g = remapGeomBB(spreadGeomOfFD(srcFD, srcNode), srcBB, dstBB, preserveAspect, tile);
+        if (dstIsText) {
+            // text: anchored to the spread (as in "Convert to Gradient")
+            return FillDescriptor.create(jitteredFill, false, geomToTransform(g), blendMode, true);
+        }
+        // shape: convert back into the target's local system -> not anchored (as before)
+        const inv = invertM(nodeToSpreadM(dstNode));
+        if (!inv) return FillDescriptor.create(jitteredFill, false, geomToTransform(g), blendMode, true);
+        return FillDescriptor.create(jitteredFill, true, geomToTransform(mapGeom(inv, g)), blendMode, false);
     }
 
     function rgbToHslJS(r, g, b) {
@@ -251,7 +323,7 @@
             const stops = [];
             for (let i = 0; i < g.stopCount; i++) {
                 const st = g.getStop(i);
-                const col = new Colour(st.colour);
+                const col = toColour(st.colour);
                 stops.push({ colour: jitterHSL(col, dh, ds, dl, da), position: st.position, midpoint: st.midpoint });
             }
             return GradientFill.create(Gradient.create(stops), fill.gradientFillType);
@@ -305,20 +377,20 @@
         return FillDescriptor.create(jitteredFill, true, nt, blendMode, false);
     }
 
-    function buildFDNoRemap(srcFD, jitteredFill, transferBlend, dstOwnBlend) {
-        const blendMode = transferBlend ? srcFD.blendMode : dstOwnBlend;
-        if (jitteredFill.fillType.value === FillType.Solid.value) {
-            return FillDescriptor.createSolid(jitteredFill.colour, blendMode);
-        }
-        return FillDescriptor.create(jitteredFill, true, srcFD.transform, blendMode, false);
-    }
-
     function jitterOwnFD(fd, dh, ds, dl, da) {
         const jf = jitterFillPreserveType(fd.fill, dh, ds, dl, da);
         if (jf.fillType.value === FillType.Solid.value) {
             return FillDescriptor.createSolid(jf.colour, fd.blendMode);
         }
         return FillDescriptor.create(jf, fd.isScaleWithObject, fd.transform, fd.blendMode, fd.isAnchoredToSpread);
+    }
+
+    // v22: choice of mapping path
+    function buildTransferFD(srcFD, src, dst, jf, p, dstOwnBlend, srcIsText, dstIsText) {
+        if (!srcIsText && !dstIsText && !srcFD.isAnchoredToSpread) {
+            return buildFD(srcFD, localBB(src), localBB(dst), jf, p.bitmapMode, p.preserveAspect, p.transferBlend, dstOwnBlend);
+        }
+        return buildFDSpread(srcFD, src, dst, jf, p.bitmapMode, p.preserveAspect, p.transferBlend, dstOwnBlend, dstIsText);
     }
 
     function addGeoJitter(batch, node, dxPx, dyPx, dRotDeg, scaleFactor) {
@@ -416,10 +488,7 @@
         doc.executeCommand(DocumentCommand.createSetSelection(Selection.create(doc, [groups.src, groups.dst])));
     }
 
-    // ---------- Dialog (v20: tabbed GUI) ----------
-    // On the left a narrow, permanently visible column (tab selection, info, preview, presets),
-    // on the right two content columns. Each page consists of groups in these two columns;
-    // when switching, the groups of the active page are shown and all others hidden.
+    // ---------- Dialog (tabbed GUI) ----------
     const PAGE_TITLES = ['1  Transfer & assignment', '2  Colour jitter', '3  Geometry jitter', '4  Options'];
     const dlg = Dialog.create(TITLE);
     dlg.initialWidth = 1000;
@@ -436,13 +505,11 @@
         try {
             for (let k = 0; k < PAGES.length; k++) for (const g of PAGES[k]) g.isVisible = (k === i);
         } catch (e) {
-            // Fallback: hiding not possible -> leave everything visible
             pagedOK = false;
             try { for (const pg of PAGES) for (const g of pg) g.isVisible = true; } catch (e2) { /* ignore */ }
         }
     }
 
-    // Left column: always visible
     const gNav = cNav.addGroup('Tabs');
     const rNav = gNav.addRadioGroup('', PAGE_TITLES, 0);
     const gInfo = cNav.addGroup('Info');
@@ -452,7 +519,6 @@
     const btnLoad = gAction.addButton('Load preset');
     const btnSave = gAction.addButton('Save preset');
 
-    // Page 1: Transfer & assignment
     const gMode = pageGroup(0, cA, 'Transfer');
     const rgMode = gMode.addRadioGroup('', ['Fill', 'Stroke', 'Both', 'Colour jitter only'], 2);
     const gBmp = pageGroup(0, cA, 'Bitmap pattern');
@@ -462,7 +528,6 @@
     const edSeed = gSeq.addUnitValueEditor('Random seed (0=random)', UnitType.Number, UnitType.Number, null, 0, 999999); edSeed.value = 0;
     const cbSameJitter = gSeq.addCheckBox('Same jitter per source object', false);
 
-    // Page 2: Colour jitter
     const gHue = pageGroup(1, cA, 'Jitter: Hue (°)');
     const edHueMin = gHue.addUnitValueEditor('Min', UnitType.Degree, UnitType.Degree, null, -180, 180); edHueMin.value = 0;
     const edHueMax = gHue.addUnitValueEditor('Max', UnitType.Degree, UnitType.Degree, null, -180, 180); edHueMax.value = 0;
@@ -476,7 +541,6 @@
     const edOpMin = gOp.addUnitValueEditor('Min', UnitType.Percentage, UnitType.Percentage, null, -100, 100); edOpMin.value = 0;
     const edOpMax = gOp.addUnitValueEditor('Max', UnitType.Percentage, UnitType.Percentage, null, -100, 100); edOpMax.value = 0;
 
-    // Page 3: Geometry jitter
     const gGeoOn = pageGroup(2, cA, 'Geometry jitter');
     const cbGeo = gGeoOn.addCheckBox('Apply geometry jitter', false);
     const gPos = pageGroup(2, cA, 'Position (px)');
@@ -495,7 +559,6 @@
     const edSizePctMin = gSizePct.addUnitValueEditor('Min', UnitType.Percentage, UnitType.Percentage, null, -100, 500); edSizePctMin.value = 0;
     const edSizePctMax = gSizePct.addUnitValueEditor('Max', UnitType.Percentage, UnitType.Percentage, null, -100, 500); edSizePctMax.value = 0;
 
-    // Page 4: Options
     const gExtra = pageGroup(3, cA, 'More options');
     const cbBlend = gExtra.addCheckBox('Transfer blend mode', true);
     const cbAspect = gExtra.addCheckBox('Keep aspect ratio', false);
@@ -618,7 +681,7 @@
         }
     }
 
-    // ---------- Apply (v19: everything in ONE CompoundCommand) ----------
+    // ---------- Apply (everything in ONE CompoundCommand) ----------
     function doApply(p) {
         setSeed(p.seed);
         const batch = makeBatch();
@@ -665,9 +728,7 @@
                                 const deltas = computeAlignedDeltas(srcFD.fill, dstFD ? dstFD.fill : null, p, dh, ds, dl);
                                 const jf = jitterFillPreserveType(srcFD.fill, deltas.dh, deltas.ds, deltas.dl, da);
                                 const dstOwnBlend = dstFD ? dstFD.blendMode : srcFD.blendMode;
-                                const nfd = bothShapes
-                                    ? buildFD(srcFD, localBB(src), localBB(dst), jf, p.bitmapMode, p.preserveAspect, p.transferBlend, dstOwnBlend)
-                                    : buildFDNoRemap(srcFD, jf, p.transferBlend, dstOwnBlend);
+                                const nfd = buildTransferFD(srcFD, src, dst, jf, p, dstOwnBlend, srcIsText, dstIsText);   // v22
                                 addFDCommand(batch, dst, nfd, false);
                             }
                         }
@@ -678,9 +739,7 @@
                                 const deltas = computeAlignedDeltas(srcPFD.fill, dstPFD ? dstPFD.fill : null, p, dh, ds, dl);
                                 const jf = jitterFillPreserveType(srcPFD.fill, deltas.dh, deltas.ds, deltas.dl, da);
                                 const dstOwnBlend = dstPFD ? dstPFD.blendMode : srcPFD.blendMode;
-                                const npfd = bothShapes
-                                    ? buildFD(srcPFD, localBB(src), localBB(dst), jf, p.bitmapMode, p.preserveAspect, p.transferBlend, dstOwnBlend)
-                                    : buildFDNoRemap(srcPFD, jf, p.transferBlend, dstOwnBlend);
+                                const npfd = buildTransferFD(srcPFD, src, dst, jf, p, dstOwnBlend, srcIsText, dstIsText);   // v22
                                 addFDCommand(batch, dst, npfd, true);
                                 if (bothShapes) {
                                     try { addLineStyleExceptWeight(batch, src, dst); } catch (e2) { /* optional */ }
@@ -714,7 +773,6 @@
     }
 
     const basePos = doc.history.position;
-    // Single undo steps (updates the History panel; safe at position 0)
     function undoToBase() {
         let guard = 0;
         while (doc.history.position > basePos && guard++ < 100000) {

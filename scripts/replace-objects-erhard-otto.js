@@ -1,4 +1,4 @@
-// Replace Objects v11
+// Replace Objects v12
 // Replaces the objects of the "target" group (more objects) with duplicates of the objects of
 // the "base" group (fewer objects). Each target object is replaced at its position/size by a
 // duplicate of the assigned base object (the original stays in the base group).
@@ -8,23 +8,13 @@
 // v2-v8: bitmap jitter in JS, cleanupBasisLeaks(), selection reset, one runModal(),
 //        presets subfolder, text support (GlyphAtts/StoryDelta).
 // v9:  safe rollback at history position 0, OK recalculates when settings changed.
+// v10: few history steps (duplicating in rounds, one CompoundCommand).
+// v11: GUI split into tabs (pages), as in "Transform Objects" v8.
 //
-// v10: Few history steps instead of about 7 per target object. Affinity's undo history is
-//      limited to roughly 1070 steps; from about 150 targets on, the oldest preview steps
-//      dropped out of the history and were no longer reverted.
-//      1) Duplicating in rounds: per round ONE command that duplicates all base objects
-//         needed in that round (number of rounds = highest use count of a base object).
-//         The new objects come back via cmd.newNodes in document order; every match is
-//         checked by signature (type, box, fill colour), on mismatch the round is
-//         duplicated one by one.
-//      2) Placing, colour jitter, reordering and deleting the targets run in ONE
-//         CompoundCommand. Tested live: 300 targets, 3 base objects -> 101 instead of
-//         about 2100 steps, rollback exact.
-//
-// v11: GUI split into tabs (pages), as in "Transform Objects" v8: on the left a permanently
-//      visible column (tab selection, info, preview and presets), on the right two columns per
-//      page. The groups of the active page are shown, all others hidden (group.isVisible).
-//      Pages: 1 Assignment, 2 Colour jitter, 3 Geometry jitter. Functions unchanged from v10.
+// v12: Affinity 3.3.3 - gradient.getStop(i).colour now already returns a Colour object;
+//      new Colour(st.colour) produced an invalid colour ("expected ColourHandle"), so objects
+//      with a gradient fill/stroke were silently skipped. New helper toColour() only wraps
+//      when needed (works with older and newer Affinity versions).
 (function () {
     const { Document } = require('/document');
     const { Selection } = require('/selections');
@@ -60,6 +50,9 @@
     }
 
     function toArr(x) { try { return x.toArray ? x.toArray() : Array.from(x); } catch (e) { return []; } }
+
+    // v12: version-safe wrapping (3.3.3+: already a Colour)
+    function toColour(c) { return (c instanceof Colour) ? c : new Colour(c); }
 
     // Comparison signature for matching duplicate <-> base object
     function nodeSig(n) {
@@ -316,9 +309,6 @@
     }
 
     // ---------- Dialog (v11: tabbed GUI) ----------
-    // On the left a narrow, permanently visible column (tab selection, info, preview, presets),
-    // on the right two content columns. Each page consists of groups in these two columns;
-    // when switching, the groups of the active page are shown and all others hidden.
     const PAGE_TITLES = ['1  Assignment', '2  Colour jitter', '3  Geometry jitter'];
     const dlg = Dialog.create(TITLE);
     dlg.initialWidth = 1000;
@@ -335,7 +325,6 @@
         try {
             for (let k = 0; k < PAGES.length; k++) for (const g of PAGES[k]) g.isVisible = (k === i);
         } catch (e) {
-            // Fallback: hiding not possible -> leave everything visible
             pagedOK = false;
             try { for (const pg of PAGES) for (const g of pg) g.isVisible = true; } catch (e2) { /* ignore */ }
         }
@@ -505,7 +494,7 @@
             const stops = [];
             for (let i = 0; i < g.stopCount; i++) {
                 const st = g.getStop(i);
-                const col = new Colour(st.colour);
+                const col = toColour(st.colour);
                 stops.push({ colour: jitterHSL(col, dh, ds, dl, da), position: st.position, midpoint: st.midpoint });
             }
             const nf = GradientFill.create(Gradient.create(stops), fill.gradientFillType);

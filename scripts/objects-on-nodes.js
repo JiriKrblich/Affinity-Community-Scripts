@@ -1,4 +1,4 @@
-// Objects on Nodes v12
+// Objects on Nodes v13
 // Places duplicates of the objects of a "base" group onto the curve nodes (anchor points) of
 // the objects of a "target" group, including all subgroups. Each node receives exactly one
 // base-object duplicate, centred on the node. Nodes closer than the distance tolerance are
@@ -10,23 +10,13 @@
 //        presets subfolder, group name "Node_Objects_<index>", text support.
 // v9:  base/target via "_" name prefix, otherwise object count.
 // v10: safe rollback at history position 0, OK recalculates when settings changed.
+// v11: few history steps (duplicating in rounds, CompoundCommands).
+// v12: GUI split into tabs (pages), as in "Transform Objects" v8.
 //
-// v11: Few history steps instead of about 6 per node point. Affinity's undo history is
-//      limited to roughly 1070 steps; with many node points the oldest preview steps
-//      dropped out of the history and were no longer reverted.
-//      1) Duplicating in rounds: per round ONE command for all base objects needed in that
-//         round (matched via cmd.newNodes, checked by signature; on mismatch the round is
-//         duplicated one by one).
-//      2) Placing and colour jitter in ONE CompoundCommand, then the group is created and
-//         naming + sorting run in a second CompoundCommand.
-//      The new group is now taken directly from cmd.newNodes instead of a document search.
-//
-// v12: GUI split into tabs (pages), as in "Transform Objects" v8: on the left a permanently
-//      visible column (tab selection, info, preview and presets), on the right two columns per
-//      page. The groups of the active page are shown, all others hidden (group.isVisible).
-//      Pages: 1 Nodes & assignment, 2 Colour jitter, 3 Rotation & size. The distance tolerance
-//      now sits in its own group "Nodes" (previously in the Info group). Functions unchanged
-//      from v11.
+// v13: Affinity 3.3.3 - gradient.getStop(i).colour now already returns a Colour object;
+//      new Colour(st.colour) produced an invalid colour ("expected ColourHandle"), so node
+//      points with gradient base objects were silently skipped. New helper toColour() only
+//      wraps when needed (works with older and newer Affinity versions).
 (function () {
     const { Document } = require('/document');
     const { Selection } = require('/selections');
@@ -64,6 +54,9 @@
     }
 
     function toArr(x) { try { return x.toArray ? x.toArray() : Array.from(x); } catch (e) { return []; } }
+
+    // v13: version-safe wrapping (3.3.3+: already a Colour)
+    function toColour(c) { return (c instanceof Colour) ? c : new Colour(c); }
 
     function nodeSig(n) {
         let s = (n[Symbol.toStringTag] || '') + '|';
@@ -186,7 +179,7 @@
             const stops = [];
             for (let i = 0; i < g.stopCount; i++) {
                 const st = g.getStop(i);
-                const col = new Colour(st.colour);
+                const col = toColour(st.colour);
                 stops.push({ colour: jitterHSL(col, dh, ds, dl, da), position: st.position, midpoint: st.midpoint });
             }
             const nf = GradientFill.create(Gradient.create(stops), fill.gradientFillType);
@@ -446,9 +439,6 @@
     for (const l of doc.layers.all) originalTopLevel.push(l);
 
     // ---------- Dialog (v12: tabbed GUI) ----------
-    // On the left a narrow, permanently visible column (tab selection, info, preview, presets),
-    // on the right two content columns. Each page consists of groups in these two columns;
-    // when switching, the groups of the active page are shown and all others hidden.
     const PAGE_TITLES = ['1  Nodes & assignment', '2  Colour jitter', '3  Rotation & size'];
     const dlg = Dialog.create(TITLE);
     dlg.initialWidth = 1000;
@@ -465,7 +455,6 @@
         try {
             for (let k = 0; k < PAGES.length; k++) for (const g of PAGES[k]) g.isVisible = (k === i);
         } catch (e) {
-            // Fallback: hiding not possible -> leave everything visible
             pagedOK = false;
             try { for (const pg of PAGES) for (const g of pg) g.isVisible = true; } catch (e2) { /* ignore */ }
         }

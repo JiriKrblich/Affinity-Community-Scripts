@@ -1,13 +1,13 @@
 'use strict';
 // ============================================================
-//  Form on Path v45-EN
-//  English GUI — identical logic to Form an Pfad v45
+//  Form on Path v46-EN
+//  English GUI — identical logic to Form an Pfad v46
+//  v46: Affinity 3.3.3 - Colour.createRGBAf() does not exist;
+//       the float RGB factory is createRGBAuf(). In colour mode
+//       "RGB Start -> End" lerpColRGB() therefore failed silently
+//       (try/catch) and colours stayed unchanged. Now mkRGBAf()
+//       with createRGBAuf / createRGBAf fallback.
 //  v45: Tab-based GUI (6 tabs) like objekte-transformieren-v8.
-//       Left navigation column always visible (tabs, preview,
-//       preset); right two content columns per tab:
-//         1 Anchor Points   2 Angle & Sequence
-//         3 Distance & Scaling   4 Colour
-//         5 Cosine            6 Output & Preset
 //  v44: dupSrc() single source duplicate; preview key;
 //       app.alert params; File.create().
 //  v43: composedSpreadTF for objects in transformed groups.
@@ -102,10 +102,12 @@ function getFDFromNode(node,usePen){if(isTextNode(node)){const story=node.storyI
 function setFDOnNode(node,fd,usePen){if(isTextNode(node)){const delta=usePen?StoryDelta.createPenFill(fd):StoryDelta.createBrushFill(fd);doc.executeCommand(DocumentCommand.createSetSelection(node.selfSelection));doc.formatText(delta,doc.selection,false);}else if(usePen){doc.executeCommand(DocumentCommand.createSetPenFill(node.selfSelection,fd));}else{doc.executeCommand(DocumentCommand.createSetBrushFill(node.selfSelection,fd));}}
 
 // ── Colour ────────────────────────────────────────────────
+// v46: the float RGB factory is createRGBAuf (createRGBAf does not exist)
+function mkRGBAf(o){const f=Colour.createRGBAuf||Colour.createRGBAf;return f.call(Colour,o);}
 function colToRgba(col){try{const c=col instanceof Colour?col:new Colour(col);const r=c.rgba8;return{r:r.r/255,g:r.g/255,b:r.b/255,a:r.alpha/255};}catch(e){return{r:0,g:0,b:0,a:1};}}
 function colToHsla(col){try{const c=col instanceof Colour?col:new Colour(col);const h=c.hslaf;return{h:h.h,s:h.s,l:h.l,a:h.alpha};}catch(e){const r=colToRgba(col);return{h:0,s:0,l:r.r*0.299+r.g*0.587+r.b*0.114,a:r.a};}}
 function lerpHue(h1,h2,t){let d=h2-h1;if(d>0.5)d-=1;if(d<-0.5)d+=1;return((h1+d*t)%1+1)%1;}
-function lerpColRGB(ca,cb,t){const a=colToRgba(ca),b=colToRgba(cb);return Colour.createRGBAf({r:a.r+t*(b.r-a.r),g:a.g+t*(b.g-a.g),b:a.b+t*(b.b-a.b),alpha:a.a+t*(b.a-a.a)});}
+function lerpColRGB(ca,cb,t){const a=colToRgba(ca),b=colToRgba(cb);return mkRGBAf({r:a.r+t*(b.r-a.r),g:a.g+t*(b.g-a.g),b:a.b+t*(b.b-a.b),alpha:a.a+t*(b.a-a.a)});}
 function lerpColHSL(ca,cb,t){const a=colToHsla(ca),b=colToHsla(cb);return Colour.createHSLAf({h:lerpHue(a.h,b.h,t),s:a.s+t*(b.s-a.s),l:a.l+t*(b.l-a.l),alpha:a.a+t*(b.a-a.a)});}
 function lerpFD(fdA,fdB,t,useRGB){if(!fdA||!fdB)return fdA||fdB;const getft=f=>f.fill?f.fill.fillType.value:f.fillType?.value;const ftA=getft(fdA),ftB=getft(fdB);const lerpCol=useRGB?lerpColRGB:lerpColHSL;const solidVal=FillType.Solid.value,gradVal=FillType.Gradient.value;if(ftA===solidVal&&ftB===solidVal){const cA=fdA.fill?fdA.fill.colour:fdA.colour,cB=fdB.fill?fdB.fill.colour:fdB.colour;return FillDescriptor.createSolid(lerpCol(cA,cB,t));}if(ftA===gradVal&&ftB===gradVal){const gA=fdA.fill?fdA.fill.gradient:fdA.gradient,gB=fdB.fill?fdB.fill.gradient:fdB.gradient;const n=Math.min(gA.stopCount,gB.stopCount);const stops=[];for(let i=0;i<n;i++){const sA=gA.getStop(i),sB=gB.getStop(i);stops.push({colour:lerpCol(sA.colour,sB.colour,t),position:sA.position+t*(sB.position-sA.position),midpoint:sA.midpoint+t*(sB.midpoint-sA.midpoint)});}if(fdA.fill)return FillDescriptor.create(fdA.fill.constructor.create(gA.constructor.create(stops),fdA.fill.gradientFillType),fdA.isScaleWithObject,fdA.transform,fdA.blendMode,fdA.isAnchoredToSpread);return FillDescriptor.create(fdA.constructor.create(gA.constructor.create(stops),fdA.gradientFillType),fdA.isScaleWithObject,fdA.transform,fdA.blendMode,fdA.isAnchoredToSpread);}return t<0.5?fdA:fdB;}
 function applyColourBlendRecursive(dupNode,srcA,srcB,tPos,useRGB){if(dupNode.isGroupNode&&srcA.isGroupNode&&srcB.isGroupNode){const cD=[],cA=[],cB=[];for(const ch of dupNode.children)cD.push(ch);for(const ch of srcA.children)cA.push(ch);for(const ch of srcB.children)cB.push(ch);const n=Math.min(cD.length,cA.length,cB.length);for(let i=0;i<n;i++)applyColourBlendRecursive(cD[i],cA[i],cB[i],tPos,useRGB);}else{try{const fdA=getFDFromNode(srcA,false),fdB=getFDFromNode(srcB,false);if(fdA&&fdB){const fdN=lerpFD(fdA,fdB,tPos,useRGB);if(fdN)setFDOnNode(dupNode,fdN,false);}}catch(e){}try{const pA=getFDFromNode(srcA,true),pB=getFDFromNode(srcB,true);if(pA&&pB){const pN=lerpFD(pA,pB,tPos,useRGB);if(pN)setFDOnNode(dupNode,pN,true);}}catch(e){}}}
@@ -135,7 +137,6 @@ const cNav = dlg.addColumn(); cNav.widthProportion = 0.75;
 const cA   = dlg.addColumn(); cA.widthProportion   = 1;
 const cB   = dlg.addColumn(); cB.widthProportion   = 1;
 
-// ── Tab system ────────────────────────────────────────────
 const PAGES = [[], [], [], [], [], []];
 function pageGroup(pageIdx, col, title){
     const g = col.addGroup(title);
@@ -176,9 +177,7 @@ const btnDeletePreset = gPresetNav.addButton('🗑 Delete…');
 const gInfoNav = cNav.addGroup('');
 gInfoNav.addStaticText('', pathNodes.length+' path(s), '+shapeNodes.length+' shape(s)');
 
-// ══════════════════════════════════════════════════════════
-//  Tab 1 — Anchor Points
-// ══════════════════════════════════════════════════════════
+// ══ Tab 1 — Anchor Points ══
 const gAP = pageGroup(0, cA, 'Anchor Points');
 const eAnz = gAP.addUnitValueEditor('Count','',''); eAnz.value=shapeNodes.length;
 const eOP  = gAP.addUnitValueEditor('Obj/Anchor','',''); eOP.value=1;
@@ -204,9 +203,7 @@ gMK.addStaticText('', '_Name = path, else shape');
 const cbMKModus = gMK.addComboBox('Distribution', ['Divide evenly','Each path full'], 0);
 const cbMKReset = makeCB(gMK, 'Reset per path', true);
 
-// ══════════════════════════════════════════════════════════
-//  Tab 2 — Angle & Sequence
-// ══════════════════════════════════════════════════════════
+// ══ Tab 2 — Angle & Sequence ══
 const gAng = pageGroup(1, cA, 'Angle to Tangent (°)');
 const eAS  = gAng.addUnitValueEditor('Static','','');          eAS.value=90;
 const eAD  = gAng.addUnitValueEditor('Dyn. cumulative','',''); eAD.value=0;
@@ -226,9 +223,7 @@ gKreis.addStaticText('', 'When Obj/Anchor > 1:');
 const cbKreis = makeCB(gKreis, 'Arrange in circle', false);
 const eKreisOffset = gKreis.addUnitValueEditor('Angle offset (°)','',''); eKreisOffset.value=0;
 
-// ══════════════════════════════════════════════════════════
-//  Tab 3 — Distance & Scaling
-// ══════════════════════════════════════════════════════════
+// ══ Tab 3 — Distance & Scaling ══
 const gAbs = pageGroup(2, cA, 'Distance');
 const eAbS  = gAbs.addUnitValueEditor('Static','','');      eAbS.value=0;
 const eAbD  = gAbs.addUnitValueEditor('Dyn. cum. (%)','','');eAbD.value=0;
@@ -252,9 +247,7 @@ const eRD  = gRot.addUnitValueEditor('Dyn. cumulative','',''); eRD.value=0;
 const eRJl = gRot.addUnitValueEditor('Jitter low','','');      eRJl.value=0;
 const eRJh = gRot.addUnitValueEditor('Jitter high','','');     eRJh.value=0;
 
-// ══════════════════════════════════════════════════════════
-//  Tab 4 — Colour
-// ══════════════════════════════════════════════════════════
+// ══ Tab 4 — Colour ══
 const gFarbModus = pageGroup(3, cA, 'Colour Blend');
 const cbFarbModus = gFarbModus.addComboBox('Mode', ['None','HSL-Delta (cumulative)','RGB  Start → End','HSL  Start → End'], 1);
 gFarbModus.addStaticText('', 'Start→End: Shape 1=start, Shape 2=end');
@@ -280,9 +273,7 @@ const eOD  = gOp.addUnitValueEditor('Dyn. cumulative','',''); eOD.value=0;
 const eOJl = gOp.addUnitValueEditor('Jitter low','','');      eOJl.value=0;
 const eOJh = gOp.addUnitValueEditor('Jitter high','','');     eOJh.value=0;
 
-// ══════════════════════════════════════════════════════════
-//  Tab 5 — Cosine Scaling
-// ══════════════════════════════════════════════════════════
+// ══ Tab 5 — Cosine Scaling ══
 const gCosAchsen = pageGroup(4, cA, 'Axes');
 const cbCosX = makeCB(gCosAchsen, 'Width (X)', false);
 const cbCosY = makeCB(gCosAchsen, 'Height (Y)', false);
@@ -300,9 +291,7 @@ const gCosJ = pageGroup(4, cB, 'Jitter (%)');
 const eCosJl = gCosJ.addUnitValueEditor('Jitter low','','');  eCosJl.value=0;
 const eCosJh = gCosJ.addUnitValueEditor('Jitter high','',''); eCosJh.value=0;
 
-// ══════════════════════════════════════════════════════════
-//  Tab 6 — Output & Preset
-// ══════════════════════════════════════════════════════════
+// ══ Tab 6 — Output & Preset ══
 const gAusgabe = pageGroup(5, cA, 'Output');
 const cbAPLöschen = makeCB(gAusgabe, 'Delete AP group on Apply', false);
 const cbBasisGrp  = makeCB(gAusgabe, 'Move base objects to group', false);
@@ -315,7 +304,6 @@ gInfo6.addStaticText('', 'OK = Apply');
 gInfo6.addStaticText('', 'Cancel = Discard');
 gInfo6.addStaticText('', '▶ Preview = left in nav.');
 
-// ── Show first tab ────────────────────────────────────────
 showPage(0);
 try{ rNav.setOnValueChangedHandler(()=>{ showPage(rNav.selectedIndex); }); }catch(e){}
 

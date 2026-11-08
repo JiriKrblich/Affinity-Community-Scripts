@@ -1,8 +1,18 @@
 'use strict';
 
 /*
- * Numbering-Sequences v5
+ * Numbering-Sequences v5c
  * -----------------------
+ * v5c (bug fix) compared to v5b:
+ *  - Counting direction "Backward" with end value: start and end only delimit the range. Forward rises
+ *    from the lower limit, Backward falls from the upper limit (start 50, end 20, increment 2, Backward:
+ *    50,48,...,20,50,48,...). In v5b the cycle was merely reversed (50,20,22,...).
+ *
+ * v5b (bug fix) compared to v5:
+ *  - Cycle with end value: with an increment > 1 the start value did not follow the end value (e.g. start 5,
+ *    end 9, increment 2 gave 5,7,9,6,8,5,...). Now: 5,7,9,5,7,9,... (only values up to at most the end).
+ *  - Date: an invalid end date now reports an error instead of labelling all objects identically.
+ *
  * Changes compared to v4c:
  *  - GUI converted to tabs (pages), following the pattern of "Transform Objects v8":
  *    on the left, permanently visible: tab selection, preview (text list + status) and presets;
@@ -14,7 +24,7 @@
  *  - Date fields (start date, end date, format, placeholder note) now live in their own
  *    group "Date", which only appears for type "Date".
  *  - When "Combine Row × Column" is active, tab 1 shows a note instead of the sequence fields.
- *  Functions/calculation unchanged from v4c (robust history rollback, File.create).
+ *  Functions/calculation otherwise unchanged from v4c (robust history rollback, File.create).
  *
  * Replaces the text objects inside the selected group(s) with an
  * automatically generated sequence. The text attributes (font, size,
@@ -212,15 +222,17 @@ function applyCase(v, seqType, upperCase) {
     return v;
 }
 
-// Start/End-value cycle + repeat per value
+// Start/End-value cycle + repeat per value (v5c)
+// Start and end delimit the range [min, max]. Forward: rises from the lower limit
+// (min, min+increment, ...), Backward: falls from the upper limit (max, max-increment, ...);
+// only values inside the range are used, then the sequence starts over.
 function computeIndexForPosition(pos, p) {
     const logicalStep = Math.floor(pos / p.repeat);
-    let idx = p.start + p.dir * logicalStep * p.inc;
-    if (p.useEnd) {
-        const range = p.end - p.start + 1;
-        if (range > 0) idx = p.start + (((idx - p.start) % range) + range) % range;
-    }
-    return idx;
+    if (!p.useEnd) return p.start + p.dir * logicalStep * p.inc;
+    const lo = Math.min(p.start, p.end), hi = Math.max(p.start, p.end);
+    const n = Math.floor((hi - lo) / p.inc) + 1;      // number of values in the cycle
+    const k = logicalStep % n;
+    return p.dir > 0 ? lo + k * p.inc : hi - k * p.inc;
 }
 
 function readCustomList(text) {
@@ -359,6 +371,7 @@ function computeLabelForPosition(pos, params) {
     const p = params.single;
     if (p.seqType === DATE_SEQ_TYPE) {
         if (!p.dateStart) throw new Error('Invalid start date - format DD.MM.YYYY expected');
+        if (p.dateEndInvalid) throw new Error('Invalid end date - format DD.MM.YYYY expected');
         const idx = computeIndexForPosition(pos, p);
         const v = formatDate(addDays(p.dateStart, idx), p.dateFormat, DATE_TOKENS_EN);
         return params.prefix + v + params.suffix;
@@ -514,7 +527,7 @@ formatTB.text = 'DD.MM.YYYY'; formatTB.setIsFullWidth(true);
 gDate.addStaticText('', 'Date format placeholders: D/DD=Day, M/MM=Month (number), MMM=Month short, MMMM=Month full, YY/YYYY=Year, WWW=Weekday short, WWWW=Weekday full. Examples: DD.MM.YYYY · YYYY.MM.DD · DD.MMM.YYYY · WWW.DD.MMM.YYYY. The increment counts in days here.');
 
 const gHint = cB.addGroup('Note');
-gHint.addStaticText('', 'For Letters/Weekdays/Months/custom list, the start value is the position (1=a resp. Mon resp. Jan). "Use End" makes the sequence repeat cyclically (e.g. 1,2,3,1,2,3,...). "Repeat" repeats each value n times in a row.');
+gHint.addStaticText('', 'For Letters/Weekdays/Months/custom list, the start value is the position (1=a resp. Mon resp. Jan). "Use End" delimits the range together with the start value, and the sequence then repeats cyclically: Forward it rises from the smaller value up to at most the larger one (e.g. 1,2,3,1,2,3,... or start 5, end 9, increment 2: 5,7,9,5,7,9,...), Backward it falls from the larger value (start 50, end 20, increment 2: 50,48,...,20,50,...). "Repeat" repeats each value n times in a row.');
 
 const gCombNote = cB.addGroup('Row × Column mode');
 gCombNote.addStaticText('', 'The mode "Combine Row × Column" is active. Row and column sequences are set in the tab "3  Row × Column".');
@@ -613,6 +626,7 @@ function currentParams() {
             upperCase: caseCheck.value,
             customList: readCustomList(customTB.text),
             dateStart: dateStart,
+            dateEndInvalid: isDate && endCheck.value && !dateEnd,
             dateFormat: formatTB.text
         },
         prefix: prefixTB.text,

@@ -1,22 +1,17 @@
 // =====================================================================
-// Objekte Transformieren / Transform Objects  — v8
+// Transform Objects / Objekte Transformieren  — v9 (EN)
 // Transforms the objects of a group (or several selected objects) in sequence.
 // Values run from the first to the last object (start → end) for width, height, size,
 // rotation, offset X/Y, radial offset, opacity and HSL; plus jitter (uniform or Gaussian,
 // increasing/decreasing along the sequence). Reference point: anchor per object or _PD.
-// v3: order along a _PD path (guide), multiple _PD points as attractors,
-//     alignment to the path tangent, own (local) rotation incl. jitter.
-// v4: sequence pattern (process/skip with increase per round, e.g. 3+1,2+0) with pattern display;
-//     offset and from/to also apply to the sequence pattern.
-// v5: progression optionally runs over the sub-sequences (rounds) instead of the objects: all objects
-//     of a sub-sequence receive the same transformation; optionally the same jitter per sub-sequence.
-// v6: counting and progression direction decoupled (selection "Counting starts").
-// v7: default again as in v5: with "Reverse" counting starts at the other end ("Counting starts":
-//     Automatic / Always at the start / Always at the end); new: restart the selection in each
-//     row/column/ring (the pattern starts anew in every row or column, even with rows of unequal length)
-//     + display of the group sizes.
-// v8: GUI organised into 6 tabs (pages): on the left a permanent column with tab selection, preview and
-//     presets; on the right two columns per page. Functions unchanged from v7.
+// v2–v7: see earlier versions (orders, sequence pattern, sub-sequences, counting …).
+// v8: GUI organised in 6 tabs (pages).
+// v9 (Affinity 3.3.3): FIX colour manipulation. gradient.getStop(i).colour now already
+//     returns a Colour object; new Colour(...) threw "expected ColourHandle" -> objects with
+//     gradients were silently skipped by the HSL shift, and sorting by lightness/hue only got
+//     default values for them. New: toColour().
+//     Also: HSL shift on text via formatText (StoryDelta) instead of SetBrush-/SetPenFill.
+//     Otherwise unchanged from v8. Presets (prefix OT_) are interchangeable with the German version.
 // =====================================================================
 'use strict';
 const LANG = 'en';   // 'de' | 'en'
@@ -33,9 +28,13 @@ const { File, FileSystemApi } = require('/fs');
 const { Colour } = require('/colours');
 const { SolidFill } = require('/fills');
 const { LineStyleMask } = require('/linestyle');
+const { StoryDelta } = require('/storydelta');
 
 const MOVE_BEFORE = (NodeMoveType && NodeMoveType.Before !== undefined) ? NodeMoveType.Before : 0;
 const MOVE_AFTER  = (NodeMoveType && NodeMoveType.After  !== undefined) ? NodeMoveType.After  : 1;
+
+// v9: version-safe wrapping (3.3.3+: stop.colour is already a Colour)
+function toColour(c) { return (c instanceof Colour) ? c : new Colour(c); }
 
 // ---------------------------------------------------------------- Texts
 const TXT = {
@@ -325,26 +324,26 @@ function fdType(fd) { try { return fd.fillType.value; } catch (e) { return -1; }
 function fdColours(fd) {
   const t = fdType(fd), out = [];
   try {
-    if (t === 2) out.push(fd.fill.colour);
-    else if (t === 3) { const g = fd.fill.gradient; for (let i = 0; i < g.stopCount; i++) out.push(new Colour(g.getStop(i).colour)); }
+    if (t === 2) { if (fd.fill.colour) out.push(toColour(fd.fill.colour)); }
+    else if (t === 3) { const g = fd.fill.gradient; for (let i = 0; i < g.stopCount; i++) out.push(toColour(g.getStop(i).colour)); }   // v9
   } catch (e) {}
   return out;
 }
 const clamp01 = v => Math.min(1, Math.max(0, v));
 function shiftColour(c, dH, dS, dL) {
-  const h = c.hslaf;
+  const h = toColour(c).hslaf;   // v9
   let hh = (h.h + dH / 360) % 1; if (hh < 0) hh += 1;
   return Colour.createHSLAf({ h: hh, s: clamp01(h.s + dS / 100), l: clamp01(h.l + dL / 100), alpha: h.alpha });
 }
 function shiftFD(fd, dH, dS, dL) {
   const t = fdType(fd);
   try {
-    if (t === 2) return fd.cloneWithNewFill(SolidFill.create(shiftColour(fd.fill.colour, dH, dS, dL)));
+    if (t === 2) { if (!fd.fill.colour) return null; return fd.cloneWithNewFill(SolidFill.create(shiftColour(fd.fill.colour, dH, dS, dL))); }
     if (t === 3) {
       const g = fd.fill.gradient, ns = [];
       for (let i = 0; i < g.stopCount; i++) {
         const s = g.getStop(i);
-        ns.push({ colour: shiftColour(new Colour(s.colour), dH, dS, dL), position: s.position, midpoint: s.midpoint, smoothness: s.smoothness });
+        ns.push({ colour: shiftColour(s.colour, dH, dS, dL), position: s.position, midpoint: s.midpoint, smoothness: s.smoothness });   // v9
       }
       return fd.cloneWithNewFill(fd.fill.cloneWithNewGradient(g.constructor.create(ns)));
     }
@@ -380,12 +379,10 @@ function collect(flatten) {
   return tmp;
 }
 
-// _PD path: a drawn curve (PolyCurveNode) named _PD; all other _PD objects are points
 function isPathNode(n) {
   if (tag(n) !== 'PolyCurveNode') return false;
   try { const pc = n.curvesInterface.polyCurve; let pts = 0; for (let i = 0; i < pc.curveCount; i++) pts += pc.at(i).nodeCount; return pts >= 2; } catch (e) { return false; }
 }
-// densely sample the path (spread coordinates) → segments with cumulative arc length
 function samplePath(node) {
   const F = composedSpreadTF(node);
   const pc = node.curvesInterface.polyCurve;
@@ -397,7 +394,7 @@ function samplePath(node) {
     curves.push({ bz, L }); total += L;
   }
   if (total <= 0) return null;
-  const pts = [];   // {x, y, s, brk}  brk = start of a new sub-curve
+  const pts = [];
   let s = 0;
   for (const cv of curves) {
     let first = true;
@@ -413,7 +410,6 @@ function samplePath(node) {
   }
   return { pts, len: Math.max(s, 1e-9) };
 }
-// project a point onto the path → {u: 0..1 arc length, d: distance, ang: tangent angle}
 function projectOnPath(px, py) {
   const P = pathData.pts;
   let best = { d: Infinity, u: 0, ang: 0 };
@@ -531,7 +527,6 @@ function rankAll(p) {
     for (const r of rs) r.sort((a, b) => a.cx - b.cx);
     return rs;
   };
-  // clockwise angle from start angle (0° = 12 o'clock), normalised 0..1
   const ang01 = o => {
     let a = Math.atan2(o.cy - ctr.y, o.cx - ctr.x) + Math.PI / 2 - p.startAngle * Math.PI / 180;
     a = ((a % TAU) + TAU) % TAU;
@@ -573,7 +568,7 @@ function rankAll(p) {
              key = o => o.col.h; ranked = byKey(key, o => o.col.l, 0); break;
     case 15:
       if (pathData) { key = o => o.proj.u; ranked = byKey(key, o => o.proj.d, 1e-6); break; }
-      key = nx; ranked = byKey(nx, ny, 0.5 * medW / GW); break;            // no path: left → right
+      key = nx; ranked = byKey(nx, ny, 0.5 * medW / GW); break;
     case 16: key = o => Math.hypot(o.cx - o.near.x, o.cy - o.near.y);
       ranked = byKey(key, ang01, 0.25 * (medW + medH)); break;
     case 14: default: {
@@ -582,19 +577,15 @@ function rankAll(p) {
       for (let i = ranked.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = ranked[i]; ranked[i] = ranked[j]; ranked[j] = t; }
     }
   }
-  // orders without meaningful rows/columns: no groups
   if (p.order === 0 || p.order === 9 || p.order === 10 || p.order === 11 || p.order === 12 || p.order === 13 || p.order === 14 || p.order === 15 || p.order > 16) groups = null;
   if (!groups || !groups.length) groups = [ranked];
-  return { ranked, key, groups };   // always in forward direction; "Reverse" and counting direction are handled in computeSequence
+  return { ranked, key, groups };
 }
 
-// returns the ordered subset + t0 (0..1) per object
 function computeSequence(p) {
   const { ranked: fwd, key, groups: fg } = rankAll(p);
   const n = fwd.length;
-  // direction of the progression (and restacking): forward or, with "Reverse", backward
   const progOrder = p.reverse ? fwd.slice().reverse() : fwd;
-  // direction of counting: 0 = automatic (at the end when reversed), 1 = always at the start, 2 = always at the end
   const cm = Math.round(p.countMode) | 0;
   const countEnd = cm === 2 || (cm === 0 && !!p.reverse);
   const baseGroups = countEnd ? fg.slice().reverse().map(g => g.slice().reverse()) : fg;
@@ -602,7 +593,6 @@ function computeSequence(p) {
   const from = Math.max(1, Math.round(p.from)) - 1;
   const to = (Math.round(p.to) > 0) ? Math.min(n, Math.round(p.to)) : n;
   const nth = Math.max(1, Math.round(p.nth)), off = Math.max(0, Math.round(p.nthOff));
-  // segments in which counting restarts: per row/column/ring or the whole sequence
   const perGroup = !!p.seqPerGroup && baseGroups.length > 1;
   const segments = [];
   if (perGroup) {
@@ -610,12 +600,11 @@ function computeSequence(p) {
     for (const g of baseGroups) { const seg = []; for (const o of g) { if (pos >= from && pos < to) seg.push(o); pos++; } segments.push(seg); }
   } else segments.push(base.slice(from, Math.max(from, to)));
   const subset = [];
-  const roundOf = new Map();   // object idx → number of its sub-sequence (sequence pattern only, continuous across all segments)
+  const roundOf = new Map();
   let rounds = 0;
   for (const seg of segments) {
     if (!seg.length) continue;
     if (p.seqMode === 1) {
-      // sequence pattern: round 1 = process `run`, skip `skip`; then run += dRun, skip += dSkip (restarting for each segment)
       let i = Math.min(off, seg.length);
       let run = Math.max(1, Math.round(p.seqRun)), skip = Math.max(0, Math.round(p.seqSkip));
       const dRun = Math.round(p.seqRunInc), dSkip = Math.round(p.seqSkipInc);
@@ -629,8 +618,6 @@ function computeSequence(p) {
       for (let i = 0; i < seg.length; i++) if (i >= off && (i - off) % nth === 0) subset.push(seg[i]);
     }
   }
-  // if counting runs against the progression direction, flip the subset and the sub-sequence numbers
-  // so that t (and the cycle) are counted in progression direction
   if (countEnd !== !!p.reverse) {
     subset.reverse();
     if (rounds > 0) for (const [k, r] of Array.from(roundOf.entries())) roundOf.set(k, rounds - 1 - r);
@@ -639,7 +626,6 @@ function computeSequence(p) {
   const tMap = new Map();
   const cyc = Math.round(p.cycle);
   if (p.seqMode === 1 && p.seqProg === 1) {
-    // progression over the sub-sequences: all objects of a sub-sequence receive the same value
     subset.forEach(o => {
       const r = roundOf.get(o.idx) || 0;
       tMap.set(o.idx, cyc >= 2 ? (r % cyc) / (cyc - 1) : (rounds > 1 ? r / (rounds - 1) : 0));
@@ -690,7 +676,6 @@ function pivotFor(o, p) {
   return { x: o.sb.x + rel[0] * o.sb.width, y: o.sb.y + rel[1] * o.sb.height };
 }
 
-// random values per sub-sequence (for "same jitter within a sub-sequence"): 20 values + 2 for own rotation
 function roundRandoms(seed, r) {
   const g = mulberry32(((seed | 0) * 7919 + r * 104729 + 12345) | 0);
   for (let k = 0; k < 4; k++) g();
@@ -698,7 +683,6 @@ function roundRandoms(seed, r) {
   return { u, uL: [g(), g()] };
 }
 
-// pattern display of the sequence: "3+1,2+0  ●●●○○ ●●●●○○ …"
 function seqPatternText(p) {
   const fmt = (a, d) => a + (d >= 0 ? '+' + d : '' + d);
   let run = Math.max(1, Math.round(p.seqRun)), skip = Math.max(0, Math.round(p.seqSkip));
@@ -718,7 +702,7 @@ function buildCommand(p) {
   const perRound = p.seqMode === 1 && !!p.seqJitRound;
   const roundCache = new Map();
   const rnd = mulberry32(p.seed | 0);
-  const rndL = mulberry32((p.seed | 0) ^ 0x51ED27);      // separate stream: v2 results stay identical
+  const rndL = mulberry32((p.seed | 0) ^ 0x51ED27);
   const bld = CompoundCommandBuilder.create();
   let count = 0;
   const inSub = new Set(subset.map(o => o.idx));
@@ -727,11 +711,10 @@ function buildCommand(p) {
   const doOpac = Math.abs(p.oS - 100) + Math.abs(p.oE - 100) + p.jO > 1e-9;
 
   for (const o of info) {
-    // 20 random numbers per object in fixed object order (stable against sorting/filtering)
     let u = []; for (let k = 0; k < 20; k++) u.push(rnd());
     let uL = [rndL(), rndL()];
     if (!inSub.has(o.idx)) continue;
-    if (perRound) {   // same jitter for all objects of the same sub-sequence
+    if (perRound) {
       const rr = roundOf.get(o.idx) || 0;
       let c = roundCache.get(rr);
       if (!c) { c = roundRandoms(p.seed, rr); roundCache.set(rr, c); }
@@ -742,7 +725,7 @@ function buildCommand(p) {
     for (let k = 0; k < 10; k++) {
       if (p.jDist === 1) {
         const g = Math.sqrt(-2 * Math.log(Math.max(u[2 * k], 1e-12))) * Math.cos(TAU * u[2 * k + 1]);
-        r.push(Math.max(-1.5, Math.min(1.5, g / 2)));      // ±amount ≈ 2σ
+        r.push(Math.max(-1.5, Math.min(1.5, g / 2)));
       } else r.push(u[2 * k] * 2 - 1);
     }
     const t0 = tMap.get(o.idx) || 0;
@@ -752,15 +735,14 @@ function buildCommand(p) {
     const wPct = lerp(p.wS, p.wE, t) + r[0] * p.jW * jf;
     const hPct = lerp(p.hS, p.hE, t) + r[1] * p.jH * jf;
     const sPct = lerp(p.sS, p.sE, t) + r[2] * p.jS * jf;
-    const rot = lerp(p.rS, p.rE, t) + r[3] * p.jR * jf;           // counter-clockwise, degrees
+    const rot = lerp(p.rS, p.rE, t) + r[3] * p.jR * jf;
     let rL;
     if (p.jDist === 1) { const g = Math.sqrt(-2 * Math.log(Math.max(uL[0], 1e-12))) * Math.cos(TAU * uL[1]); rL = Math.max(-1.5, Math.min(1.5, g / 2)); }
     else rL = uL[0] * 2 - 1;
-    const lrot = lerp(p.lrS, p.lrE, t) + rL * p.jLR * jf;         // own rotation, degrees
+    const lrot = lerp(p.lrS, p.lrE, t) + rL * p.jLR * jf;
     let jx = r[4] * p.jX * jf, jy = r[5] * p.jY * jf;
     if (p.jPosUnit === 1) { jx *= o.sb.width / 100; jy *= o.sb.height / 100; }
 
-    // scaling
     let sx, sy;
     if (p.sizeMode === 1) {
       sx = safeScale((refW * wPct / 100 * sPct / 100) / Math.max(o.wLoc, 1e-9));
@@ -771,7 +753,6 @@ function buildCommand(p) {
     }
     const noScale = Math.abs(sx - 1) < 1e-9 && Math.abs(sy - 1) < 1e-9;
 
-    // rotation (screen radians, positive = clockwise)
     let theta = -rot * Math.PI / 180;
     if (p.rotMode === 1) theta += -o.phi;
     else if (p.rotMode === 2) {
@@ -780,7 +761,6 @@ function buildCommand(p) {
     }
     else if (p.rotMode === 3 && o.proj) theta += o.proj.ang - o.phi;
 
-    // offset
     let mx = lerp(p.xS, p.xE, t) + jx, my = lerp(p.yS, p.yE, t) + jy;
     const rad = lerp(p.radS, p.radE, t);
     if (Math.abs(rad) > 1e-9) {
@@ -799,8 +779,6 @@ function buildCommand(p) {
       let D = Transform.createTranslate(P.x + mx, P.y + my)
         .multiply(Transform.createRotate(theta)).multiply(Lin)
         .multiply(Transform.createTranslate(-P.x, -P.y));
-      // own rotation: around the object's own anchor, after all other transformations,
-      // sense of rotation in the local coordinate system (mirrored objects rotate correctly)
       if (Math.abs(lrot) > 1e-9) {
         const Q = D.applyToPoint(pivotFor(o, Object.assign({}, p, { refMode: 0 })));
         let det = 1;
@@ -813,7 +791,6 @@ function buildCommand(p) {
       bld.addCommand(DocumentCommand.createTransform(sel, D)); count++;
     }
 
-    // stroke width
     if (p.stroke > 0 && !noScale) {
       const k = Math.sqrt(Math.abs(sx * sy));
       for (const lf of o.leaves) {
@@ -827,7 +804,6 @@ function buildCommand(p) {
       }
     }
 
-    // opacity (factor on current opacity)
     if (doOpac) {
       const f = (lerp(p.oS, p.oE, t) + r[6] * p.jO * jf) / 100;
       const v = clamp01(o.opacity * f);
@@ -842,14 +818,26 @@ function buildCommand(p) {
       if (Math.abs(dH) + Math.abs(dS) + Math.abs(dL) > 1e-9) {
         for (const lf of o.leaves) {
           const ls = Selection.create(doc, lf.node);
-          if (p.colFill && lf.brush) { const fd = shiftFD(lf.brush, dH, dS, dL); if (fd) { bld.addCommand(DocumentCommand.createSetBrushFill(ls, fd)); count++; } }
-          if (p.colStroke && lf.pen) { const fd = shiftFD(lf.pen, dH, dS, dL); if (fd) { bld.addCommand(DocumentCommand.createSetPenFill(ls, fd)); count++; } }
+          if (p.colFill && lf.brush) {
+            const fd = shiftFD(lf.brush, dH, dS, dL);
+            if (fd) {
+              // v9: text via formatText, vectors via SetBrushFill
+              if (lf.text) { try { bld.addCommand(DocumentCommand.createFormatText(lf.node.selfSelection, StoryDelta.createBrushFill(fd))); count++; } catch (e) {} }
+              else { bld.addCommand(DocumentCommand.createSetBrushFill(ls, fd)); count++; }
+            }
+          }
+          if (p.colStroke && lf.pen) {
+            const fd = shiftFD(lf.pen, dH, dS, dL);
+            if (fd) {
+              if (lf.text) { try { bld.addCommand(DocumentCommand.createFormatText(lf.node.selfSelection, StoryDelta.createPenFill(fd))); count++; } catch (e) {} }
+              else { bld.addCommand(DocumentCommand.createSetPenFill(ls, fd)); count++; }
+            }
+          }
         }
       }
     }
   }
 
-  // restack (per parent; first object of the sequence on top or at bottom)
   if (p.stack > 0) {
     const byParent = new Map();
     for (const o of ranked) {
@@ -862,9 +850,7 @@ function buildCommand(p) {
     }
     for (const [, list] of byParent) {
       if (list.length < 2) continue;
-      // desired order bottom → top
       const bottomUp = p.stack === 1 ? list.slice().reverse() : list.slice();
-      // anchor position: the currently lowest object of this list
       let lowest = list[0];
       for (const o of list) if (cmpPath(o.stack, lowest.stack) < 0) lowest = o;
       if (!bottomUp[0].node.isSameNode(lowest.node))
@@ -876,7 +862,7 @@ function buildCommand(p) {
   }
 
   if (!count) return null;
-  bld.addCommand(restoreSelCmd());        // stroke/fill commands would otherwise move the selection
+  bld.addCommand(restoreSelCmd());
   return bld.createCommand();
 }
 
@@ -902,9 +888,6 @@ buildInfo(DEF.flatten);
 if (N < 2) { app.alert(TXT.tooFew, TXT.title); throw new Error('too few'); }
 
 // ---------------------------------------------------------------- Dialog
-// Layout: on the left a narrow, permanently visible column (tab selection, preview, presets);
-// on the right two content columns. Each page (tab) consists of groups in these two columns;
-// when switching, the groups of the active page are shown and all others are hidden.
 const dlg = Dialog.create(TXT.title);
 dlg.initialWidth = 1000;
 try { dlg.isResizable = true; } catch (e) {}
@@ -920,8 +903,7 @@ function uve(grp, label, unit, val, mn, mx, prec) {
 }
 const PCT = UnitType.Percentage, DEG = UnitType.Degree, PX = UnitType.Pixel, NUM = UnitType.Number;
 
-// --- Tab management
-const PAGES = [[], [], [], [], [], []];           // the groups belonging to each page
+const PAGES = [[], [], [], [], [], []];
 function pageGroup(pageIdx, col, title) { const g = col.addGroup(title); PAGES[pageIdx].push(g); return g; }
 let pagedOK = true;
 function showPage(i) {
@@ -929,14 +911,12 @@ function showPage(i) {
   try {
     for (let k = 0; k < PAGES.length; k++) for (const g of PAGES[k]) g.isVisible = (k === i);
   } catch (e) {
-    // fallback: hiding not possible -> keep everything visible (layout as in v7, just in two columns)
     pagedOK = false;
     try { for (const pg of PAGES) for (const g of pg) g.isVisible = true; } catch (e2) {}
     console.log('Tabs not available: ' + e.message);
   }
 }
 
-// --- Left column: always visible
 const gNav = cNav.addGroup(TXT.grpNav);
 const rNav = gNav.addRadioGroup('', TXT.pages, 0);
 const tInfo = gNav.addStaticText('', TXT.info(N, pdPoints.length, !!pathData));
@@ -948,7 +928,6 @@ const bPSave = gPs.addButton(TXT.pSave);
 const bPLoad = gPs.addButton(TXT.pLoad);
 const bPDel = gPs.addButton(TXT.pDel);
 
-// --- Page 1: Order
 const gOrd = pageGroup(0, cA, TXT.grpOrder);
 const cOrder = gOrd.addComboBox(TXT.order, TXT.orders, DEF.order);
 const cRev = gOrd.addCheckBox(TXT.reverse, DEF.reverse);
@@ -959,7 +938,6 @@ const gStr = pageGroup(0, cB, TXT.grpStruct);
 const cFlat = gStr.addCheckBox(TXT.flatten, DEF.flatten);
 const cStack = gStr.addComboBox(TXT.stack, TXT.stacks, DEF.stack);
 
-// --- Page 2: Selection
 const gSel = pageGroup(1, cA, TXT.grpSelect);
 const cSeqMode = gSel.addComboBox(TXT.seqMode, TXT.seqModes, DEF.seqMode);
 const eNth = uve(gSel, TXT.nth, NUM, DEF.nth, 1, 10000, 0);
@@ -979,7 +957,6 @@ const eNthOff = uve(gCnt, TXT.nthOff, NUM, DEF.nthOff, 0, 10000, 0);
 const eFrom = uve(gCnt, TXT.from, NUM, DEF.from, 1, 100000, 0);
 const eTo = uve(gCnt, TXT.to, NUM, DEF.to, 0, 100000, 0);
 
-// --- Page 3: Progression & reference
 const gCurve = pageGroup(2, cA, TXT.grpCurve);
 const cShape = gCurve.addComboBox(TXT.shape, TXT.shapes, DEF.shape);
 const eFreq = uve(gCurve, TXT.freq, NUM, DEF.freq, 0, 100, 2);
@@ -992,7 +969,6 @@ const cRef = gRef.addComboBox(TXT.refMode, TXT.refModes, DEF.refMode);
 const cAnchor = gRef.addSpatialAnchor(TXT.anchor, SpatialAnchor.Centre);
 const cAxes = gRef.addCheckBox(TXT.objAxes, DEF.objAxes);
 
-// --- Page 4: Transformation
 const gTr = pageGroup(3, cA, TXT.grpTrans);
 const eWS = uve(gTr, TXT.wS, PCT, DEF.wS, -1000, 1000);
 const eWE = uve(gTr, TXT.wE, PCT, DEF.wE, -1000, 1000);
@@ -1015,7 +991,6 @@ const eYE = uve(gMv, TXT.yE, PX, DEF.yE, -100000, 100000);
 const eRadS = uve(gMv, TXT.radS, PX, DEF.radS, -100000, 100000);
 const eRadE = uve(gMv, TXT.radE, PX, DEF.radE, -100000, 100000);
 
-// --- Page 5: Opacity & colour
 const gOp = pageGroup(4, cA, TXT.grpOpac);
 const eOS = uve(gOp, TXT.oS, PCT, DEF.oS, 0, 1000);
 const eOE = uve(gOp, TXT.oE, PCT, DEF.oE, 0, 1000);
@@ -1030,7 +1005,6 @@ const eLitE = uve(gHsl, TXT.litE, PCT, DEF.litE, -100, 100);
 const cColF = gHsl.addCheckBox(TXT.colFill, DEF.colFill);
 const cColS = gHsl.addCheckBox(TXT.colStroke, DEF.colStroke);
 
-// --- Page 6: Jitter
 const gJg = pageGroup(5, cA, TXT.grpJitGeo);
 const eJW = uve(gJg, TXT.jW, PCT, DEF.jW, 0, 1000);
 const eJH = uve(gJg, TXT.jH, PCT, DEF.jH, 0, 1000);
@@ -1051,7 +1025,6 @@ const cJDist = gJc.addComboBox(TXT.jDist, TXT.jDists, DEF.jDist);
 const eSeed = uve(gJc, TXT.seed, NUM, DEF.seed, 0, 999999, 0);
 const bSeed = gJc.addButton(TXT.newSeed);
 
-// set start values explicitly
 cOrder.selectedIndex = DEF.order; cDist.selectedIndex = DEF.distrib; cStack.selectedIndex = DEF.stack; cSeqMode.selectedIndex = DEF.seqMode; cSeqProg.selectedIndex = DEF.seqProg; cCountMode.selectedIndex = DEF.countMode;
 cShape.selectedIndex = DEF.shape; cEase.selectedIndex = DEF.ease; cSizeM.selectedIndex = DEF.sizeMode;
 cRotM.selectedIndex = DEF.rotMode; cStroke.selectedIndex = DEF.stroke; cJPU.selectedIndex = DEF.jPosUnit;
@@ -1062,7 +1035,7 @@ cAnchor.value = SpatialAnchor.Centre;
 rNav.selectedIndex = 0;
 showPage(0);
 
-const CTRL = {   // name → [control, kind]
+const CTRL = {
   order: [cOrder, 'i'], reverse: [cRev, 'b'], startAngle: [eStartA, 'v'], windings: [eWind, 'v'], distrib: [cDist, 'i'],
   seqMode: [cSeqMode, 'i'], nth: [eNth, 'v'], seqRun: [eSeqRun, 'v'], seqRunInc: [eSeqRunInc, 'v'], seqSkip: [eSeqSkip, 'v'], seqSkipInc: [eSeqSkipInc, 'v'], seqProg: [cSeqProg, 'i'], seqJitRound: [cSeqJit, 'b'], countMode: [cCountMode, 'i'], seqPerGroup: [cSeqGroup, 'b'],
   nthOff: [eNthOff, 'v'], from: [eFrom, 'v'], to: [eTo, 'v'],
@@ -1159,8 +1132,7 @@ function getPresetDir() {
   return dir;
 }
 function writeText(path, text) {
-  let f;
-  try { f = File.create(path, 'wb'); } catch (e) { f = new File(path, 'wb'); }
+  const f = File.create(path, 'wb');   // v9: File.create() only
   f.writeStringAsUtf8(text); f.close();
 }
 bPSave.setOnClickHandler(() => {
@@ -1171,7 +1143,7 @@ bPSave.setOnClickHandler(() => {
     let base = nameIn.trim().replace(/[\\/:*?"<>|]/g, '_');
     if (base.toUpperCase().startsWith(PRESET_PREFIX)) base = base.substring(PRESET_PREFIX.length);
     const path = dir + '/' + PRESET_PREFIX + base + '.json';
-    const data = readParams(); data.script = TXT.title; data.version = 8;
+    const data = readParams(); data.script = TXT.title; data.version = 9;
     writeText(path, JSON.stringify(data, null, 2));
     app.alert(TXT.pSaved + path, TXT.title);
   } catch (e) { app.alert(TXT.pErrS + e.message, TXT.title); }
@@ -1182,9 +1154,7 @@ bPLoad.setOnClickHandler(() => {
     const path = app.chooseFile(); if (!path) return;
     let buf; try { buf = File.readAll(path); } catch (e) { app.alert(TXT.pUnread, TXT.title); return; }
     const v = JSON.parse(buf.toString('utf8'));
-    // v1 presets: map old order indices to v2+
     if (v.version === 1 && typeof v.order === 'number') v.order = [0, 1, 3, 4, 5, 6, 7, 8, 14][v.order]; if (v.order === undefined) v.order = 0;
-    // v6 presets: checkbox "count from the end" -> selection "Counting starts" (always at the end / always at the start)
     if (v.version === 6 && v.countMode === undefined) v.countMode = v.countEnd ? 2 : 1;
     applyParams(v);
     const p = readParams(); refreshStructure(p); updateSeqNote(p);

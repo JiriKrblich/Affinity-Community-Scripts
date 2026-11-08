@@ -1,32 +1,21 @@
 /**
- * name: Convert to Gradient v9 (EN)
+ * name: Convert to Gradient v10 (EN)
  * description: Converts the solid fill (and optionally solid stroke) of the selected
  * objects, including all child objects of selected groups, into a gradient (linear,
  * radial or elliptical). Supports text objects (artistic and frame text) with solid
- * fill/stroke: for text the bounding box is the measure (not curve nodes) - longest
- * axis = horizontal text direction, shortest axis = vertical text height. Text
- * geometry is computed in LOCAL (unrotated) coordinates and only then mapped to the
- * spread via the actual object transform. For a linear gradient with reference point
- * "Object centre" or "Focal point" the axis is mirrored at the reference point (middle
- * stop = base colour on the reference point). ANGLE JITTER for "Manual angle" (± amount,
- * optionally stepped via the jitter step, seedable). "Text processing": whole text or
- * individual characters. 2, 3 or 5 stops; the middle stop always carries exactly the
- * base colour. Start/end: lightness spread by a factor towards black/white, optionally
- * saturation towards 0/100 %, optionally opacity thinned. Optional random factor
- * variation per object. Presets in the AffinityScriptPresets folder (prefix identical
- * to the German version). Preview on click, text and vector changes in ONE undo step,
- * native OK recalculates with the final parameters, Cancel/ESC discards.
+ * fill/stroke. Separate reversal for lightness and saturation, angle jitter, 2/3/5 stops,
+ * random variation, presets in the AffinityScriptPresets folder (prefix identical to the
+ * German version).
  *
- * NEW in v9: SEPARATE REVERSAL. Instead of a single "Reverse" option there are now
- * "Reverse colour (lightness)" and "Reverse saturation". The lightness spread
- * (dark → light) and the saturation spread (desaturated → saturated) can be reversed
- * independently, e.g. dark+saturated at the start and light+desaturated at the end.
- * The hue is the same across the whole gradient and the opacity thinning is the same
- * at both ends - neither needs a reversal. Older presets with the "reversed" field
- * still load (sets both options).
- * v8: robust rollback (falls back to step-by-step history.undo() at position 0),
- * File.create() for presets, null check for the dialog result.
- * version: 9.0.0
+ * NEW in v10 (Affinity 3.3.3):
+ *  - FIX "Cannot read properties of undefined (reading 'hslaf')": some objects report a
+ *    "solid" fill but deliver no colour (fill.colour = undefined). A single such object
+ *    aborted the ENTIRE preview. New: baseHslOf() reads the base colour safely (Colour,
+ *    handle, gradient middle as fallback) and skips objects without a readable colour.
+ *    Every object is protected individually; skipped objects are listed by name in the log.
+ *  - The fill is re-checked on every run (not only once at start).
+ * v9: separate reversal lightness/saturation. v8: robust rollback, File.create().
+ * version: 10.0.0
  * author: Claude
  */
 "use strict";
@@ -59,6 +48,35 @@ if (initialItems.length === 0) {
   return;
 }
 const initialSelection = Selection.create(doc, initialItems);
+
+// ─── v10: safe colour access ────────────────────────────────────────────
+function toColour(c) { return (c instanceof Colour) ? c : new Colour(c); }
+function nodeName(node) {
+  try { return node.userDescription || node.defaultDescription || "Object"; } catch (e) { return "Object"; }
+}
+// Returns {h,s,l,alpha} of a FillDescriptor's base colour or null.
+function baseHslOf(fd) {
+  try {
+    if (!fd || !fd.fill) return null;
+    const f = fd.fill;
+    const ft = f.fillType ? f.fillType.value : -1;
+    if (ft === FillType.Solid.value) {
+      const c = f.colour;
+      if (!c) return null;
+      const h = toColour(c).hslaf;
+      return h ? { h: h.h, s: h.s, l: h.l, alpha: h.alpha } : null;
+    }
+    if (ft === FillType.Gradient.value && f.gradient && f.gradient.stopCount > 0) {
+      const g = f.gradient;
+      const h = toColour(g.getStop(Math.floor(g.stopCount / 2)).colour).hslaf;
+      return h ? { h: h.h, s: h.s, l: h.l, alpha: h.alpha } : null;
+    }
+  } catch (e) {}
+  return null;
+}
+function isSolidFD(fd) {
+  try { return !!fd && fd.fillType.value === FillType.Solid.value; } catch (e) { return false; }
+}
 
 // ─── Robust history rollback (v8) ───────────────────────────────────────
 function rollbackToPosition(pos) {
@@ -114,23 +132,19 @@ leaves.forEach((node, idx) => {
       const story = node.story;
       if (story && story.length > 0) {
         const atts = story.getGlyphAtts(0);
-        if (atts.brushFill && atts.brushFill.fillType.value === FillType.Solid.value) {
-          brushTargets.push({ node, idx, isText: true });
-        }
-        if (atts.penFill && atts.penFill.fillType.value === FillType.Solid.value) {
-          penTargets.push({ node, idx, isText: true });
-        }
+        if (isSolidFD(atts.brushFill)) brushTargets.push({ node, idx, isText: true });
+        if (isSolidFD(atts.penFill)) penTargets.push({ node, idx, isText: true });
       }
     } catch (e) {}
     return;
   }
   try {
-    if (node.curvesInterface && node.brushFillDescriptor && node.brushFillDescriptor.fillType.value === FillType.Solid.value) {
+    if (node.curvesInterface && isSolidFD(node.brushFillDescriptor)) {
       brushTargets.push({ node, idx, isText: false });
     }
   } catch (e) {}
   try {
-    if (node.curvesInterface && node.hasPenFill && node.penFillDescriptor && node.penFillDescriptor.fillType.value === FillType.Solid.value) {
+    if (node.curvesInterface && node.hasPenFill && isSolidFD(node.penFillDescriptor)) {
       penTargets.push({ node, idx, isText: false });
     }
   } catch (e) {}
@@ -332,9 +346,6 @@ function computeAxisForTextBB(bb, cfg) {
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 
 // stopMode: 0 = 2 stops, 1 = 3 stops, 2 = 5 stops
-// v9: reverseL / reverseS reverse the lightness and saturation spread
-// INDEPENDENTLY (start and end value are swapped per channel). The middle stop
-// always stays the base colour.
 function buildStops(baseHsl, facL, facS, facA, stopMode, reverseL, reverseS) {
   let lStart = clamp01(baseHsl.l + (0 - baseHsl.l) * facL);
   let lEnd   = clamp01(baseHsl.l + (1 - baseHsl.l) * facL);
@@ -381,6 +392,9 @@ function buildStops(baseHsl, facL, facS, facA, stopMode, reverseL, reverseS) {
 
 // ─── FillDescriptor for a VECTOR object ──────────────────────────────────
 function buildGradientFDFor(node, baseFD, cfg, leafIndex, randomDeltas) {
+  const baseHsl = baseHslOf(baseFD);   // v10: safe
+  if (!baseHsl) return null;
+
   const cfgJ = cfgWithJitter(cfg, leafIndex, 0);
   const axis = computeAxis(node, cfgJ);
   if (!axis) return null;
@@ -392,7 +406,6 @@ function buildGradientFDFor(node, baseFD, cfg, leafIndex, randomDeltas) {
     facS = clamp01(facS + delta);
   }
 
-  const baseHsl = baseFD.fill.colour.hslaf;
   const stops = buildStops(baseHsl, facL, facS, cfg.facA, cfg.stopMode, cfg.reverseL, cfg.reverseS);
   const grad = Gradient.create(stops);
   const gradFill = GradientFill.create(grad, [GradientFillType.Linear, GradientFillType.Radial, GradientFillType.Elliptical][cfg.gradType]);
@@ -404,6 +417,9 @@ function buildGradientFDFor(node, baseFD, cfg, leafIndex, randomDeltas) {
 
 // ─── FillDescriptor for TEXT (local BBox → spread, isAnchoredToSpread) ──
 function buildGradientFDForText(baseFD, cfg, localBB, toSpreadTransform, facLOverride, facSOverride) {
+  const baseHsl = baseHslOf(baseFD);   // v10: safe
+  if (!baseHsl) return null;
+
   const localAxis = computeAxisForTextBB(localBB, cfg);
   if (!localAxis) return null;
 
@@ -414,7 +430,6 @@ function buildGradientFDForText(baseFD, cfg, localBB, toSpreadTransform, facLOve
   const facL = facLOverride != null ? facLOverride : cfg.facL;
   const facS = facSOverride != null ? facSOverride : cfg.facS;
 
-  const baseHsl = baseFD.fill.colour.hslaf;
   const stops = buildStops(baseHsl, facL, facS, cfg.facA, cfg.stopMode, cfg.reverseL, cfg.reverseS);
   const grad = Gradient.create(stops);
   const gradFill = GradientFill.create(grad, [GradientFillType.Linear, GradientFillType.Radial, GradientFillType.Elliptical][cfg.gradType]);
@@ -471,36 +486,43 @@ function addTextFormatCommands(builder, node, baseFD, cfg, leafIndex, randomDelt
   return added;
 }
 
+// v10: every object protected individually; skipped objects are reported
+let lastSkipped = [];
 function applyGradients(cfg) {
   const randomDeltas = cfg.randomEnabled ? buildRandomDeltas(cfg.seed, leaves.length) : null;
   const builder = CompoundCommandBuilder.create();
   let count = 0;
+  const skipped = [];
 
-  for (const { node, idx, isText } of brushTargets) {
-    if (isText) {
-      const baseFD = node.story.getGlyphAtts(0).brushFill;
-      count += addTextFormatCommands(builder, node, baseFD, cfg, idx, randomDeltas, false);
-      continue;
-    }
-    const fd = buildGradientFDFor(node, node.brushFillDescriptor, cfg, idx, randomDeltas);
-    if (!fd) continue;
-    builder.addCommand(DocumentCommand.createSetBrushFill(Selection.create(doc, node), fd));
-    count++;
-  }
-
-  if (cfg.includeStroke) {
-    for (const { node, idx, isText } of penTargets) {
+  function handle(target, usePen) {
+    const { node, idx, isText } = target;
+    try {
       if (isText) {
-        const baseFD = node.story.getGlyphAtts(0).penFill;
-        count += addTextFormatCommands(builder, node, baseFD, cfg, idx, randomDeltas, true);
-        continue;
+        const atts = node.story.getGlyphAtts(0);
+        const baseFD = usePen ? atts.penFill : atts.brushFill;
+        if (!isSolidFD(baseFD) || !baseHslOf(baseFD)) { skipped.push(nodeName(node)); return; }
+        const n = addTextFormatCommands(builder, node, baseFD, cfg, idx, randomDeltas, usePen);
+        if (n === 0) skipped.push(nodeName(node));
+        count += n;
+        return;
       }
-      const fd = buildGradientFDFor(node, node.penFillDescriptor, cfg, idx, randomDeltas);
-      if (!fd) continue;
-      builder.addCommand(DocumentCommand.createSetPenFill(Selection.create(doc, node), fd));
+      const baseFD = usePen ? node.penFillDescriptor : node.brushFillDescriptor;
+      if (!isSolidFD(baseFD)) { skipped.push(nodeName(node)); return; }
+      const fd = buildGradientFDFor(node, baseFD, cfg, idx, randomDeltas);
+      if (!fd) { skipped.push(nodeName(node)); return; }
+      const sel = Selection.create(doc, [node]);
+      builder.addCommand(usePen ? DocumentCommand.createSetPenFill(sel, fd) : DocumentCommand.createSetBrushFill(sel, fd));
       count++;
+    } catch (e) {
+      skipped.push(nodeName(node) + " (" + e.message + ")");
     }
   }
+
+  for (const t of brushTargets) handle(t, false);
+  if (cfg.includeStroke) for (const t of penTargets) handle(t, true);
+
+  lastSkipped = skipped;
+  if (skipped.length) console.log("Note: " + skipped.length + " object(s) skipped (no readable solid colour): " + skipped.slice(0, 10).join(", ") + (skipped.length > 10 ? " …" : ""));
 
   if (count === 0) return 0;
   doc.executeCommand(builder.createCommand());
@@ -555,8 +577,8 @@ let defExtentMode = 0;
 let defAngle = 0;
 let defJitterAmount = 0;
 let defJitterStep = 0;
-let defReverseL = false;  // v9: reverse lightness
-let defReverseS = false;  // v9: reverse saturation
+let defReverseL = false;
+let defReverseS = false;
 let defFacL = 40;
 let defFacS = 0;
 let defFacA = 0;
@@ -686,7 +708,6 @@ while (true) {
       seedEditor.isEnabled = randomCheck.value || jitterOn;
       strokeCheck.isEnabled = penTargets.length > 0;
       textModeCombo.isEnabled = textTargetCount > 0;
-      // v9: reversal only makes sense if the respective factor is > 0
       reverseLCheck.isEnabled = facLEditor.value > 0;
       reverseSCheck.isEnabled = facSEditor.value > 0;
       infoText.setText(
@@ -709,7 +730,7 @@ while (true) {
   previewBtn.setOnClickHandler(() => {
     try {
       const n = updatePreview(ctrls);
-      console.log("Preview updated (" + n + " object(s)).");
+      console.log("Preview updated (" + n + " object(s)" + (lastSkipped.length ? ", " + lastSkipped.length + " skipped" : "") + ").");
     } catch (e) {
       console.log("WARNING: preview update failed - " + e);
     }
@@ -737,7 +758,6 @@ while (true) {
     if (typeof data.angleDeg === "number") angleEditor.value = data.angleDeg;
     if (typeof data.jitterAmount === "number") jitterAmountEditor.value = data.jitterAmount;
     if (typeof data.jitterStep === "number") jitterStepEditor.value = data.jitterStep;
-    // v9: older presets with a shared "reversed" set both reversals
     if (typeof data.reversed === "boolean") { reverseLCheck.value = data.reversed; reverseSCheck.value = data.reversed; }
     if (typeof data.reverseL === "boolean") reverseLCheck.value = data.reverseL;
     if (typeof data.reverseS === "boolean") reverseSCheck.value = data.reverseS;
@@ -751,8 +771,12 @@ while (true) {
     if (typeof data.includeStroke === "boolean") strokeCheck.value = data.includeStroke;
     if (typeof data.textMode === "number") textModeCombo.selectedIndex = data.textMode;
     updateEnabled();
-    const n = updatePreview(ctrls);
-    console.log('Preset loaded from "' + path + '" (' + n + ' object(s) updated).');
+    try {
+      const n = updatePreview(ctrls);
+      console.log('Preset loaded from "' + path + '" (' + n + ' object(s) updated).');
+    } catch (e) {
+      console.log("WARNING: preview after loading preset failed - " + e);
+    }
   });
 
   presetDeleteBtn.setOnClickHandler(() => {
@@ -797,11 +821,17 @@ while (true) {
 if (!applyResult) return;
 
 if (hasPreview) rollbackToPosition(posBeforePreview);
-const finalCount = applyGradients(finalCfg);
+let finalCount = 0;
+try {
+  finalCount = applyGradients(finalCfg);
+} catch (e) {
+  console.log("ERROR while applying - " + e);
+}
 doc.executeCommand(DocumentCommand.createSetSelection(initialSelection));
 
 if (finalCount === 0) {
   console.log("No gradient was created (no suitable objects).");
 } else {
-  console.log("✓ " + finalCount + " fill(s)/stroke(s) converted to a gradient.");
+  console.log("✓ " + finalCount + " fill(s)/stroke(s) converted to a gradient" +
+    (lastSkipped.length ? " (" + lastSkipped.length + " skipped)" : "") + ".");
 }
