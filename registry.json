@@ -1939,6 +1939,17 @@
       "category": "Effect",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/mr-film-grain.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/mr-film-grain.js"
+    },
+    {
+      "id": "switch-art-frame",
+      "name": "Switch-Art-Frame",
+      "description": "Switches selected Artistic Text and Frame Text objects in place, including text inside selected groups, without a dialog. Copies character and paragraph formatting and preserves line breaks, position, rotation, and visual size. Frame wrapping becomes explicit line breaks when converting to Artistic Text. Linked text frames are skipped, overflow text becomes visible, and shear cannot be reproduced exactly. Run again to switch text types back.",
+      "author": "WaveF",
+      "email": "wavef@live.com",
+      "version": "3.1.0",
+      "category": "Text",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/switch-art-frame.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/switch-art-frame.js"
     }
   ]
 }
