@@ -1,7 +1,7 @@
 /**
  * name: SVG Anim
- * version: 0.4.1
- * description: Animate elements and export them as an animated SVG, in one dialog. Animate mode: up to eight tracks per element (Fade, Move, Rotate, Scale, Skew, Draw stroke, Count number, Clock, Frames) with duration, delay, stagger, easing, direction, repeats and start trigger (load, visible, click, hover), stored in the element metadata and shown again when reselected; animated layers get a name suffix (default __anim). JSON preset import/export reuses the complete track setup; Clear removes all tracks on OK, and arrow buttons reorder tracks. Export mode: the document, current spread or an artboard as SVG with the animation data and an embedded or linked (jsDelivr) player, plus an optional HTML preview page.
+ * version: 0.6.2
+ * description: Animate elements and export them as an animated SVG, in one dialog. Animate mode: up to eight tracks per element (Fade, Blur, Move, Rotate, Scale, Skew, Draw stroke, Count number, Clock, Frames; Each child animates the first-level children in Layers panel order, optionally reversed) with duration, delay, stagger, easing, direction, repeats and start trigger (load, visible, click, hover), stored in the element metadata and shown again when reselected; animated layers get a name suffix (default __anim). JSON preset import/export reuses the complete track setup; Clear removes all tracks on OK, and arrow buttons reorder tracks. Export mode: the document, current spread or an artboard as SVG with the animation data and an embedded or linked (jsDelivr) player, clipped to the artboard bounds, plus an optional HTML preview page.
  * author: WaveF
  * email: wavef@live.com
  * website: https://minicg.com
@@ -19,10 +19,10 @@ const { File } = require('/fs');
 const fsApi = require('/fs');
 
 const SCRIPT_NAME = 'SVG Anim';
-const VERSION = '0.4.1';
+const VERSION = '0.6.2';
 const SCRIPT_TITLE = SCRIPT_NAME + ' v' + VERSION;
-const RUNTIME_CDN_URL = "https://cdn.jsdelivr.net/gh/WaveF/affinity-svg-anim@v0.4.1/dist/svg-anim-runtime.min.js";
-const RUNTIME_SOURCE = "/*! SVG Anim runtime v0.4.1 | MIT License | (c) WaveF | https://github.com/WaveF/affinity-svg-anim */(function(){\"use strict\";var gt=\"http://www.w3.org/2000/svg\",O=document.currentScript,b=O&&(O.ownerSVGElement||O.closest&&O.closest(\"svg\"))||document.documentElement;if(!b||b.__svgAnim)return;var K=/^(defs|clipPath|mask|title|desc|metadata|style|script|linearGradient|radialGradient|pattern|filter|marker|symbol)$/,Mt=/^(path|line|polyline|polygon|circle|ellipse|rect)$/,S=1.70158,N=S*1.525,Q=S+1;function A(t){var e=7.5625,r=2.75;return t<1/r?e*t*t:t<2/r?e*(t-=1.5/r)*t+.75:t<2.5/r?e*(t-=2.25/r)*t+.9375:e*(t-=2.625/r)*t+.984375}var U={linear:function(t){return t},sineIn:function(t){return 1-Math.cos(t*Math.PI/2)},sineOut:function(t){return Math.sin(t*Math.PI/2)},sineInOut:function(t){return-(Math.cos(Math.PI*t)-1)/2},quadIn:function(t){return t*t},quadOut:function(t){return 1-(1-t)*(1-t)},quadInOut:function(t){return t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2},in:function(t){return t*t*t},out:function(t){return 1-Math.pow(1-t,3)},inOut:function(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2},quartIn:function(t){return t*t*t*t},quartOut:function(t){return 1-Math.pow(1-t,4)},quartInOut:function(t){return t<.5?8*t*t*t*t:1-Math.pow(-2*t+2,4)/2},quintIn:function(t){return t*t*t*t*t},quintOut:function(t){return 1-Math.pow(1-t,5)},quintInOut:function(t){return t<.5?16*t*t*t*t*t:1-Math.pow(-2*t+2,5)/2},expoIn:function(t){return t<=0||t>=1?t<=0?0:1:Math.pow(2,10*t-10)},expoOut:function(t){return t<=0||t>=1?t<=0?0:1:1-Math.pow(2,-10*t)},expoInOut:function(t){return t<=0||t>=1?t<=0?0:1:t<.5?Math.pow(2,20*t-10)/2:(2-Math.pow(2,-20*t+10))/2},circIn:function(t){return 1-Math.sqrt(1-t*t)},circOut:function(t){return Math.sqrt(1-Math.pow(t-1,2))},circInOut:function(t){return t<.5?(1-Math.sqrt(1-Math.pow(2*t,2)))/2:(Math.sqrt(1-Math.pow(-2*t+2,2))+1)/2},backIn:function(t){return Q*t*t*t-S*t*t},backOut:function(t){return 1+Q*Math.pow(t-1,3)+S*Math.pow(t-1,2)},backInOut:function(t){return t<.5?Math.pow(2*t,2)*((N+1)*2*t-N)/2:(Math.pow(2*t-2,2)*((N+1)*(t*2-2)+N)+2)/2},elasticIn:function(t){return t<=0||t>=1?t<=0?0:1:-Math.pow(2,10*t-10)*Math.sin((t*10-10.75)*(2*Math.PI)/3)},elasticOut:function(t){return t<=0||t>=1?t<=0?0:1:Math.pow(2,-10*t)*Math.sin((t*10-.75)*(2*Math.PI)/3)+1},elasticInOut:function(t){if(t<=0||t>=1)return t<=0?0:1;var e=Math.sin((20*t-11.125)*(2*Math.PI)/4.5);return t<.5?-Math.pow(2,20*t-10)*e/2:Math.pow(2,-20*t+10)*e/2+1},bounceIn:function(t){return 1-A(1-t)},bounceOut:A,bounceInOut:function(t){return t<.5?(1-A(1-2*t))/2:(1+A(2*t-1))/2}};function l(t,e){return t=Number(t),isFinite(t)?t:e}function E(t){return t<0?0:t>1?1:t}function C(t,e){var r=t*374761393+e*668265263|0;return r=Math.imul(r^r>>>13,1274126177),((r^r>>>16)>>>0)/4294967296}function Z(t){for(var e=[],r=t.firstElementChild;r;r=r.nextElementSibling)K.test(r.localName)||e.push(r);return e}function yt(t,e){for(var r=Z(t),n=0;r.length===1&&r[0].localName===\"g\"&&r.length!==e&&!r[0].hasAttribute(\"data-svganim\")&&n++<8;)r=Z(r[0]);return r}function bt(t){var e=[];Mt.test(t.localName)&&e.push(t);for(var r=t.querySelectorAll(\"path,line,polyline,polygon,circle,ellipse,rect\"),n=0;n<r.length;n++){for(var a=r[n].parentNode,i=!1;a&&a!==t;a=a.parentNode)if(K.test(a.localName)){i=!0;break}i||e.push(r[n])}return e}function wt(t){var e=[];return(function r(n){if((n.localName===\"text\"||n.localName===\"tspan\")&&!n.firstElementChild){e.push(n);return}for(var a=n.firstElementChild;a;a=a.nextElementSibling)r(a)})(t),e}function B(t,e){var r=t.getAttribute(e);r&&/[\\s,]/.test(r.trim())&&t.setAttribute(e,r.trim().split(/[\\s,]+/)[0])}function j(t){for(var e=wt(t),r=null,n=0;n<e.length;n++)if(e[n].textContent.trim()){r=e[n];break}if(r=r||e[0]||null,!r)return{get:function(){return\"\"},set:function(){}};for(var a=0;a<e.length;a++)e[a]!==r&&(e[a].textContent=\"\");B(r,\"x\"),B(r,\"y\"),r.removeAttribute(\"dx\"),r.removeAttribute(\"textLength\");for(var i=r.parentNode;i&&i.localName===\"tspan\";i=i.parentNode)B(i,\"x\"),i.removeAttribute(\"textLength\");var s=r.textContent;return{get:function(){return s},set:function(o){r.textContent!==o&&(r.textContent=o)}}}function tt(t){var e=String(t),r=e.indexOf(\".\");return r<0?0:e.length-r-1}function kt(t){var e=String(t).replace(/,/g,\"\").match(/-?\\d+(\\.\\d+)?/);return e?{value:Number(e[0]),decimals:e[1]?e[1].length-1:0}:null}function xt(t,e,r,n){var a=t<0&&Math.abs(t)>=Math.pow(10,-e)/2,i=Math.abs(t).toFixed(e),s=i.split(\".\"),o=s[0];return r>o.length&&(o=new Array(r-o.length+1).join(\"0\")+o),n&&(o=o.replace(/\\B(?=(\\d{3})+(?!\\d))/g,\",\")),(a?\"-\":\"\")+o+(s[1]?\".\"+s[1]:\"\")}function g(t){return t<10?\"0\"+t:String(t)}function It(t,e){var r=e.getHours();return t.replace(/YYYY|MM|DD|HH|hh|mm|ss|A/g,function(n){switch(n){case\"YYYY\":return String(e.getFullYear());case\"MM\":return g(e.getMonth()+1);case\"DD\":return g(e.getDate());case\"HH\":return g(r);case\"hh\":return g(r%12||12);case\"mm\":return g(e.getMinutes());case\"ss\":return g(e.getSeconds());case\"A\":return r<12?\"AM\":\"PM\"}return n})}var L=[];function Ot(t){if(t.__svgAnimSlot)return t.__svgAnimSlot;var e=document.createElementNS(gt,\"g\");e.setAttribute(\"class\",\"svganim-wrap\"),t.parentNode.insertBefore(e,t),e.appendChild(t);var r={x:0,y:0,width:0,height:0};try{r=e.getBBox()}catch(m){}var n=1,a=0,i=0,s=1;try{var o=b.getScreenCTM().inverse().multiply(e.parentNode.getScreenCTM());n=o.a,a=o.b,i=o.c,s=o.d}catch(m){}var h=n*s-a*i;Math.abs(h)<1e-12&&(n=1,a=0,i=0,s=1,h=1);var f={g:e,bbox:r,inv:[s/h,-a/h,-i/h,n/h],flip:h<0?-1:1,moves:[],rotates:[],scales:[],skews:[],opacity:1,dirty:!1};return t.__svgAnimSlot=f,L.push(f),f}var et={tl:[0,0],tc:[.5,0],tr:[1,0],cl:[0,.5],c:[.5,.5],cr:[1,.5],bl:[0,1],bc:[.5,1],br:[1,1]};function V(t,e){var r=et[e]||et.c,n=t.bbox;return[n.x+n.width*r[0],n.y+n.height*r[1]]}function u(t){return Math.round(t*1e4)/1e4}function St(t){var e=t.moves.concat(t.rotates,t.scales,t.skews);e.length?t.g.setAttribute(\"transform\",e.join(\" \")):t.dirty&&t.g.removeAttribute(\"transform\"),t.opacity!==1?t.g.style.opacity=String(u(t.opacity)):t.dirty&&(t.g.style.opacity=\"\"),t.dirty=e.length>0||t.opacity!==1,t.moves.length=0,t.rotates.length=0,t.scales.length=0,t.skews.length=0,t.opacity=1}var Nt={normal:1,reverse:1,alternate:1,alternateReverse:1};function rt(t){return t.type===\"frames\"||t.target===\"children\"&&t.type!==\"count\"&&t.type!==\"clock\"}function w(t,e,r){this.el=t,this.spec=e,this.type=e.type,this.dur=Math.max(.001,l(e.dur,1)),this.delay=Math.max(0,l(e.delay,0)),this.loops=Math.max(0,Math.floor(l(e.loops,0))),this.loopDelay=Math.max(0,l(e.loopDelay,0)),this.dir=Nt[e.dir]?e.dir:\"normal\",this.ease=U[e.ease]||U.inOut,this.time=0,this.rate=0,this.targets=r;for(var n=r.length,a=rt(e)&&this.type!==\"frames\"?Math.max(0,l(e.stagger,0)):0,i=[],s=0;s<n;s++)i.push(s);for(i.sort(function(P,Y){return C(P,7)-C(Y,7)}),this.offsets=[],s=0;s<n;s++){var o=e.order===\"reverse\"?n-1-s:e.order===\"center\"?Math.abs(s-(n-1)/2):e.order===\"random\"?i.indexOf(s):s;this.offsets.push(o*a)}for(var h=0,f=0;f<n;f++)h=Math.max(h,this.offsets[f]);var m=this.dur+this.loopDelay;this.end=this.loops>0?this.delay+h+this.loops*m-this.loopDelay:1/0,this.period=this.dir===\"alternate\"||this.dir===\"alternateReverse\"?2*m:m,this.setup()}w.prototype.setup=function(){var t=this,e=this.spec;switch(this.type){case\"fade\":case\"move\":case\"rotate\":case\"scale\":case\"skew\":this.slots=this.targets.map(Ot);break;case\"draw\":this.paths=this.targets.map(function(o){return bt(o).map(function(h){var f=0;try{f=h.getTotalLength()}catch(m){}return{el:h,len:f}})});break;case\"count\":this.text=j(this.el);var r=kt(this.text.get())||{value:0,decimals:0},n=e.start!==null&&e.start!==void 0&&e.start!==\"\"&&isFinite(Number(e.start));this.from=n?Number(e.start):r.value,this.to=l(e.end,0);var a=Math.max(n?tt(e.start):r.decimals,tt(this.to));this.dec=e.decimals===null||e.decimals===void 0||e.decimals<0?a:Math.floor(e.decimals),this.padWidth=e.pad?String(Math.floor(Math.max(Math.abs(this.from),Math.abs(this.to)))).length:0,this.seed=Math.floor(Math.random()*1e5);break;case\"clock\":this.text=j(this.el);break;case\"frames\":this.frameIndex=-1;break}var i=e.trigger;if(this.type===\"clock\"&&(i=\"load\"),i===\"click\")this.el.style.cursor=\"pointer\",this.el.addEventListener(\"click\",function(){t.time=0,t.rate=1,p()});else if(i===\"hover\")this.el.addEventListener(\"mouseenter\",function(){t.rate=1,p()}),this.el.addEventListener(\"mouseleave\",function(){t.end===1/0&&t.time>t.delay+t.period&&(t.time=t.delay+(t.time-t.delay)%t.period),t.rate=-1,p()});else if(i===\"view\"&&typeof IntersectionObserver==\"function\"){var s=new IntersectionObserver(function(o){for(var h=0;h<o.length;h++)if(o[h].isIntersecting){t.rate=1,s.disconnect(),p();break}},{threshold:.2});s.observe(this.el)}else this.rate=1,this.autoStart=!0},w.prototype.advance=function(t){return this.rate?(this.time+=t*this.rate,this.time<=0&&this.rate<0?(this.time=0,this.rate=0):this.time>=this.end&&this.rate>0&&(this.time=this.end,this.rate=0),this.rate!==0):!1},w.prototype.progress=function(t){var e=this.time-this.delay-this.offsets[t],r=this.dur+this.loopDelay,n=0,a=0;if(e>0){n=Math.floor(e/r);var i=e-n*r;this.loops>0&&n>=this.loops?(n=this.loops-1,a=1):a=E(i/this.dur)}var s=this.dir===\"reverse\"||this.dir===\"alternate\"&&n%2===1||this.dir===\"alternateReverse\"&&n%2===0;return s&&(a=1-a),{p:a,k:n,e:this.type===\"frames\"?a:this.ease(a)}},w.prototype.apply=function(){var t=this.spec,e=this.targets.length,r,n,a;switch(this.type){case\"fade\":for(r=0;r<e;r++){n=this.progress(r);var i=l(t.from,100)/100,s=l(t.to,0)/100;this.slots[r].opacity*=Math.max(0,Math.min(1,i+(s-i)*n.e))}break;case\"move\":for(r=0;r<e;r++){n=this.progress(r),a=this.slots[r];var o=l(t.x,0)*n.e,h=l(t.y,0)*n.e,f=a.inv,m=f[0]*o+f[2]*h,P=f[1]*o+f[3]*h;(m||P)&&a.moves.push(\"translate(\"+u(m)+\" \"+u(P)+\")\")}break;case\"rotate\":for(r=0;r<e;r++){n=this.progress(r),a=this.slots[r];var Y=l(t.angle,360)*n.e*a.flip,ot=V(a,t.pivot);Y&&a.rotates.push(\"rotate(\"+u(Y)+\" \"+u(ot[0])+\" \"+u(ot[1])+\")\")}break;case\"scale\":for(r=0;r<e;r++){n=this.progress(r),a=this.slots[r];var ut=1+(l(t.sx,100)/100-1)*n.e,ht=1+(l(t.sy,100)/100-1)*n.e,_=V(a,t.pivot);(ut!==1||ht!==1)&&a.scales.push(\"translate(\"+u(_[0])+\" \"+u(_[1])+\") scale(\"+u(ut)+\" \"+u(ht)+\") translate(\"+u(-_[0])+\" \"+u(-_[1])+\")\")}break;case\"skew\":for(r=0;r<e;r++){n=this.progress(r),a=this.slots[r];var lt=l(t.ax,20)*n.e,ft=l(t.ay,0)*n.e,T=V(a,t.pivot);(lt||ft)&&a.skews.push(\"translate(\"+u(T[0])+\" \"+u(T[1])+\") skewX(\"+u(lt)+\") skewY(\"+u(ft)+\") translate(\"+u(-T[0])+\" \"+u(-T[1])+\")\")}break;case\"draw\":var ct=Math.max(.001,Math.min(1,l(t.seg,20)/100));for(r=0;r<e;r++){var y=this.progress(r).e,c,v;switch(t.mode){case\"erase\":c=y,v=1;break;case\"revealErase\":y<.5?(c=0,v=2*y):(c=2*y-1,v=1);break;case\"travel\":v=(1+ct)*y,c=v-ct;break;default:c=0,v=y}c=E(c),v=E(v);for(var vt=this.paths[r],X=0;X<vt.length;X++){var mt=vt[X],H=mt.len,R=mt.el.style;if(H>0){if(v-c<1e-4){R.visibility=\"hidden\";continue}R.visibility=\"\",R.strokeDasharray=u((v-c)*H)+\" \"+u(H+1),R.strokeDashoffset=String(u(-c*H))}}}break;case\"count\":n=this.progress(0);var F;if(t.random){var G=Math.min(this.from,this.to),dt=Math.max(this.from,this.to),pt=n.k===0?this.from:G+(dt-G)*C(this.seed,n.k-1),At=G+(dt-G)*C(this.seed,n.k);F=pt+(At-pt)*this.ease(E((this.time-this.delay-n.k*(this.dur+this.loopDelay))/this.dur)),this.time<=this.delay&&(F=this.from)}else F=this.from+(this.to-this.from)*n.e;this.text.set(xt(F,this.dec,this.padWidth,!!t.group));break;case\"frames\":n=this.progress(0);var z=Math.min(e-1,Math.floor(n.p*e));if(z!==this.frameIndex){for(r=0;r<e;r++)this.targets[r].style.visibility=r===z?\"\":\"hidden\";this.frameIndex=z}break}};for(var d=[],k=[],$=b.querySelectorAll(\"[data-svganim]\"),nt=[],D=0;D<$.length;D++){var x;try{x=JSON.parse($[D].getAttribute(\"data-svganim\"))}catch(t){continue}!x||!x.tracks||!x.tracks.length||nt.push({el:$[D],data:x})}var at=[];nt.forEach(function(t){t.data.tracks.forEach(function(e){!e||!e.type||e.type===\"none\"||at.push({el:t.el,spec:e,targets:rt(e)?yt(t.el,l(t.data.n,-1)):[t.el]})})}),at.forEach(function(t){try{var e=new w(t.el,t.spec,t.targets);e.type===\"clock\"?k.push(e):d.push(e)}catch(r){window.console&&console.warn(\"[svganim] skipped track\",t.spec,r)}});var it=window.requestAnimationFrame||function(t){return setTimeout(function(){t(Date.now())},16)},J=!1,I=null,M=!1;function q(){for(var t=0;t<d.length;t++)d[t].apply();for(var e=0;e<L.length;e++)St(L[e])}function st(t){var e=I===null?0:Math.min(.25,(t-I)/1e3);I=t;var r=!1;if(!M)for(var n=0;n<d.length;n++)d[n].advance(e)&&(r=!0);q(),r&&!M?it(st):(J=!1,I=null)}function p(){J||M||(J=!0,I=null,it(st))}function W(){for(var t=new Date,e=0;e<k.length;e++)k[e].text.set(It(String(k[e].spec.format||\"HH:mm:ss\"),t))}k.length&&(W(),setTimeout(function(){W(),setInterval(W,1e3)},1e3-Date.now()%1e3+5)),q(),p(),b.__svgAnim={version:\"0.4.1\",players:d,play:function(){M=!1,p()},pause:function(){M=!0},restart:function(){M=!1,d.forEach(function(t){t.time=0,t.rate=t.autoStart?1:0}),q(),p()},seek:function(t){d.forEach(function(e){e.time=Math.max(0,Math.min(t,e.end))}),q()}}})();";
+const RUNTIME_CDN_URL = "https://cdn.jsdelivr.net/gh/WaveF/affinity-svg-anim@v0.6.2/dist/svg-anim-runtime.min.js";
+const RUNTIME_SOURCE = "/*! SVG Anim runtime v0.6.2 | MIT License | (c) WaveF | https://github.com/WaveF/affinity-svg-anim */(function(){\"use strict\";var E=\"http://www.w3.org/2000/svg\",C=document.currentScript,m=C&&(C.ownerSVGElement||C.closest&&C.closest(\"svg\"))||document.documentElement;if(!m||m.__svgAnim)return;var et=/^(defs|clipPath|mask|title|desc|metadata|style|script|linearGradient|radialGradient|pattern|filter|marker|symbol)$/,It=/^(path|line|polyline|polygon|circle|ellipse|rect)$/,_=1.70158,q=_*1.525,rt=_+1;function D(t){var e=7.5625,r=2.75;return t<1/r?e*t*t:t<2/r?e*(t-=1.5/r)*t+.75:t<2.5/r?e*(t-=2.25/r)*t+.9375:e*(t-=2.625/r)*t+.984375}var at={linear:function(t){return t},sineIn:function(t){return 1-Math.cos(t*Math.PI/2)},sineOut:function(t){return Math.sin(t*Math.PI/2)},sineInOut:function(t){return-(Math.cos(Math.PI*t)-1)/2},quadIn:function(t){return t*t},quadOut:function(t){return 1-(1-t)*(1-t)},quadInOut:function(t){return t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2},in:function(t){return t*t*t},out:function(t){return 1-Math.pow(1-t,3)},inOut:function(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2},quartIn:function(t){return t*t*t*t},quartOut:function(t){return 1-Math.pow(1-t,4)},quartInOut:function(t){return t<.5?8*t*t*t*t:1-Math.pow(-2*t+2,4)/2},quintIn:function(t){return t*t*t*t*t},quintOut:function(t){return 1-Math.pow(1-t,5)},quintInOut:function(t){return t<.5?16*t*t*t*t*t:1-Math.pow(-2*t+2,5)/2},expoIn:function(t){return t<=0||t>=1?t<=0?0:1:Math.pow(2,10*t-10)},expoOut:function(t){return t<=0||t>=1?t<=0?0:1:1-Math.pow(2,-10*t)},expoInOut:function(t){return t<=0||t>=1?t<=0?0:1:t<.5?Math.pow(2,20*t-10)/2:(2-Math.pow(2,-20*t+10))/2},circIn:function(t){return 1-Math.sqrt(1-t*t)},circOut:function(t){return Math.sqrt(1-Math.pow(t-1,2))},circInOut:function(t){return t<.5?(1-Math.sqrt(1-Math.pow(2*t,2)))/2:(Math.sqrt(1-Math.pow(-2*t+2,2))+1)/2},backIn:function(t){return rt*t*t*t-_*t*t},backOut:function(t){return 1+rt*Math.pow(t-1,3)+_*Math.pow(t-1,2)},backInOut:function(t){return t<.5?Math.pow(2*t,2)*((q+1)*2*t-q)/2:(Math.pow(2*t-2,2)*((q+1)*(t*2-2)+q)+2)/2},elasticIn:function(t){return t<=0||t>=1?t<=0?0:1:-Math.pow(2,10*t-10)*Math.sin((t*10-10.75)*(2*Math.PI)/3)},elasticOut:function(t){return t<=0||t>=1?t<=0?0:1:Math.pow(2,-10*t)*Math.sin((t*10-.75)*(2*Math.PI)/3)+1},elasticInOut:function(t){if(t<=0||t>=1)return t<=0?0:1;var e=Math.sin((20*t-11.125)*(2*Math.PI)/4.5);return t<.5?-Math.pow(2,20*t-10)*e/2:Math.pow(2,-20*t+10)*e/2+1},bounceIn:function(t){return 1-D(1-t)},bounceOut:D,bounceInOut:function(t){return t<.5?(1-D(1-2*t))/2:(1+D(2*t-1))/2}};function h(t,e){return t=Number(t),isFinite(t)?t:e}function P(t){return t<0?0:t>1?1:t}function T(t,e){var r=t*374761393+e*668265263|0;return r=Math.imul(r^r>>>13,1274126177),((r^r>>>16)>>>0)/4294967296}function nt(t){for(var e=[],r=t.firstElementChild;r;r=r.nextElementSibling)et.test(r.localName)||e.push(r);return e}function Ot(t,e){for(var r=nt(t),a=0;r.length===1&&r[0].localName===\"g\"&&r.length!==e&&!r[0].hasAttribute(\"data-svganim\")&&a++<8;)r=nt(r[0]);return r}function St(t){var e=[];It.test(t.localName)&&e.push(t);for(var r=t.querySelectorAll(\"path,line,polyline,polygon,circle,ellipse,rect\"),a=0;a<r.length;a++){for(var n=r[a].parentNode,i=!1;n&&n!==t;n=n.parentNode)if(et.test(n.localName)){i=!0;break}i||e.push(r[a])}return e}function Nt(t){var e=[];return(function r(a){if((a.localName===\"text\"||a.localName===\"tspan\")&&!a.firstElementChild){e.push(a);return}for(var n=a.firstElementChild;n;n=n.nextElementSibling)r(n)})(t),e}function $(t,e){var r=t.getAttribute(e);r&&/[\\s,]/.test(r.trim())&&t.setAttribute(e,r.trim().split(/[\\s,]+/)[0])}function it(t){for(var e=Nt(t),r=null,a=0;a<e.length;a++)if(e[a].textContent.trim()){r=e[a];break}if(r=r||e[0]||null,!r)return{get:function(){return\"\"},set:function(){}};for(var n=0;n<e.length;n++)e[n]!==r&&(e[n].textContent=\"\");$(r,\"x\"),$(r,\"y\"),r.removeAttribute(\"dx\"),r.removeAttribute(\"textLength\");for(var i=r.parentNode;i&&i.localName===\"tspan\";i=i.parentNode)$(i,\"x\"),i.removeAttribute(\"textLength\");var s=r.textContent;return{get:function(){return s},set:function(u){r.textContent!==u&&(r.textContent=u)}}}function st(t){var e=String(t),r=e.indexOf(\".\");return r<0?0:e.length-r-1}function Et(t){var e=String(t).replace(/,/g,\"\").match(/-?\\d+(\\.\\d+)?/);return e?{value:Number(e[0]),decimals:e[1]?e[1].length-1:0}:null}function Ct(t,e,r,a){var n=t<0&&Math.abs(t)>=Math.pow(10,-e)/2,i=Math.abs(t).toFixed(e),s=i.split(\".\"),u=s[0];return r>u.length&&(u=new Array(r-u.length+1).join(\"0\")+u),a&&(u=u.replace(/\\B(?=(\\d{3})+(?!\\d))/g,\",\")),(n?\"-\":\"\")+u+(s[1]?\".\"+s[1]:\"\")}function y(t){return t<10?\"0\"+t:String(t)}function _t(t,e){var r=e.getHours();return t.replace(/YYYY|MM|DD|HH|hh|mm|ss|A/g,function(a){switch(a){case\"YYYY\":return String(e.getFullYear());case\"MM\":return y(e.getMonth()+1);case\"DD\":return y(e.getDate());case\"HH\":return y(r);case\"hh\":return y(r%12||12);case\"mm\":return y(e.getMinutes());case\"ss\":return y(e.getSeconds());case\"A\":return r<12?\"AM\":\"PM\"}return a})}var J=[];function qt(t){if(t.__svgAnimSlot)return t.__svgAnimSlot;var e=document.createElementNS(E,\"g\");e.setAttribute(\"class\",\"svganim-wrap\"),t.parentNode.insertBefore(e,t),e.appendChild(t);var r={x:0,y:0,width:0,height:0};try{r=e.getBBox()}catch(d){}var a=1,n=0,i=0,s=1;try{var u=m.getScreenCTM().inverse().multiply(e.parentNode.getScreenCTM());a=u.a,n=u.b,i=u.c,s=u.d}catch(d){}var l=a*s-n*i;Math.abs(l)<1e-12&&(a=1,n=0,i=0,s=1,l=1);var f={g:e,bbox:r,inv:[s/l,-n/l,-i/l,a/l],flip:l<0?-1:1,unit:1/Math.sqrt(Math.abs(l)),moves:[],rotates:[],scales:[],skews:[],opacity:1,dirty:!1,blur:0,filter:null,blurred:!1};return t.__svgAnimSlot=f,J.push(f),f}var ot={tl:[0,0],tc:[.5,0],tr:[1,0],cl:[0,.5],c:[.5,.5],cr:[1,.5],bl:[0,1],bc:[.5,1],br:[1,1]};function W(t,e){var r=ot[e]||ot.c,a=t.bbox;return[a.x+a.width*r[0],a.y+a.height*r[1]]}function o(t){return Math.round(t*1e4)/1e4}var x=null,Dt=0;function Pt(t){if(t.filter)return t.filter;x||(x=document.createElementNS(E,\"defs\"),x.setAttribute(\"class\",\"svganim-defs\"),m.appendChild(x));var e;do e=\"svganim-blur-\"+ ++Dt;while(document.getElementById(e));var r=document.createElementNS(E,\"filter\");r.setAttribute(\"id\",e),r.setAttribute(\"filterUnits\",\"userSpaceOnUse\"),r.setAttribute(\"color-interpolation-filters\",\"sRGB\");var a=document.createElementNS(E,\"feGaussianBlur\");return r.appendChild(a),x.appendChild(r),t.filter={el:r,fe:a,url:\"url(#\"+e+\")\"},t.filter}function Tt(t){var e=Math.sqrt(t.blur)*t.unit;if(t.blur=0,!(e>.01)){t.blurred&&(t.g.removeAttribute(\"filter\"),t.blurred=!1);return}var r=Pt(t),a=t.bbox,n=3*e+.1*Math.max(a.width,a.height)+2;r.el.setAttribute(\"x\",o(a.x-n)),r.el.setAttribute(\"y\",o(a.y-n)),r.el.setAttribute(\"width\",o(a.width+2*n)),r.el.setAttribute(\"height\",o(a.height+2*n)),r.fe.setAttribute(\"stdDeviation\",o(e)),t.blurred||(t.g.setAttribute(\"filter\",r.url),t.blurred=!0)}function Yt(t){var e=t.moves.concat(t.rotates,t.scales,t.skews);e.length?t.g.setAttribute(\"transform\",e.join(\" \")):t.dirty&&t.g.removeAttribute(\"transform\"),t.opacity!==1?t.g.style.opacity=String(o(t.opacity)):t.dirty&&(t.g.style.opacity=\"\"),t.dirty=e.length>0||t.opacity!==1,t.moves.length=0,t.rotates.length=0,t.scales.length=0,t.skews.length=0,t.opacity=1,Tt(t)}var Bt={normal:1,reverse:1,alternate:1,alternateReverse:1};function ut(t){return t.type===\"frames\"||t.target===\"children\"&&t.type!==\"count\"&&t.type!==\"clock\"}function A(t,e,r){this.el=t,this.spec=e,this.type=e.type,this.dur=Math.max(.001,h(e.dur,1)),this.delay=Math.max(0,h(e.delay,0)),this.loops=Math.max(0,Math.floor(h(e.loops,0))),this.loopDelay=Math.max(0,h(e.loopDelay,0)),this.dir=Bt[e.dir]?e.dir:\"normal\",this.ease=at[e.ease]||at.inOut,this.time=0,this.rate=0,this.targets=r;for(var a=r.length,n=ut(e)&&this.type!==\"frames\"?Math.max(0,h(e.stagger,0)):0,i=[],s=0;s<a;s++)i.push(s);for(i.sort(function(R,w){return T(R,7)-T(w,7)}),this.offsets=[],s=0;s<a;s++){var u=e.order===\"reverse\"?a-1-s:e.order===\"center\"?Math.abs(s-(a-1)/2):e.order===\"random\"?i.indexOf(s):s;this.offsets.push(u*n)}for(var l=0,f=0;f<a;f++)l=Math.max(l,this.offsets[f]);var d=this.dur+this.loopDelay;this.end=this.loops>0?this.delay+l+this.loops*d-this.loopDelay:1/0,this.period=this.dir===\"alternate\"||this.dir===\"alternateReverse\"?2*d:d,this.setup()}A.prototype.setup=function(){var t=this,e=this.spec;switch(this.type){case\"fade\":case\"blur\":case\"move\":case\"rotate\":case\"scale\":case\"skew\":this.slots=this.targets.map(qt);break;case\"draw\":this.paths=this.targets.map(function(u){return St(u).map(function(l){var f=0;try{f=l.getTotalLength()}catch(d){}return{el:l,len:f}})});break;case\"count\":this.text=it(this.el);var r=Et(this.text.get())||{value:0,decimals:0},a=e.start!==null&&e.start!==void 0&&e.start!==\"\"&&isFinite(Number(e.start));this.from=a?Number(e.start):r.value,this.to=h(e.end,0);var n=Math.max(a?st(e.start):r.decimals,st(this.to));this.dec=e.decimals===null||e.decimals===void 0||e.decimals<0?n:Math.floor(e.decimals),this.padWidth=e.pad?String(Math.floor(Math.max(Math.abs(this.from),Math.abs(this.to)))).length:0,this.seed=Math.floor(Math.random()*1e5);break;case\"clock\":this.text=it(this.el);break;case\"frames\":this.frameIndex=-1;break}var i=e.trigger;if(this.type===\"clock\"&&(i=\"load\"),i===\"click\")this.el.style.cursor=\"pointer\",this.el.addEventListener(\"click\",function(){t.time=0,t.rate=1,b()});else if(i===\"hover\")this.el.addEventListener(\"mouseenter\",function(){t.rate=1,b()}),this.el.addEventListener(\"mouseleave\",function(){t.end===1/0&&t.time>t.delay+t.period&&(t.time=t.delay+(t.time-t.delay)%t.period),t.rate=-1,b()});else if(i===\"view\"&&typeof IntersectionObserver==\"function\"){var s=new IntersectionObserver(function(u){for(var l=0;l<u.length;l++)if(u[l].isIntersecting){t.rate=1,s.disconnect(),b();break}},{threshold:.2});s.observe(this.el)}else this.rate=1,this.autoStart=!0},A.prototype.advance=function(t){return this.rate?(this.time+=t*this.rate,this.time<=0&&this.rate<0?(this.time=0,this.rate=0):this.time>=this.end&&this.rate>0&&(this.time=this.end,this.rate=0),this.rate!==0):!1},A.prototype.progress=function(t){var e=this.time-this.delay-this.offsets[t],r=this.dur+this.loopDelay,a=0,n=0;if(e>0){a=Math.floor(e/r);var i=e-a*r;this.loops>0&&a>=this.loops?(a=this.loops-1,n=1):n=P(i/this.dur)}var s=this.dir===\"reverse\"||this.dir===\"alternate\"&&a%2===1||this.dir===\"alternateReverse\"&&a%2===0;return s&&(n=1-n),{p:n,k:a,e:this.type===\"frames\"?n:this.ease(n)}},A.prototype.apply=function(){var t=this.spec,e=this.targets.length,r,a,n;switch(this.type){case\"fade\":for(r=0;r<e;r++){a=this.progress(r);var i=h(t.from,100)/100,s=h(t.to,0)/100;this.slots[r].opacity*=Math.max(0,Math.min(1,i+(s-i)*a.e))}break;case\"blur\":var u=Math.max(0,h(t.from,0)),l=Math.max(0,h(t.to,0));for(r=0;r<e;r++){a=this.progress(r);var f=Math.max(0,u+(l-u)*a.e);this.slots[r].blur+=f*f}break;case\"move\":for(r=0;r<e;r++){a=this.progress(r),n=this.slots[r];var d=h(t.x,0)*a.e,R=h(t.y,0)*a.e,w=n.inv,ct=w[0]*d+w[2]*R,vt=w[1]*d+w[3]*R;(ct||vt)&&n.moves.push(\"translate(\"+o(ct)+\" \"+o(vt)+\")\")}break;case\"rotate\":for(r=0;r<e;r++){a=this.progress(r),n=this.slots[r];var dt=h(t.angle,360)*a.e*n.flip,mt=W(n,t.pivot);dt&&n.rotates.push(\"rotate(\"+o(dt)+\" \"+o(mt[0])+\" \"+o(mt[1])+\")\")}break;case\"scale\":for(r=0;r<e;r++){a=this.progress(r),n=this.slots[r];var pt=1+(h(t.sx,100)/100-1)*a.e,gt=1+(h(t.sy,100)/100-1)*a.e,F=W(n,t.pivot);(pt!==1||gt!==1)&&n.scales.push(\"translate(\"+o(F[0])+\" \"+o(F[1])+\") scale(\"+o(pt)+\" \"+o(gt)+\") translate(\"+o(-F[0])+\" \"+o(-F[1])+\")\")}break;case\"skew\":for(r=0;r<e;r++){a=this.progress(r),n=this.slots[r];var bt=h(t.ax,20)*a.e,yt=h(t.ay,0)*a.e,H=W(n,t.pivot);(bt||yt)&&n.skews.push(\"translate(\"+o(H[0])+\" \"+o(H[1])+\") skewX(\"+o(bt)+\") skewY(\"+o(yt)+\") translate(\"+o(-H[0])+\" \"+o(-H[1])+\")\")}break;case\"draw\":var Mt=Math.max(.001,Math.min(1,h(t.seg,20)/100));for(r=0;r<e;r++){var k=this.progress(r).e,c,v;switch(t.mode){case\"erase\":c=k,v=1;break;case\"revealErase\":k<.5?(c=0,v=2*k):(c=2*k-1,v=1);break;case\"travel\":v=(1+Mt)*k,c=v-Mt;break;default:c=0,v=k}c=P(c),v=P(v);for(var wt=this.paths[r],j=0;j<wt.length;j++){var kt=wt[j],K=kt.len,L=kt.el.style;if(K>0){if(v-c<1e-4){L.visibility=\"hidden\";continue}L.visibility=\"\",L.strokeDasharray=o((v-c)*K)+\" \"+o(K+1),L.strokeDashoffset=String(o(-c*K))}}}break;case\"count\":a=this.progress(0);var V;if(t.random){var U=Math.min(this.from,this.to),xt=Math.max(this.from,this.to),At=a.k===0?this.from:U+(xt-U)*T(this.seed,a.k-1),Rt=U+(xt-U)*T(this.seed,a.k);V=At+(Rt-At)*this.ease(P((this.time-this.delay-a.k*(this.dur+this.loopDelay))/this.dur)),this.time<=this.delay&&(V=this.from)}else V=this.from+(this.to-this.from)*a.e;this.text.set(Ct(V,this.dec,this.padWidth,!!t.group));break;case\"frames\":a=this.progress(0);var tt=Math.min(e-1,Math.floor(a.p*e));if(tt!==this.frameIndex){for(r=0;r<e;r++)this.targets[r].style.visibility=r===tt?\"\":\"hidden\";this.frameIndex=tt}break}};for(var p=[],I=[],X=m.querySelectorAll(\"[data-svganim]\"),z=[],Y=0;Y<X.length;Y++){var O;try{O=JSON.parse(X[Y].getAttribute(\"data-svganim\"))}catch(t){continue}!O||!O.tracks||!O.tracks.length||z.push({el:X[Y],data:O})}z.forEach(function(t){t.data.c&&(t.el.__svgAnimKids=[])});for(var B=m.querySelectorAll(\"[data-svganim-c]\"),S=0;S<B.length;S++)for(var g=B[S].parentNode;g&&g.nodeType===1;g=g.parentNode){if(g.__svgAnimKids){g.__svgAnimKids.push({el:B[S],layer:h(B[S].getAttribute(\"data-svganim-c\"),0)});break}if(g===m)break}function Gt(t,e){var r=e.type===\"frames\"?-1:1;return t.__svgAnimKids.slice().sort(function(a,n){return r*(a.layer-n.layer)}).map(function(a){return a.el})}var lt=[];z.forEach(function(t){t.data.tracks.forEach(function(e){if(!(!e||!e.type||e.type===\"none\")){var r=[t.el];ut(e)&&(r=t.el.__svgAnimKids?Gt(t.el,e):Ot(t.el,h(t.data.n,-1)),e.rev===!0&&(r=r.slice().reverse())),lt.push({el:t.el,spec:e,targets:r})}})}),lt.forEach(function(t){try{var e=new A(t.el,t.spec,t.targets);e.type===\"clock\"?I.push(e):p.push(e)}catch(r){window.console&&console.warn(\"[svganim] skipped track\",t.spec,r)}});var ht=window.requestAnimationFrame||function(t){return setTimeout(function(){t(Date.now())},16)},Q=!1,N=null,M=!1;function G(){for(var t=0;t<p.length;t++)p[t].apply();for(var e=0;e<J.length;e++)Yt(J[e])}function ft(t){var e=N===null?0:Math.min(.25,(t-N)/1e3);N=t;var r=!1;if(!M)for(var a=0;a<p.length;a++)p[a].advance(e)&&(r=!0);G(),r&&!M?ht(ft):(Q=!1,N=null)}function b(){Q||M||(Q=!0,N=null,ht(ft))}function Z(){for(var t=new Date,e=0;e<I.length;e++)I[e].text.set(_t(String(I[e].spec.format||\"HH:mm:ss\"),t))}I.length&&(Z(),setTimeout(function(){Z(),setInterval(Z,1e3)},1e3-Date.now()%1e3+5)),G(),b(),m.__svgAnim={version:\"0.6.2\",players:p,play:function(){M=!1,b()},pause:function(){M=!0},restart:function(){M=!1,p.forEach(function(t){t.time=0,t.rate=t.autoStart?1:0}),G(),b()},seek:function(t){p.forEach(function(e){e.time=Math.max(0,Math.min(t,e.end))}),G()}}})();";
 
 // ---------------------------------------------------------------------------
 // SVG Anim core: data model, validation, node helpers.
@@ -32,6 +32,8 @@ const RUNTIME_SOURCE = "/*! SVG Anim runtime v0.4.1 | MIT License | (c) WaveF | 
 // "suffix" is the text this script appended to the layer name ("" = none),
 // "auto" marks a layer that had no name of its own before the suffix was added.
 // Exported SVG elements carry {"v":1,"n":<child count>,"tracks":[…]} in data-svganim.
+// With Each child tracks the payload also has "c":1, and every first-level child
+// carries data-svganim-c="<Layers panel position>" (0 = top layer).
 
 const TAG_KEY = 'svganim';
 const DATA_VERSION = 1;
@@ -39,8 +41,8 @@ const MAX_TRACKS = 8;
 const DEFAULT_SUFFIX = '__anim';
 const MAX_SUFFIX_LENGTH = 32;
 
-const TYPES = ['none', 'fade', 'move', 'rotate', 'scale', 'skew', 'draw', 'count', 'clock', 'frames'];
-const TYPE_LABELS = ['None', 'Fade', 'Move', 'Rotate', 'Scale', 'Skew', 'Draw stroke', 'Count number', 'Clock', 'Frames'];
+const TYPES = ['none', 'fade', 'blur', 'move', 'rotate', 'scale', 'skew', 'draw', 'count', 'clock', 'frames'];
+const TYPE_LABELS = ['None', 'Fade', 'Blur', 'Move', 'Rotate', 'Scale', 'Skew', 'Draw stroke', 'Count number', 'Clock', 'Frames'];
 const TARGETS = ['self', 'children'];
 const TARGET_LABELS = ['Element', 'Each child'];
 // Cubic keeps the original in/out/inOut IDs so saved animations stay compatible.
@@ -72,8 +74,10 @@ const EASE_LABELS = [
 ];
 const DIRS = ['normal', 'reverse', 'alternate', 'alternateReverse'];
 const DIR_LABELS = ['Normal', 'Reverse', 'Alternate', 'Alternate reverse'];
-const ORDERS = ['forward', 'reverse', 'center', 'random'];
-const ORDER_LABELS = ['First to last', 'Last to first', 'From centre', 'Random'];
+// Each child follows the Layers panel: 'forward' starts with the top layer; the
+// separate rev flag reverses the layer order. Saved 'reverse' orders become rev.
+const ORDERS = ['forward', 'center', 'random'];
+const ORDER_LABELS = ['Top to bottom layer', 'From centre', 'Random'];
 const TRIGGERS = ['load', 'view', 'click', 'hover'];
 const TRIGGER_LABELS = ['On load', 'When visible', 'On click', 'On hover'];
 const DRAW_MODES = ['reveal', 'revealErase', 'erase', 'travel'];
@@ -82,12 +86,13 @@ const PIVOTS = ['tl', 'tc', 'tr', 'cl', 'c', 'cr', 'bl', 'bc', 'br'];
 const DECIMAL_LABELS = ['Auto', '0', '1', '2', '3', '4'];
 
 const COMMON_DEFAULTS = {
-    target: 'self', dur: 1, delay: 0, stagger: 0.1, order: 'forward',
+    target: 'self', dur: 1, delay: 0, stagger: 0.1, order: 'forward', rev: false,
     ease: 'inOut', dir: 'alternate', loops: 0, loopDelay: 0, trigger: 'load'
 };
 // Fields per type; '$' = timing preset applied when a track is first given this type.
 const TYPE_DEFAULTS = {
     fade: { from: 100, to: 0 },
+    blur: { from: 0, to: 10 },
     move: { x: 0, y: -20 },
     rotate: { angle: 360, pivot: 'c', $: { ease: 'linear', dir: 'normal', dur: 2 } },
     scale: { sx: 120, sy: 120, pivot: 'c' },
@@ -119,6 +124,7 @@ function normalizeTrack(raw) {
     t.delay = Math.max(0, finiteOr(raw.delay, 0));
     t.stagger = Math.max(0, finiteOr(raw.stagger, COMMON_DEFAULTS.stagger));
     t.order = pick(ORDERS, raw.order, 'forward');
+    t.rev = raw.rev === true || raw.order === 'reverse';
     t.ease = pick(EASES, raw.ease, COMMON_DEFAULTS.ease);
     t.dir = pick(DIRS, raw.dir, COMMON_DEFAULTS.dir);
     t.loops = Math.max(0, Math.floor(finiteOr(raw.loops, 0)));
@@ -128,6 +134,10 @@ function normalizeTrack(raw) {
         case 'fade':
             t.from = Math.min(100, Math.max(0, finiteOr(raw.from, def.from)));
             t.to = Math.min(100, Math.max(0, finiteOr(raw.to, def.to)));
+            break;
+        case 'blur':
+            t.from = Math.max(0, finiteOr(raw.from, def.from));
+            t.to = Math.max(0, finiteOr(raw.to, def.to));
             break;
         case 'move':
             t.x = finiteOr(raw.x, def.x);
@@ -164,6 +174,12 @@ function normalizeTrack(raw) {
             break;
     }
     return t;
+}
+
+/** Older track data in the current form, for strict comparisons. */
+function migrateTrack(raw) {
+    if (!raw || raw.order !== 'reverse') return raw;
+    return Object.assign({}, raw, { order: 'forward', rev: true });
 }
 
 /** A brand-new track of the given type with its timing preset. */
@@ -242,6 +258,7 @@ function describeTrack(t) {
     const s = (v) => String(round6(v));
     switch (t.type) {
         case 'fade': return 'Fade ' + s(t.from) + '→' + s(t.to) + '%';
+        case 'blur': return 'Blur ' + s(t.from) + '→' + s(t.to) + 'px';
         case 'move': return 'Move ' + s(t.x) + ',' + s(t.y);
         case 'rotate': return 'Rotate ' + s(t.angle) + '°';
         case 'scale': return 'Scale ' + s(t.sx) + (t.sx === t.sy ? '' : '×' + s(t.sy)) + '%';
@@ -271,6 +288,14 @@ function childCount(node) {
     try { for (const _ of node.children) n++; } catch (_) { n = 0; }
     return n;
 }
+/** First-level children, bottom layer first (SVG paint order). */
+function childNodes(node) {
+    try { return Array.from(node.children); } catch (_) { return []; }
+}
+/** Tracks that animate the first-level children instead of the element itself. */
+function usesChildTargets(t) {
+    return t.type === 'frames' || (t.target === 'children' && t.type !== 'count' && t.type !== 'clock');
+}
 function compactError(error) {
     return String(error && error.message ? error.message : error).replace(/\s+/g, ' ').trim();
 }
@@ -291,6 +316,8 @@ function selectedNodes(doc) {
 const ANCHOR_NAMES = { tl: 'TopLeft', tc: 'TopCentre', tr: 'TopRight', cl: 'CentreLeft', c: 'Centre', cr: 'CentreRight', bl: 'BottomLeft', bc: 'BottomCentre', br: 'BottomRight' };
 function anchorValue(key) { return SpatialAnchor[ANCHOR_NAMES[key] || 'Centre'].value; }
 function anchorKey(value) {
+    // The native control returns the SpatialAnchor enum object, not its number.
+    if (value && typeof value === 'object') value = value.value;
     for (const k of PIVOTS) if (SpatialAnchor[ANCHOR_NAMES[k]].value === value) return k;
     return 'c';
 }
@@ -359,6 +386,8 @@ function buildAnimatePanel(doc, left, right, state) {
     c.target = fx.addButtonSet('Apply to', TARGET_LABELS, 0);
     c.fadeFrom = pct(fx, 'From opacity', 100, 0, 100);
     c.fadeTo = pct(fx, 'To opacity', 0, 0, 100);
+    c.blurFrom = fx.addUnitValueEditor('From blur radius', UnitType.Pixel, doc.units, 0, 0, null);
+    c.blurTo = fx.addUnitValueEditor('To blur radius', UnitType.Pixel, doc.units, 10, 0, null);
     c.moveX = fx.addUnitValueEditor('Move X', UnitType.Pixel, doc.units, 0);
     c.moveY = fx.addUnitValueEditor('Move Y', UnitType.Pixel, doc.units, -20);
     c.angle = fx.addUnitValueEditor('Angle (clockwise)', UnitType.Degree, UnitType.Degree, 360);
@@ -377,7 +406,7 @@ function buildAnimatePanel(doc, left, right, state) {
     c.countRandom = fx.addSwitch('Random value each repeat', false);
     c.clockFormat = fx.addTextBox('Format', 'HH:mm:ss');
     c.clockHint = fx.addStaticText(null, 'Tokens: YYYY MM DD HH hh mm ss A. Shows the viewer\'s local time; timing settings are ignored.').setIsFullWidth();
-    c.framesHint = fx.addStaticText(null, 'Shows one child at a time, top child last. Duration is one pass through all children.').setIsFullWidth();
+    c.framesHint = fx.addStaticText(null, 'Shows one first-level child at a time, bottom layer first and top layer last (Reverse order: top first). Duration is one pass through all children.').setIsFullWidth();
     c.typeHint = fx.addStaticText(null, 'Choose a type to animate this track. Set every track to None to remove the animation.').setIsFullWidth();
 
     c.effectSpace = fx.addStaticText(null, '').setIsFullWidth();
@@ -388,6 +417,7 @@ function buildAnimatePanel(doc, left, right, state) {
     c.delay = num(timing, 'Delay (s)', 0, 0, null, 2);
     c.stagger = num(timing, 'Stagger per child (s)', 0.1, 0, null, 2);
     c.order = timing.addComboBox('Stagger order', ORDER_LABELS, 0);
+    c.rev = timing.addSwitch('Reverse order', false);
     c.ease = timing.addComboBox('Easing', EASE_LABELS, EASES.indexOf(COMMON_DEFAULTS.ease));
     c.dir = timing.addComboBox('Direction', DIR_LABELS, 2);
     c.loops = num(timing, 'Play count (0 = forever)', 0, 0, null, 0);
@@ -414,9 +444,10 @@ function readForm(c) {
         type,
         target: TARGETS[c.target.selectedIndex],
         dur: c.dur.value, delay: c.delay.value, stagger: c.stagger.value,
-        order: ORDERS[c.order.selectedIndex], ease: EASES[c.ease.selectedIndex], dir: DIRS[c.dir.selectedIndex],
+        order: ORDERS[c.order.selectedIndex], rev: !!c.rev.value, ease: EASES[c.ease.selectedIndex], dir: DIRS[c.dir.selectedIndex],
         loops: c.loops.value, loopDelay: c.loopDelay.value, trigger: TRIGGERS[c.trigger.selectedIndex],
-        from: c.fadeFrom.value, to: c.fadeTo.value,
+        from: type === 'blur' ? round6(c.blurFrom.value) : c.fadeFrom.value,
+        to: type === 'blur' ? round6(c.blurTo.value) : c.fadeTo.value,
         x: round6(c.moveX.value), y: round6(c.moveY.value),
         angle: c.angle.value,
         sx: c.sx.value, sy: c.sy.value,
@@ -436,15 +467,19 @@ function loadForm(c, track) {
     const type = t ? t.type : 'none';
     const pre = t || newTrack('fade');
     const ofType = (k, d) => (t && t[k] !== undefined && t[k] !== null) ? t[k] : d;
+    // Fade and Blur both store from/to; keep each form pair to its own type.
+    const ofKind = (kind, k, d) => t && t.type === kind ? ofType(k, d) : d;
     c.type.selectedIndex = TYPES.indexOf(type);
     c.target.selectedIndex = TARGETS.indexOf(pre.target);
     c.dur.value = pre.dur; c.delay.value = pre.delay; c.stagger.value = pre.stagger;
     c.order.selectedIndex = ORDERS.indexOf(pre.order);
+    c.rev.value = !!pre.rev;
     c.ease.selectedIndex = EASES.indexOf(pre.ease);
     c.dir.selectedIndex = DIRS.indexOf(pre.dir);
     c.loops.value = pre.loops; c.loopDelay.value = pre.loopDelay;
     c.trigger.selectedIndex = TRIGGERS.indexOf(pre.trigger);
-    c.fadeFrom.value = ofType('from', 100); c.fadeTo.value = ofType('to', 0);
+    c.fadeFrom.value = ofKind('fade', 'from', 100); c.fadeTo.value = ofKind('fade', 'to', 0);
+    c.blurFrom.value = ofKind('blur', 'from', 0); c.blurTo.value = ofKind('blur', 'to', 10);
     c.moveX.value = ofType('x', 0); c.moveY.value = ofType('y', -20);
     c.angle.value = ofType('angle', 360);
     c.sx.value = ofType('sx', 120); c.sy.value = ofType('sy', 120);
@@ -465,6 +500,7 @@ function loadForm(c, track) {
 
 const TYPE_CONTROLS = {
     fade: ['fadeFrom', 'fadeTo'],
+    blur: ['blurFrom', 'blurTo'],
     move: ['moveX', 'moveY'],
     rotate: ['angle', 'pivot'],
     scale: ['sx', 'sy', 'pivot'],
@@ -476,7 +512,7 @@ const TYPE_CONTROLS = {
     none: ['typeHint']
 };
 const ALL_TYPE_CONTROLS = Array.from(new Set([].concat(...Object.values(TYPE_CONTROLS))));
-const TIMING_CONTROLS = ['dur', 'delay', 'stagger', 'order', 'ease', 'dir', 'loops', 'loopDelay', 'trigger'];
+const TIMING_CONTROLS = ['dur', 'delay', 'stagger', 'order', 'rev', 'ease', 'dir', 'loops', 'loopDelay', 'trigger'];
 
 function setVisible(item, visible) {
     if (item.isVisible !== visible) item.isVisible = visible;
@@ -508,6 +544,7 @@ function updateAnimateControls(c, tracks, current) {
     for (const k of TIMING_CONTROLS) setVisible(c[k], animated);
     setVisible(c.stagger, animated && children);
     setVisible(c.order, animated && children);
+    setVisible(c.rev, animated && (children || type === 'frames'));
     setVisible(c.ease, animated && type !== 'frames');
     setVisible(c.drawSeg, type === 'draw' && c.drawMode.selectedIndex === DRAW_MODES.indexOf('travel'));
     c.loopDelay.isEnabled = c.loops.value !== 1;
@@ -639,7 +676,12 @@ function buildApplyCommand(doc, state, tracks, suffix) {
 // Affinity's SVG export does not include tags, so animated elements are briefly
 // renamed to unique tokens (one command), exported, and the rename is undone.
 // The tokens are then located in the SVG text and replaced by the real ids plus
-// a data-svganim attribute.
+// a data-svganim attribute. First-level children of elements with Each child
+// tracks get tokens too, so the player animates exactly those children (never
+// deeper levels, whatever wrappers the SVG preset adds) in Layers panel order.
+// Single-child ancestors of animated elements are tokenized as carriers: Affinity
+// bakes a masked image and its group into one <use> that keeps only the group's
+// id, so the image's animation is moved onto that element.
 
 const RUNTIME_FILE = 'svg-anim-runtime.min.js';
 const RUNTIME_MODES = ['embed', 'link'];
@@ -647,9 +689,14 @@ const RUNTIME_LABELS = ['Embed', 'Link'];
 const TOKEN_PREFIX = 'svganimtok';
 
 function stripExtension(name) { return String(name || '').replace(/\.[A-Za-z0-9]{1,8}$/, ''); }
-function safeFileName(name) {
-    const s = String(name || '').replace(/[\/\\:*?"<>|\u0000-\u001f]+/g, '-').replace(/^[\s.]+|[\s.]+$/g, '');
-    return s || 'animation';
+// File names avoid spaces: whitespace inside a design name (document, artboard,
+// typed file name) becomes '-'; the parts the script joins are separated by '_'.
+function fileNamePart(name) {
+    return String(name || '').trim().replace(/[\s\/\\:*?"<>|\u0000-\u001f]+/g, '-').replace(/^\.+|\.+$/g, '');
+}
+function safeFileName(...names) {
+    const parts = names.map(fileNamePart).filter(Boolean);
+    return parts.length ? parts.join('_') : 'animation';
 }
 function joinPath(dir, file) { return String(dir).replace(/\/+$/, '') + '/' + file; }
 function xmlAttr(s) {
@@ -694,6 +741,34 @@ function svgPresetNames() {
     return FileExportOptions.allPresetNames.filter(n => /svg/i.test(n));
 }
 
+function isSpreadNode(node) {
+    try { return node.isSpreadNode === true; } catch (_) { return false; }
+}
+/** Ancestors that hold only this chain, up to the first one with siblings (exclusive). */
+function singleChildAncestors(node) {
+    const out = [];
+    for (let p = node.parent; p && !isSpreadNode(p) && !isArtboardNode(p) && childCount(p) === 1; p = p.parent) out.push(p);
+    return out;
+}
+
+/** Nodes to tokenize: the animated items first (same indices), then marked children and carriers. */
+function tokenEntries(items) {
+    const entries = items.map(it => ({ node: it.node, item: it, exportName: it.exportName }));
+    const entryOf = node => {
+        let e = entries.find(en => en.node.isSameNode(node));
+        if (!e) { e = { node, exportName: userName(node) }; entries.push(e); }
+        return e;
+    };
+    for (const it of items) {
+        if (!it.data.tracks.some(usesChildTargets)) continue;
+        it.layered = true;
+        const kids = childNodes(it.node);
+        kids.forEach((kid, i) => { entryOf(kid).layer = kids.length - 1 - i; }); // 0 = top of the Layers panel
+    }
+    for (const it of items) for (const p of singleChildAncestors(it.node)) entryOf(p);
+    return entries;
+}
+
 function runExportWithTokens(doc, items, path, presetName, area) {
     const builder = CompoundCommandBuilder.create();
     items.forEach((it, i) => {
@@ -722,7 +797,15 @@ function runExportWithTokens(doc, items, path, presetName, area) {
     return { restored, error };
 }
 
-/** Rewrites token ids into real ids + data-svganim. Returns {svg, found:Set of item index}. */
+function jsonAttr(value) {
+    return "'" + JSON.stringify(value).replace(/&/g, '&amp;').replace(/'/g, '&apos;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + "'";
+}
+
+/**
+ * Rewrites token ids into real ids + data-svganim / data-svganim-c.
+ * Returns {svg, found:Set of entry index, merged:Set of entry index}; merged entries
+ * lost their own element and play on the nearest single-child ancestor's element.
+ */
 function injectData(svg, items) {
     const used = new Set();
     svg.replace(/\sid="([^"]*)"/g, (m, id) => { used.add(id); return m; });
@@ -736,6 +819,22 @@ function injectData(svg, items) {
         return id;
     };
     const byToken = new Map(items.map((it, i) => [it.token, i]));
+    const present = new Set();
+    svg.replace(new RegExp('\\sid="' + TOKEN_PREFIX + '(\\d+)x\\d*"', 'g'), (m, idx) => { present.add(Number(idx)); return m; });
+    // Animated entries without an element of their own ride on a merged ancestor.
+    const riders = new Map(), merged = new Set();
+    items.forEach((it, i) => {
+        if (!it.item || present.has(i)) return;
+        for (const p of singleChildAncestors(it.node)) {
+            const k = items.findIndex(en => en.node.isSameNode(p));
+            if (k >= 0 && present.has(k)) {
+                if (!riders.has(k)) riders.set(k, []);
+                riders.get(k).push(it.item);
+                merged.add(i);
+                break;
+            }
+        }
+    });
     const found = new Set();
     const tagRe = new RegExp('<([A-Za-z][\\w:.-]*)(\\s[^>]*?\\bid="' + TOKEN_PREFIX + '(\\d+)x\\d*"[^>]*?)(/?)>', 'g');
     const out = svg.replace(tagRe, (m, tagName, attrs, idx, selfClose) => {
@@ -751,13 +850,62 @@ function injectData(svg, items) {
         let extra = '';
         if (id) extra += ' id="' + xmlAttr(id) + '"';
         if (name && id !== name) extra += ' affinity:id="' + xmlAttr(name) + '"';
-        const payload = { v: DATA_VERSION, n: childCount(it.node), tracks: it.data.tracks };
-        extra += " data-svganim='" + JSON.stringify(payload).replace(/&/g, '&amp;').replace(/'/g, '&apos;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + "'";
+        const anim = (it.item ? [it.item] : []).concat(riders.get(i) || []);
+        if (anim.length) {
+            const payload = { v: DATA_VERSION, n: childCount(it.node) };
+            if (anim.some(a => a.layered)) payload.c = 1;
+            payload.tracks = [].concat(...anim.map(a => a.data.tracks));
+            extra += ' data-svganim=' + jsonAttr(payload);
+        }
+        if (it.layer !== undefined) extra += ' data-svganim-c="' + it.layer + '"';
         return '<' + tagName + extra + a + selfClose + '>';
     });
     // Synced instances: tokens that never appeared but share a name with one that did.
     items.forEach((it, i) => { if (it.alias && byToken.has(it.alias) && found.has(byToken.get(it.alias))) found.add(i); });
-    return { svg: out, found };
+    for (const i of merged) found.add(i);
+    return { svg: out, found, merged };
+}
+
+// ------------------------------------------------------- artboard clipping
+/** Artboards whose bounds clip the export; [] when the area has none (canvas only). */
+function areaArtboards(doc, area) {
+    if (area.kind === 'artboard') return [area.node];
+    const spreads = area.kind === 'spread' ? [doc.currentSpread] : Array.from(doc.spreads);
+    const perSpread = spreads.map(s => {
+        const list = [];
+        forEachNode(s, n => { if (isArtboardNode(n)) list.push(n); });
+        return list;
+    }).filter(list => list.length);
+    // Spread coordinates of different spreads cannot be mapped into one SVG.
+    return perSpread.length === 1 ? perSpread[0] : [];
+}
+
+function artboardBoxes(artboards) {
+    return artboards.map(ab => ab.getSpreadBaseBox(false)).filter(b => b && b.width > 0 && b.height > 0);
+}
+
+/**
+ * Clips everything to the artboard rectangles, so animated content that moves past
+ * an artboard edge stays hidden. Affinity writes the union of the exported artboards
+ * as the viewBox, so spread coordinates map linearly onto it (presets may scale).
+ */
+function clipToArtboards(svg, boxes) {
+    if (!boxes.length) return svg;
+    const open = /<svg\b[^>]*>/.exec(svg);
+    const close = svg.lastIndexOf('</svg>');
+    if (!open || close < 0) return svg;
+    const vb = /\sviewBox="([^"]+)"/.exec(open[0]);
+    const v = vb ? vb[1].trim().split(/[\s,]+/).map(Number) : [];
+    if (v.length !== 4 || !v.every(Number.isFinite) || !(v[2] > 0 && v[3] > 0)) return svg;
+    const x0 = Math.min(...boxes.map(b => b.x)), y0 = Math.min(...boxes.map(b => b.y));
+    const x1 = Math.max(...boxes.map(b => b.x + b.width)), y1 = Math.max(...boxes.map(b => b.y + b.height));
+    const sx = v[2] / (x1 - x0), sy = v[3] / (y1 - y0);
+    const id = 'svganim-artboards-' + Date.now().toString(36);
+    const rects = boxes.map(b => '<rect x="' + round6(v[0] + (b.x - x0) * sx) + '" y="' + round6(v[1] + (b.y - y0) * sy) +
+        '" width="' + round6(b.width * sx) + '" height="' + round6(b.height * sy) + '"/>').join('');
+    const at = open.index + open[0].length;
+    return svg.slice(0, at) + '\n<clipPath id="' + id + '">' + rects + '</clipPath>\n<g clip-path="url(#' + id + ')">' +
+        svg.slice(at, close) + '</g>\n' + svg.slice(close);
 }
 
 function insertRuntime(svg, mode, url) {
@@ -797,14 +945,14 @@ function buildExportContext(doc) {
     if (!presets.length) throw new Error('No SVG export presets were found.');
     const docName = stripExtension(doc.title || 'animation');
     const areas = [
-        { kind: 'document', label: 'Whole document', fileBase: docName },
-        { kind: 'spread', label: 'Current spread', fileBase: docName }
+        { kind: 'document', label: 'Whole document', fileBase: safeFileName(docName) },
+        { kind: 'spread', label: 'Current spread', fileBase: safeFileName(docName) }
     ];
     const artboards = [];
     if (doc.currentSpread) forEachNode(doc.currentSpread, node => { if (isArtboardNode(node)) artboards.push(node); });
     for (const ab of artboards) {
         const name = displayName(ab) || 'Artboard';
-        areas.push({ kind: 'artboard', node: ab, label: 'Artboard: ' + name, fileBase: docName + ' - ' + name });
+        areas.push({ kind: 'artboard', node: ab, label: 'Artboard: ' + name, fileBase: safeFileName(docName, name) });
     }
     // Default to the artboard containing the selection, if any.
     let defaultArea = 0;
@@ -826,11 +974,12 @@ function buildExportPanel(left, right, ctx) {
     c.folder = out.addTextBox('Folder', ctx.folder);
     c.file = out.addTextBox('File name (blank = automatic)', '');
     c.html = out.addSwitch('Also write an HTML preview page', true);
+    c.clip = out.addSwitch('Clip to artboard bounds', true);
     c.fileHint = out.addStaticText(null, '').setIsFullWidth();
     // Export may be the initial mode (no selection). Reserve the same tall
     // dialog budget before the user switches to Animate.
     c.layoutSpace = out.addStaticText(null, '').setIsFullWidth();
-    reserveRows(c.layoutSpace, 11);
+    reserveRows(c.layoutSpace, 10);
 
     const rt = right.addGroup('Player'); groups.push(rt);
     c.runtime = rt.addButtonSet('Player', RUNTIME_LABELS, 0);
@@ -849,11 +998,18 @@ function readExportOptions(c, ctx) {
         area,
         preset: ctx.presets[c.preset.selectedIndex] || ctx.presets[0],
         folder: String(c.folder.text || '').trim() || ctx.folder,
-        baseName: safeFileName(stripExtension(fileText) || area.fileBase),
+        baseName: fileText ? safeFileName(stripExtension(fileText)) : area.fileBase,
         runtime: RUNTIME_MODES[c.runtime.selectedIndex] || 'embed',
         url: String(c.url.text || '').trim() || RUNTIME_CDN_URL,
-        html: !!c.html.value
+        html: !!c.html.value,
+        clip: !!c.clip.value
     };
+}
+
+function artboardCount(doc, ctx, area) {
+    const key = 'artboards:' + area.label;
+    if (!ctx.countCache.has(key)) ctx.countCache.set(key, areaArtboards(doc, area).length);
+    return ctx.countCache.get(key);
 }
 
 function animatedCount(doc, ctx, area) {
@@ -869,7 +1025,11 @@ function updateExportControls(doc, c, ctx) {
     c.rtHint.text = o.runtime === 'embed'
         ? 'The player (about ' + Math.round(RUNTIME_SOURCE.length / 1024) + ' KB) is embedded in the SVG, so it plays offline as a single file.'
         : 'The SVG loads the player from this URL (needs internet; cached across SVGs). A file name without a folder also writes the player next to the SVG.';
-    c.fileHint.text = 'Writes ' + svgPathOf(o) + (o.html ? ' and .html' : '');
+    const boards = artboardCount(doc, ctx, o.area);
+    c.clip.isEnabled = boards > 0;
+    c.fileHint.text = 'Writes ' + svgPathOf(o) + (o.html ? ' and .html' : '') + '. ' + (boards
+        ? (o.clip ? 'Animation outside the artboard' + (boards > 1 ? 's' : '') + ' is hidden.' : 'Animation may show outside the artboards.')
+        : 'No artboards: the whole canvas is exported without clipping.');
     const n = animatedCount(doc, ctx, o.area);
     c.summary.text = n
         ? n + ' animated element(s) in this area.'
@@ -880,6 +1040,7 @@ function exportAnimated(doc, o) {
     const items = collectAnimated(areaRoots(doc, o.area));
     if (!items.length) throw new Error('No animated elements found in the chosen area.');
     for (const it of items) it.exportName = exportName(it.node, it.data);
+    const entries = tokenEntries(items);
     const denied = () => new Error('Affinity does not allow scripts to write to "' + o.folder + '". Allow this folder in Affinity\'s Scripting settings, or choose a folder on the Desktop.');
     try { fsApi.createDirectories(o.folder); } catch (e) {
         if (/PERMISSION/i.test(compactError(e))) throw denied();
@@ -888,14 +1049,15 @@ function exportAnimated(doc, o) {
     const svgPath = svgPathOf(o);
     let res;
     try {
-        res = runExportWithTokens(doc, items, svgPath, o.preset, o.area);
+        res = runExportWithTokens(doc, entries, svgPath, o.preset, o.area);
     } catch (e) {
         if (/PERMISSION/i.test(compactError(e))) throw denied();
         throw e;
     }
     if (res.error) throw new Error('Affinity export failed: ' + res.error);
-    const injected = injectData(readText(svgPath), items);
-    const finalSvg = insertRuntime(injected.svg, o.runtime, o.url);
+    const injected = injectData(readText(svgPath), entries);
+    const clipped = o.clip === false ? injected.svg : clipToArtboards(injected.svg, artboardBoxes(areaArtboards(doc, o.area)));
+    const finalSvg = insertRuntime(clipped, o.runtime, o.url);
     writeText(svgPath, finalSvg);
     const written = [svgPath];
     if (o.runtime === 'link' && isRelativeUrl(o.url) && !o.url.includes('/')) {
@@ -908,12 +1070,22 @@ function exportAnimated(doc, o) {
         writeText(p, htmlPreview(finalSvg, o.baseName));
         written.push(p);
     }
-    const missing = items.filter((_, i) => !injected.found.has(i)).map(it => it.exportName || displayName(it.node));
-    return { items, written, missing, restored: res.restored };
+    const label = it => it.exportName || displayName(it.node);
+    const missing = items.filter((_, i) => !injected.found.has(i)).map(label);
+    const merged = items.filter((_, i) => injected.merged.has(i)).map(label);
+    return { items, written, missing, merged, restored: res.restored };
 }
 
 function exportReport(r) {
-    const lines = ['Exported ' + (r.items.length - r.missing.length) + ' animated element(s).', '', ...r.written];
+    const lines = ['Exported ' + (r.items.length - r.missing.length) + ' animated element(s).'];
+    // All files go to one folder: show it once, then the file names.
+    const dirOf = p => String(p).replace(/\/[^\/]*$/, '');
+    const folders = Array.from(new Set(r.written.map(dirOf)));
+    if (folders.length === 1) {
+        lines.push('', 'Location:', folders[0], '', 'Files:', ...r.written.map(p => '- ' + String(p).slice(folders[0].length + 1)));
+    } else if (r.written.length) {
+        lines.push('', 'Files:', ...r.written.map(p => '- ' + p));
+    }
     if (r.missing.length) {
         lines.push('', 'Not found in the SVG (hidden, outside the area, or merged by the preset):');
         lines.push(...r.missing.slice(0, 12).map(n => '• ' + n));
@@ -944,8 +1116,9 @@ function parseConfig(text) {
         if (!normalized) throw new Error('Track ' + (i + 1) + ' has an unsupported type: ' + track.type + '.');
         // Missing fields receive defaults. Explicit invalid values must not be
         // silently clamped, dropped or replaced by a different enum value.
+        const source = migrateTrack(track);
         for (const key of Object.keys(normalized)) {
-            if (track[key] !== undefined && track[key] !== normalized[key]) {
+            if (source[key] !== undefined && source[key] !== normalized[key]) {
                 throw new Error('Track ' + (i + 1) + ': invalid ' + key + '.');
             }
         }
