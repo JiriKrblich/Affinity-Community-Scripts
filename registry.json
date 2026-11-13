@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-11-08",
+  "last_updated": "2026-11-13",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -1950,6 +1950,17 @@
       "category": "Text",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/switch-art-frame.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/switch-art-frame.js"
+    },
+    {
+      "id": "summary-of-stock-images",
+      "name": "Summary of Stock Images",
+      "description": "Scans all spreads for images placed from the Stock tab and creates a formatted text frame listing their Pexels and Pixabay source URLs. Groups duplicate URLs and shows how often each image is used.",
+      "author": "Adonfff",
+      "url": "https://adonfff.com",
+      "version": "1.0",
+      "category": "Text",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/summary-of-stock-images.jpg",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/summary-of-stock-images.js"
     }
   ]
 }
