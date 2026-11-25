@@ -1,58 +1,29 @@
 'use strict';
 
 /*
- * Numbering-Sequences v5c
+ * Numbering-Sequences v6
  * -----------------------
- * v5c (bug fix) compared to v5b:
- *  - Counting direction "Backward" with end value: start and end only delimit the range. Forward rises
- *    from the lower limit, Backward falls from the upper limit (start 50, end 20, increment 2, Backward:
- *    50,48,...,20,50,48,...). In v5b the cycle was merely reversed (50,20,22,...).
+ * v6 (new feature) compared to v5c:
+ *  - New sequence type "Time": start time (HH:MM), optional end time (cyclic, also across midnight),
+ *    counting mode of the increment selectable (hours or minutes), freely definable format
+ *    (HH/H = 24 h, hh/h = 12 h, mm/m = minutes, A/a = AM/PM). Also usable as row/column sequence
+ *    (e.g. timetable: rows = time, columns = weekdays).
+ *  - Date and time formats: text in single quotes is carried over unchanged
+ *    (e.g. HH:mm 'h'); two quotes in a row give a single quote.
+ *  Earlier versions: v5c Backward with end (start/end delimit the range, Backward falls from the upper limit);
+ *  v5b cycle with end value for increments > 1; v5 GUI in 3 tabs (like "Transform Objects v8");
+ *  v4c robust history rollback, File.create.
  *
- * v5b (bug fix) compared to v5:
- *  - Cycle with end value: with an increment > 1 the start value did not follow the end value (e.g. start 5,
- *    end 9, increment 2 gave 5,7,9,6,8,5,...). Now: 5,7,9,5,7,9,... (only values up to at most the end).
- *  - Date: an invalid end date now reports an error instead of labelling all objects identically.
- *
- * Changes compared to v4c:
- *  - GUI converted to tabs (pages), following the pattern of "Transform Objects v8":
- *    on the left, permanently visible: tab selection, preview (text list + status) and presets;
- *    on the right, two content columns per page. When switching tabs, the groups of the active
- *    page are shown and all other groups are hidden.
- *      Tab 1  Sequence            (sequence parameters; date fields in their own group "Date")
- *      Tab 2  Text & Arrangement  (prefix/suffix/text mode | reading direction/reset)
- *      Tab 3  Row × Column        (combined labelling, row and column sequence)
- *  - Date fields (start date, end date, format, placeholder note) now live in their own
- *    group "Date", which only appears for type "Date".
- *  - When "Combine Row × Column" is active, tab 1 shows a note instead of the sequence fields.
- *  Functions/calculation otherwise unchanged from v4c (robust history rollback, File.create).
- *
- * Replaces the text objects inside the selected group(s) with an
- * automatically generated sequence. The text attributes (font, size,
- * colour, ...) of the placeholder objects are fully preserved.
- *
- * Features:
- *  - End value (sequence repeats cyclically between start and end)
- *  - Prefix / Suffix
- *  - Uppercase/lowercase selectable (Letters, Roman Numerals)
- *  - Repeat per value
- *  - Reset per row/column
- *  - Combined row×column labelling (e.g. A1, A2, B1, B2)
- *  - Replace a placeholder inside existing text instead of full replacement
- *  - Sort mode "Snake" (row-wise/column-wise)
- *  - Sort by layer order
- *  - Preset system (save/load as JSON on the Desktop)
- *  - Text preview list in the dialog
- *  - Weekday/Month types in German AND English abbreviations
- *  - Date sequences with freely definable format (token system D/M/Y/W),
- *    including cyclic date ranges, also usable in the combined
- *    row×column labelling
+ * Replaces the text objects inside the selected group(s) with an automatically generated sequence.
+ * The text attributes (font, size, colour, ...) of the placeholder objects are fully preserved.
  */
 
 const { app } = require('/application');
 const doc = app.documents.current;
+const TITLE = 'Numbering-Sequences';
 
 if (!doc) {
-    app.alert('No document is open.', 'Numbering-Sequences');
+    app.alert('No document is open.', TITLE);
 } else {
 
 const { Selection, TextSelection } = require('/selections');
@@ -63,9 +34,6 @@ const { File, FileSystemApi } = require('/fs');
 // ============================================================
 // Robust history rollback (v4c)
 // ============================================================
-// 1) Jump via doc.history.position; 2) if that fails (e.g. COMMAND_FAILED when the
-// start position is 0 — document without history) or does not reach the target, step back
-// with history.undo(); 3) warning if the target is not reached.
 function rollbackToPosition(pos) {
     try {
         if (doc.history.position !== pos) doc.history.position = pos;
@@ -90,8 +58,8 @@ const WEEKDAYS_DE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const MONTHS_DE = ['Jan', 'Feb', 'März', 'Apr', 'Mai', 'Juni', 'Juli', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 const WEEKDAYS_EN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const WEEKDAYS_FULL_EN = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const MONTHS_FULL_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const WEEKDAYS_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const MONTHS_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const TYPE_ITEMS = [
     'Numeric (1, 2, 3, ...)',
     'Letters (a, b, ..., z, aa, ...)',
@@ -101,22 +69,38 @@ const TYPE_ITEMS = [
     'Weekdays (Mon, Tue, ...)',
     'Months (Jan, Feb, ...)',
     'Custom (List)',
-    'Date (freely formattable)'
+    'Date (freely formattable)',
+    'Time (freely formattable)'
 ];
 const DATE_SEQ_TYPE = 8;
+const TIME_SEQ_TYPE = 9;
 
-// Format placeholders for the date format (longest first = correct detection of e.g. "MMMM" before "MM")
-const DATE_TOKENS_EN = [
-    ['WWWW', d => WEEKDAYS_FULL_EN[(d.getUTCDay() + 6) % 7]],
+// Format placeholders for the date format (longest first)
+const DATE_TOKENS = [
+    ['WWWW', d => WEEKDAYS_FULL[(d.getUTCDay() + 6) % 7]],
     ['WWW', d => WEEKDAYS_EN[(d.getUTCDay() + 6) % 7]],
     ['YYYY', d => String(d.getUTCFullYear())],
     ['YY', d => String(d.getUTCFullYear() % 100).padStart(2, '0')],
-    ['MMMM', d => MONTHS_FULL_EN[d.getUTCMonth()]],
+    ['MMMM', d => MONTHS_FULL[d.getUTCMonth()]],
     ['MMM', d => MONTHS_EN[d.getUTCMonth()]],
     ['MM', d => String(d.getUTCMonth() + 1).padStart(2, '0')],
     ['M', d => String(d.getUTCMonth() + 1)],
     ['DD', d => String(d.getUTCDate()).padStart(2, '0')],
     ['D', d => String(d.getUTCDate())]
+];
+
+// Time: format placeholders (identical in both language versions, longest first)
+const pad2 = n => String(n).padStart(2, '0');
+const hour12 = d => (d.getUTCHours() % 12) || 12;
+const TIME_TOKENS = [
+    ['HH', d => pad2(d.getUTCHours())],
+    ['H', d => String(d.getUTCHours())],
+    ['hh', d => pad2(hour12(d))],
+    ['h', d => String(hour12(d))],
+    ['mm', d => pad2(d.getUTCMinutes())],
+    ['m', d => String(d.getUTCMinutes())],
+    ['A', d => d.getUTCHours() < 12 ? 'AM' : 'PM'],
+    ['a', d => d.getUTCHours() < 12 ? 'am' : 'pm']
 ];
 
 function parseDateDDMMYYYY(str) {
@@ -128,6 +112,17 @@ function parseDateDDMMYYYY(str) {
     return d;
 }
 
+// "HH:MM" (also "H:MM" or "HH.MM") -> minutes since midnight, otherwise null
+function parseTimeHHMM(str) {
+    const m = /^(\d{1,2})[:.](\d{2})$/.exec(String(str).trim());
+    if (!m) return null;
+    const h = parseInt(m[1], 10), mi = parseInt(m[2], 10);
+    if (h > 23 || mi > 59) return null;
+    return h * 60 + mi;
+}
+
+function timeUnitFactor(unitIndex) { return unitIndex === 0 ? 60 : 1; }   // 0 = hours, 1 = minutes
+
 function addDays(date, days) {
     return new Date(date.getTime() + days * 86400000);
 }
@@ -136,9 +131,16 @@ function daysBetween(a, b) {
     return Math.round((b.getTime() - a.getTime()) / 86400000);
 }
 
+// Text in single quotes is kept unchanged; '' gives a single quote
 function formatDate(date, pattern, tokens) {
     let out = '', i = 0;
     while (i < pattern.length) {
+        if (pattern[i] === "'") {
+            if (pattern[i + 1] === "'") { out += "'"; i += 2; continue; }
+            const j = pattern.indexOf("'", i + 1);
+            if (j === -1) { out += pattern.slice(i + 1); break; }
+            out += pattern.slice(i + 1, j); i = j + 1; continue;
+        }
         let matched = false;
         for (const [tok, fn] of tokens) {
             if (pattern.startsWith(tok, i)) { out += fn(date); i += tok.length; matched = true; break; }
@@ -146,6 +148,13 @@ function formatDate(date, pattern, tokens) {
         if (!matched) { out += pattern[i]; i += 1; }
     }
     return out;
+}
+
+// Format minutes since midnight (also negative or > 1440: modulo 24 h)
+function formatTimeValue(totalMinutes, pattern) {
+    const m = ((Math.round(totalMinutes) % 1440) + 1440) % 1440;
+    const d = new Date(Date.UTC(2000, 0, 1, Math.floor(m / 60), m % 60));
+    return formatDate(d, pattern, TIME_TOKENS);
 }
 
 function todayDDMMYYYY() {
@@ -201,8 +210,7 @@ function cyclicValue(list, idx1based) {
     return list[i];
 }
 
-// seqType: 0=Numeric, 1=Letters, 2=Roman, 3=Weekdays German, 4=Months German,
-//          5=Weekdays English, 6=Months English, 7=Custom
+// seqType: 0=Numeric, 1=Letters, 2=Roman, 3=Weekdays DE, 4=Months DE, 5=Weekdays EN, 6=Months EN, 7=Custom
 function generateValue(seqType, index, digits, customList) {
     switch (seqType) {
         case 0: return formatNumber(index, digits);
@@ -222,15 +230,14 @@ function applyCase(v, seqType, upperCase) {
     return v;
 }
 
-// Start/End-value cycle + repeat per value (v5c)
-// Start and end delimit the range [min, max]. Forward: rises from the lower limit
-// (min, min+increment, ...), Backward: falls from the upper limit (max, max-increment, ...);
-// only values inside the range are used, then the sequence starts over.
+// Start/End-value cycle + repeat per value (v5c). Start and end delimit the range [min, max].
+// Forward: rises from the lower limit, Backward: falls from the upper limit (in increment steps), then starts over.
+// Date: values in days; time: values in minutes (start = 0, end = distance from the start time).
 function computeIndexForPosition(pos, p) {
     const logicalStep = Math.floor(pos / p.repeat);
     if (!p.useEnd) return p.start + p.dir * logicalStep * p.inc;
     const lo = Math.min(p.start, p.end), hi = Math.max(p.start, p.end);
-    const n = Math.floor((hi - lo) / p.inc) + 1;      // number of values in the cycle
+    const n = Math.floor((hi - lo) / p.inc) + 1;
     const k = logicalStep % n;
     return p.dir > 0 ? lo + k * p.inc : hi - k * p.inc;
 }
@@ -260,9 +267,9 @@ for (const r of rootNodes) {
 }
 
 if (rootNodes.length === 0) {
-    app.alert('Please select a group (or text objects) first.', 'Numbering-Sequences');
+    app.alert('Please select a group (or text objects) first.', TITLE);
 } else if (textNodesRaw.length === 0) {
-    app.alert('No text objects were found in the selection.', 'Numbering-Sequences');
+    app.alert('No text objects were found in the selection.', TITLE);
 } else {
 
 // ============================================================
@@ -324,8 +331,7 @@ function sortReadingOrder(items, opts) {
     return cols.map(c => c.items);
 }
 
-// For the combined row×column labelling: assign each item a
-// (rowIndex, colIndex), independent of the chosen arrangement.
+// For the combined row×column labelling: assign each item (rowIndex, colIndex).
 function computeRowColIndices(items, hDir, vDir) {
     const rowGroups = clusterByOverlap([...items].sort((a, b) => a.ys - b.ys), it => [it.ys, it.ye]);
     rowGroups.sort((a, b) => vDir === 'ttb' ? a.start - b.start : b.start - a.start);
@@ -360,7 +366,12 @@ function formatAxisValue(axis, clusterIndex) {
     if (axis.seqType === DATE_SEQ_TYPE) {
         if (!axis.dateStart) throw new Error('Invalid start date (axis) - format DD.MM.YYYY expected');
         const idx = computeAxisIndex(clusterIndex, axis);
-        return formatDate(addDays(axis.dateStart, idx), axis.dateFormat, DATE_TOKENS_EN);
+        return formatDate(addDays(axis.dateStart, idx), axis.dateFormat, DATE_TOKENS);
+    }
+    if (axis.seqType === TIME_SEQ_TYPE) {
+        if (axis.timeStart === null) throw new Error('Invalid start time (axis) - format HH:MM expected');
+        const idx = computeAxisIndex(clusterIndex, axis);
+        return formatTimeValue(axis.timeStart + idx, axis.timeFormat);
     }
     const idx = computeAxisIndex(clusterIndex, axis);
     let v = generateValue(axis.seqType, idx, axis.digits, axis.customList);
@@ -373,7 +384,14 @@ function computeLabelForPosition(pos, params) {
         if (!p.dateStart) throw new Error('Invalid start date - format DD.MM.YYYY expected');
         if (p.dateEndInvalid) throw new Error('Invalid end date - format DD.MM.YYYY expected');
         const idx = computeIndexForPosition(pos, p);
-        const v = formatDate(addDays(p.dateStart, idx), p.dateFormat, DATE_TOKENS_EN);
+        const v = formatDate(addDays(p.dateStart, idx), p.dateFormat, DATE_TOKENS);
+        return params.prefix + v + params.suffix;
+    }
+    if (p.seqType === TIME_SEQ_TYPE) {
+        if (p.timeStart === null) throw new Error('Invalid start time - format HH:MM expected');
+        if (p.timeEndInvalid) throw new Error('Invalid end time - format HH:MM expected');
+        const off = computeIndexForPosition(pos, p);
+        const v = formatTimeValue(p.timeStart + off, p.timeFormat);
         return params.prefix + v + params.suffix;
     }
     const idx = computeIndexForPosition(pos, p);
@@ -450,17 +468,13 @@ function applySequence(params) {
 }
 
 // ============================================================
-// Dialog (v5: tab layout like "Transform Objects v8")
+// Dialog (tab layout like "Transform Objects v8")
 // ============================================================
-// Left: narrow, permanently visible column (tab selection, preview, presets).
-// Right: two content columns (cA, cB). Each page consists of groups in these two
-// columns; updateFieldVisibility() shows the groups of the active page and hides all others
-// (in addition to the type-/mode-dependent showing/hiding of individual fields).
 
 const PAGE_TITLES = ['1  Sequence', '2  Text & Arrangement', '3  Row × Column'];
 let curPage = 0;
 
-const dlg = Dialog.create('Numbering-Sequences');
+const dlg = Dialog.create(TITLE);
 dlg.initialWidth = 1100;
 dlg.setIsResizable(true);
 
@@ -484,7 +498,7 @@ const gPreset = cNav.addGroup('Presets');
 const btnSave = gPreset.addButton('Save Preset');
 const btnLoad = gPreset.addButton('Load Preset');
 
-// -- Tab 1 "Sequence", column A: sequence --
+// -- Tab 1, column A: sequence --
 const gSeq = cA.addGroup('Sequence');
 const typeCombo = gSeq.addComboBox('Type', TYPE_ITEMS, 0);
 typeCombo.selectedIndex = 0;
@@ -516,7 +530,7 @@ caseCheck.value = false;
 const customTB = gSeq.addTextBox('Custom List (comma-separated)', '');
 customTB.text = ''; customTB.setIsFullWidth(true);
 
-// -- Tab 1, column B: date (only for type "Date"), notes, mode note --
+// -- Tab 1, column B: date / time (type-dependent), notes, mode note --
 const gDate = cB.addGroup('Date');
 const startDateTB = gDate.addTextBox('Start Date (DD.MM.YYYY)', '');
 startDateTB.text = todayDDMMYYYY(); startDateTB.setIsFullWidth(true);
@@ -525,6 +539,17 @@ endDateTB.text = todayDDMMYYYY(); endDateTB.setIsFullWidth(true);
 const formatTB = gDate.addTextBox('Format', 'DD.MM.YYYY');
 formatTB.text = 'DD.MM.YYYY'; formatTB.setIsFullWidth(true);
 gDate.addStaticText('', 'Date format placeholders: D/DD=Day, M/MM=Month (number), MMM=Month short, MMMM=Month full, YY/YYYY=Year, WWW=Weekday short, WWWW=Weekday full. Examples: DD.MM.YYYY · YYYY.MM.DD · DD.MMM.YYYY · WWW.DD.MMM.YYYY. The increment counts in days here.');
+
+const gTime = cB.addGroup('Time');
+const startTimeTB = gTime.addTextBox('Start Time (HH:MM)', '');
+startTimeTB.text = '08:00'; startTimeTB.setIsFullWidth(true);
+const endTimeTB = gTime.addTextBox('End Time (HH:MM)', '');
+endTimeTB.text = '17:00'; endTimeTB.setIsFullWidth(true);
+const timeUnitRadio = gTime.addRadioGroup('Counting mode (unit of the increment)', ['Hours', 'Minutes'], 0);
+timeUnitRadio.selectedIndex = 0;
+const timeFormatTB = gTime.addTextBox('Format', 'HH:mm');
+timeFormatTB.text = 'HH:mm'; timeFormatTB.setIsFullWidth(true);
+gTime.addStaticText('', "Format placeholders: HH/H=hour (24 h), hh/h=hour (12 h), mm/m=minute, A=AM/PM, a=am/pm. Text in single quotes is kept unchanged. Examples: HH:mm · H:mm 'h' · hh:mm A. The increment counts in the chosen unit; with an end time the sequence runs cyclically (also across midnight, e.g. 22:00 to 02:00).");
 
 const gHint = cB.addGroup('Note');
 gHint.addStaticText('', 'For Letters/Weekdays/Months/custom list, the start value is the position (1=a resp. Mon resp. Jan). "Use End" delimits the range together with the start value, and the sequence then repeats cyclically: Forward it rises from the smaller value up to at most the larger one (e.g. 1,2,3,1,2,3,... or start 5, end 9, increment 2: 5,7,9,5,7,9,...), Backward it falls from the larger value (start 50, end 20, increment 2: 50,48,...,20,50,...). "Repeat" repeats each value n times in a row.');
@@ -568,8 +593,14 @@ function buildAxisGroup(col, title) {
     startE.value = 1; startE.precision = 0; startE.setIsFullWidth(true);
     const startDateB = g.addTextBox('Start Date (DD.MM.YYYY)', '');
     startDateB.text = todayDDMMYYYY(); startDateB.setIsFullWidth(true);
-    const formatB = g.addTextBox('Format', 'DD.MM.YYYY');
+    const formatB = g.addTextBox('Format (date)', 'DD.MM.YYYY');
     formatB.text = 'DD.MM.YYYY'; formatB.setIsFullWidth(true);
+    const startTimeB = g.addTextBox('Start Time (HH:MM)', '');
+    startTimeB.text = '08:00'; startTimeB.setIsFullWidth(true);
+    const timeUnitR = g.addRadioGroup('Counting mode (increment)', ['Hours', 'Minutes'], 0);
+    timeUnitR.selectedIndex = 0;
+    const timeFormatB = g.addTextBox('Format (time)', 'HH:mm');
+    timeFormatB.text = 'HH:mm'; timeFormatB.setIsFullWidth(true);
     const incE = g.addUnitValueEditor('Increment', 'none', 'none', 1, 1, 9999);
     incE.value = 1; incE.precision = 0; incE.setIsFullWidth(true);
     const dirR = g.addRadioGroup('Direction', ['Forward', 'Backward'], 0);
@@ -580,7 +611,9 @@ function buildAxisGroup(col, title) {
     caseC.value = false;
     const customB = g.addTextBox('Custom List', '');
     customB.text = ''; customB.setIsFullWidth(true);
-    return { group: g, typeCombo: typeC, startEd: startE, startDateTB: startDateB, formatTB: formatB, incEd: incE, dirRadio: dirR, digitsEd: digitsE, caseCheck: caseC, customTB: customB };
+    return { group: g, typeCombo: typeC, startEd: startE, startDateTB: startDateB, formatTB: formatB,
+             startTimeTB: startTimeB, timeUnitRadio: timeUnitR, timeFormatTB: timeFormatB,
+             incEd: incE, dirRadio: dirR, digitsEd: digitsE, caseCheck: caseC, customTB: customB };
 }
 
 const rowCtrls = buildAxisGroup(cA, 'Row Sequence');
@@ -594,32 +627,42 @@ let posBeforePreview = null;
 let hasPreview = false;
 
 function axisParamsFrom(ctrls) {
-    const isDate = ctrls.typeCombo.selectedIndex === DATE_SEQ_TYPE;
+    const t = ctrls.typeCombo.selectedIndex;
+    const isDate = t === DATE_SEQ_TYPE;
+    const isTime = t === TIME_SEQ_TYPE;
     return {
-        seqType: ctrls.typeCombo.selectedIndex,
-        start: isDate ? 0 : ctrls.startEd.value,
-        inc: Math.max(1, ctrls.incEd.value),
+        seqType: t,
+        start: (isDate || isTime) ? 0 : ctrls.startEd.value,
+        inc: Math.max(1, ctrls.incEd.value) * (isTime ? timeUnitFactor(ctrls.timeUnitRadio.selectedIndex) : 1),
         dir: ctrls.dirRadio.selectedIndex === 0 ? 1 : -1,
         digits: ctrls.digitsEd.value,
         upperCase: ctrls.caseCheck.value,
         customList: readCustomList(ctrls.customTB.text),
         dateStart: isDate ? parseDateDDMMYYYY(ctrls.startDateTB.text) : null,
-        dateFormat: ctrls.formatTB.text
+        dateFormat: ctrls.formatTB.text,
+        timeStart: isTime ? parseTimeHHMM(ctrls.startTimeTB.text) : null,
+        timeFormat: ctrls.timeFormatTB.text
     };
 }
 
 function currentParams() {
     const t = typeCombo.selectedIndex;
     const isDate = t === DATE_SEQ_TYPE;
+    const isTime = t === TIME_SEQ_TYPE;
     const dateStart = isDate ? parseDateDDMMYYYY(startDateTB.text) : null;
     const dateEnd = (isDate && endCheck.value) ? parseDateDDMMYYYY(endDateTB.text) : null;
+    const timeStart = isTime ? parseTimeHHMM(startTimeTB.text) : null;
+    const timeEnd = (isTime && endCheck.value) ? parseTimeHHMM(endTimeTB.text) : null;
+    let endValue = endEd.value;
+    if (isDate) endValue = (dateStart && dateEnd) ? daysBetween(dateStart, dateEnd) : 0;
+    if (isTime) endValue = (timeStart !== null && timeEnd !== null) ? ((timeEnd - timeStart + 1440) % 1440) : 0;
     return {
         single: {
             seqType: t,
-            start: isDate ? 0 : startEd.value,
-            end: isDate ? ((dateStart && dateEnd) ? daysBetween(dateStart, dateEnd) : 0) : endEd.value,
+            start: (isDate || isTime) ? 0 : startEd.value,
+            end: endValue,
             useEnd: endCheck.value,
-            inc: Math.max(1, incEd.value),
+            inc: Math.max(1, incEd.value) * (isTime ? timeUnitFactor(timeUnitRadio.selectedIndex) : 1),
             dir: dirRadio.selectedIndex === 0 ? 1 : -1,
             repeat: Math.max(1, repeatEd.value),
             digits: digitsEd.value,
@@ -627,7 +670,10 @@ function currentParams() {
             customList: readCustomList(customTB.text),
             dateStart: dateStart,
             dateEndInvalid: isDate && endCheck.value && !dateEnd,
-            dateFormat: formatTB.text
+            dateFormat: formatTB.text,
+            timeStart: timeStart,
+            timeEndInvalid: isTime && endCheck.value && timeEnd === null,
+            timeFormat: timeFormatTB.text
         },
         prefix: prefixTB.text,
         suffix: suffixTB.text,
@@ -652,9 +698,13 @@ function defaultCaseForType(t, checkCtrl) {
 function updateAxisVisibility(ctrls) {
     const t = ctrls.typeCombo.selectedIndex;
     const isDate = (t === DATE_SEQ_TYPE);
-    ctrls.startEd.isVisible = !isDate;
+    const isTime = (t === TIME_SEQ_TYPE);
+    ctrls.startEd.isVisible = !isDate && !isTime;
     ctrls.startDateTB.isVisible = isDate;
     ctrls.formatTB.isVisible = isDate;
+    ctrls.startTimeTB.isVisible = isTime;
+    ctrls.timeUnitRadio.isVisible = isTime;
+    ctrls.timeFormatTB.isVisible = isTime;
     ctrls.digitsEd.isVisible = (t === 0);
     ctrls.customTB.isVisible = (t === 7);
     ctrls.caseCheck.isVisible = (t === 1 || t === 2);
@@ -665,11 +715,13 @@ function updateFieldVisibility() {
     const combined = combinedCheck.value;
     const t = typeCombo.selectedIndex;
     const isDate = (t === DATE_SEQ_TYPE);
+    const isTime = (t === TIME_SEQ_TYPE);
     const pg = curPage;
 
     // Groups per tab
     gSeq.isVisible = (pg === 0) && !combined;
     gDate.isVisible = (pg === 0) && !combined && isDate;
+    gTime.isVisible = (pg === 0) && !combined && isTime;
     gHint.isVisible = (pg === 0) && !combined;
     gCombNote.isVisible = (pg === 0) && combined;
     gText.isVisible = (pg === 1);
@@ -680,12 +732,13 @@ function updateFieldVisibility() {
 
     // Fields within the groups
     sepTB.isVisible = combined;
-    startEd.isVisible = !isDate;
+    startEd.isVisible = !isDate && !isTime;
     endDateTB.isVisible = isDate && endCheck.value;
+    endTimeTB.isVisible = isTime && endCheck.value;
     digitsEd.isVisible = (t === 0);
     customTB.isVisible = (t === 7);
     caseCheck.isVisible = (t === 1 || t === 2);
-    endEd.isVisible = endCheck.value && !isDate;
+    endEd.isVisible = endCheck.value && !isDate && !isTime;
 
     updateAxisVisibility(rowCtrls);
     updateAxisVisibility(colCtrls);
@@ -699,7 +752,7 @@ function updateFieldVisibility() {
 
 function updatePreview() {
     if (hasPreview) {
-        rollbackToPosition(posBeforePreview);   // v4c: robust (undo fallback)
+        rollbackToPosition(posBeforePreview);
     } else {
         posBeforePreview = doc.history.position;
     }
@@ -723,6 +776,9 @@ function attachAxisHandlers(ctrls) {
     ctrls.startEd.setOnValueChangedHandler(onChange);
     ctrls.startDateTB.setOnValueChangedHandler(onChange);
     ctrls.formatTB.setOnValueChangedHandler(onChange);
+    ctrls.startTimeTB.setOnValueChangedHandler(onChange);
+    ctrls.timeUnitRadio.setOnValueChangedHandler(onChange);
+    ctrls.timeFormatTB.setOnValueChangedHandler(onChange);
     ctrls.incEd.setOnValueChangedHandler(onChange);
     ctrls.dirRadio.setOnValueChangedHandler(onChange);
     ctrls.digitsEd.setOnValueChangedHandler(onChange);
@@ -742,6 +798,10 @@ endEd.setOnValueChangedHandler(onChange);
 startDateTB.setOnValueChangedHandler(onChange);
 endDateTB.setOnValueChangedHandler(onChange);
 formatTB.setOnValueChangedHandler(onChange);
+startTimeTB.setOnValueChangedHandler(onChange);
+endTimeTB.setOnValueChangedHandler(onChange);
+timeUnitRadio.setOnValueChangedHandler(onChange);
+timeFormatTB.setOnValueChangedHandler(onChange);
 incEd.setOnValueChangedHandler(onChange);
 dirRadio.setOnValueChangedHandler(onChange);
 repeatEd.setOnValueChangedHandler(onChange);
@@ -775,7 +835,10 @@ function axisState(ctrls) {
         upperCase: ctrls.caseCheck.value,
         customList: ctrls.customTB.text,
         dateStart: ctrls.startDateTB.text,
-        dateFormat: ctrls.formatTB.text
+        dateFormat: ctrls.formatTB.text,
+        timeStart: ctrls.startTimeTB.text,
+        timeUnit: ctrls.timeUnitRadio.selectedIndex,
+        timeFormat: ctrls.timeFormatTB.text
     };
 }
 
@@ -790,6 +853,9 @@ function applyAxisState(ctrls, s) {
     if (s.customList !== undefined) ctrls.customTB.text = s.customList;
     if (s.dateStart !== undefined) ctrls.startDateTB.text = s.dateStart;
     if (s.dateFormat !== undefined) ctrls.formatTB.text = s.dateFormat;
+    if (s.timeStart !== undefined) ctrls.startTimeTB.text = s.timeStart;
+    if (s.timeUnit !== undefined) ctrls.timeUnitRadio.selectedIndex = s.timeUnit;
+    if (s.timeFormat !== undefined) ctrls.timeFormatTB.text = s.timeFormat;
 }
 
 function collectState() {
@@ -807,6 +873,10 @@ function collectState() {
         dateStart: startDateTB.text,
         dateEnd: endDateTB.text,
         dateFormat: formatTB.text,
+        timeStart: startTimeTB.text,
+        timeEnd: endTimeTB.text,
+        timeUnit: timeUnitRadio.selectedIndex,
+        timeFormat: timeFormatTB.text,
         prefix: prefixTB.text,
         suffix: suffixTB.text,
         textMode: textModeRadio.selectedIndex,
@@ -836,6 +906,10 @@ function applyState(s) {
     if (s.dateStart !== undefined) startDateTB.text = s.dateStart;
     if (s.dateEnd !== undefined) endDateTB.text = s.dateEnd;
     if (s.dateFormat !== undefined) formatTB.text = s.dateFormat;
+    if (s.timeStart !== undefined) startTimeTB.text = s.timeStart;
+    if (s.timeEnd !== undefined) endTimeTB.text = s.timeEnd;
+    if (s.timeUnit !== undefined) timeUnitRadio.selectedIndex = s.timeUnit;
+    if (s.timeFormat !== undefined) timeFormatTB.text = s.timeFormat;
     if (s.prefix !== undefined) prefixTB.text = s.prefix;
     if (s.suffix !== undefined) suffixTB.text = s.suffix;
     if (s.textMode !== undefined) textModeRadio.selectedIndex = s.textMode;
@@ -861,9 +935,9 @@ btnSave.setOnClickHandler(() => {
             const f = File.create(path, 'wb');
             f.writeStringAsUtf8(JSON.stringify(collectState(), null, 2));
             f.close();
-            app.alert('Preset saved:\n' + path, 'Numbering-Sequences');
+            app.alert('Preset saved:\n' + path, TITLE);
         } catch (e) {
-            app.alert('Error while saving: ' + e.message, 'Numbering-Sequences');
+            app.alert('Error while saving: ' + e.message, TITLE);
         }
     }
 });
@@ -876,7 +950,7 @@ btnLoad.setOnClickHandler(() => {
             const state = JSON.parse(buf.toString());
             applyState(state);
         } catch (e) {
-            app.alert('Error while loading: ' + e.message, 'Numbering-Sequences');
+            app.alert('Error while loading: ' + e.message, TITLE);
         }
     }
 });
@@ -888,7 +962,7 @@ const result = dlg.runModal();
 
 if (!result || result.value === DialogResult.Cancel.value) {
     if (hasPreview) {
-        rollbackToPosition(posBeforePreview);   // v4c: robust (undo fallback)
+        rollbackToPosition(posBeforePreview);
     }
 }
 // On OK, the last applied preview remains as the final result.

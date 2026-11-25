@@ -1,24 +1,28 @@
-
 'use strict';
 
-// ── Gradient Tweak v30 EN ─────────────────────────────────────
-// BUGFIX v30 (Affinity 3.3.3): gradient.getStop(i).colour now
-// already returns a ready Colour object. The previously required
-// new Colour(stop.colour) wraps that object again as a "handle"
-// -> any access (noise, hslaf) throws
-// "TypeError: expected ColourHandle".
-// FIX: helper toColour() only wraps when needed — works with
-// both older AND newer Affinity versions.
-// Also: preset saving switched to File.create().
-//
-// BUGFIX v28: the previous preview is ALWAYS undone first, then
-// the guaranteed ORIGINAL gradient is read.
+// ── Gradient Tweak v35 EN ─────────────────────────────────────
+// v35: Saturation/lightness jitter: Min and Max each -100..+100 (e.g. +20..+50
+//      possible). New option ABSOLUTE (percentage points added) or RELATIVE
+//      (% of value, value*(1+r)). v33 presets (+/-x relative) load exactly as relative.
+// v34: Saturation/lightness jitter with Min/Max in percentage points (absolute).
+// v33: Colour jitter extended by the HUE (field "Hue +/- degrees", 0-180).
+//      Hue random value only drawn when the field is > 0. Pure greys have
+//      no hue: no visible effect there.
+// v32: BUGFIX "Reset (original)": the original stays visible until a
+//      parameter actually changes. OK while showing the original closes
+//      without changes.
+// v31: Native live preview (doc.executeCommand(cmd,true) or doc.formatText(...,true)),
+//      OK applies as ONE compound command, Cancel discards. Warning for many
+//      colour stops only on Apply.
+// v30: toColour() for Affinity 3.3.3; preset saving with File.create().
+// v28: undo the preview first, then read the original.
 
 const { Dialog, DialogResult } = require('/dialog');
 const { Document }             = require('/document');
 const { FillDescriptor }       = require('/fills');
 const { Gradient, Colour }     = require('/colours');
-const { DocumentCommand }      = require('/commands');
+const { DocumentCommand,
+        CompoundCommandBuilder } = require('/commands');
 const { StoryDelta }           = require('/storydelta');
 const { app }                  = require('/application');
 const { File }                 = require('/fs');
@@ -206,16 +210,27 @@ function applyRedistribution(stops, exp, jmn, jmx, uj, rng) {
     res = res.map(s => ({...s, position: oMn+(s.position-cMn)/sp*(oMx-oMn)}));
   return res;
 }
-function applyColourJitter(stops, satPct, lightPct, alphaPct, rng) {
-  if (satPct === 0 && lightPct === 0 && alphaPct === 0) return stops;
+
+// v35: colour jitter. Saturation/lightness: random value uniform in [Min,Max] (-100..100 %).
+// relative=false: ABSOLUTE, percentage points are added. relative=true: RELATIVE, value * (1 + r/100).
+// Alpha: relative +/-%. hueDeg: +/- degrees (0 = off, hue random value only drawn when > 0).
+function applyColourJitter(stops, satMin, satMax, lightMin, lightMax, relative, alphaPct, hueDeg, rng) {
+  if (satMin === 0 && satMax === 0 && lightMin === 0 && lightMax === 0 && alphaPct === 0 && hueDeg === 0) return stops;
   return stops.map(s => {
     const base = s.colHandle ? toColour(s.colHandle).hslaf : s.hslaf;
-    const sF = 1 + (rng()*2-1) * (satPct/100);
-    const lF = 1 + (rng()*2-1) * (lightPct/100);
+    const sR = (satMin   + rng() * (satMax   - satMin))   / 100;
+    const lR = (lightMin + rng() * (lightMax - lightMin)) / 100;
     const aF = 1 + (rng()*2-1) * (alphaPct/100);
+    let h = base.h;
+    if (hueDeg > 0) {
+      const shift = (rng()*2-1) * (hueDeg/360);
+      h = ((base.h + shift) % 1.0 + 1.0) % 1.0;
+    }
+    const sNew = relative ? base.s * (1 + sR) : base.s + sR;
+    const lNew = relative ? base.l * (1 + lR) : base.l + lR;
     return {
       ...s,
-      hslaf: { h: base.h, s: clamp01(base.s*sF), l: clamp01(base.l*lF), alpha: clamp01(base.alpha*aF) },
+      hslaf: { h, s: clamp01(sNew), l: clamp01(lNew), alpha: clamp01(base.alpha*aF) },
       colHandle: null
     };
   });
@@ -263,15 +278,26 @@ function getReadFD(node, usePen, rangeInfo) {
   }
   return usePen ? node.penFillDescriptor : node.brushFillDescriptor;
 }
-function applyFD(doc, newFd, usePen, rangeInfo, targetNode) {
-  if (rangeInfo) {
-    const delta = usePen ? StoryDelta.createPenFill(newFd) : StoryDelta.createBrushFill(newFd);
-    doc.formatText(delta, doc.selection, false);
-  } else if (usePen) {
-    doc.executeCommand(DocumentCommand.createSetPenFill(targetNode.selfSelection, newFd));
-  } else {
-    doc.executeCommand(DocumentCommand.createSetBrushFill(targetNode.selfSelection, newFd));
+
+// v31: ONE command for all plans (preview or apply), executes nothing.
+// Selected text range: FormatText via the current text selection.
+function makeCommand(doc, plans, usePen) {
+  if (plans.length === 1 && plans[0].rangeInfo) {
+    const fd = plans[0].newFd;
+    const delta = usePen ? StoryDelta.createPenFill(fd) : StoryDelta.createBrushFill(fd);
+    return { delta };
   }
+  const cb = CompoundCommandBuilder.create();
+  for (const p of plans) {
+    cb.addCommand(usePen
+      ? DocumentCommand.createSetPenFill(p.node.selfSelection, p.newFd)
+      : DocumentCommand.createSetBrushFill(p.node.selfSelection, p.newFd));
+  }
+  return { cmd: cb.createCommand() };
+}
+function runCommand(doc, c, preview) {
+  if (c.delta) doc.formatText(c.delta, doc.selection, preview);
+  else doc.executeCommand(c.cmd, preview);
 }
 
 function presetsDir() { return app.userDesktopPath + '/AffinityScriptPresets'; }
@@ -326,7 +352,7 @@ if (sel.length === 0) {
     noStroke:  'No selected object has a gradient stroke.',
   };
 
-  const dlg = Dialog.create('Gradient Tweak');
+  const dlg = Dialog.create('Gradient Tweak v35');
   dlg.initialWidth = 820;
   dlg.setIsResizable(true);
   const col1 = dlg.addColumn();
@@ -365,13 +391,23 @@ if (sel.length === 0) {
 
   const grp5      = col2.addGroup('Colour stops - Colour jitter');
   const cbColJit  = grp5.addCheckBox('Enable colour jitter', false);
-  const satJitEd  = grp5.addUnitValueEditor('Saturation %', 'none', 'none', 0, -100, 100);
-  satJitEd.value = 0;
-  const lightJitEd = grp5.addUnitValueEditor('Lightness %', 'none', 'none', 0, -100, 100);
-  lightJitEd.value = 0;
+  const hueJitEd  = grp5.addUnitValueEditor('Hue +/- degrees', 'none', 'none', 0, 0, 180);
+  hueJitEd.value = 0;
+  // v35: saturation/lightness: Min/Max each -100..+100 %, absolute/relative mode
+  const satMinEd   = grp5.addUnitValueEditor('Saturation Min %', 'none', 'none', 0, -100, 100);
+  satMinEd.value = 0;
+  const satMaxEd   = grp5.addUnitValueEditor('Saturation Max %', 'none', 'none', 0, -100, 100);
+  satMaxEd.value = 0;
+  const lightMinEd = grp5.addUnitValueEditor('Lightness Min %', 'none', 'none', 0, -100, 100);
+  lightMinEd.value = 0;
+  const lightMaxEd = grp5.addUnitValueEditor('Lightness Max %', 'none', 'none', 0, -100, 100);
+  lightMaxEd.value = 0;
+  const rgJitMode  = grp5.addRadioGroup('', ['Absolute (percentage points)', 'Relative (% of value)'], 0);
   const alphaJitEd = grp5.addUnitValueEditor('Alpha %', 'none', 'none', 0, -100, 100);
   alphaJitEd.value = 0;
-  satJitEd.isEnabled = false; lightJitEd.isEnabled = false; alphaJitEd.isEnabled = false;
+  hueJitEd.isEnabled = false; alphaJitEd.isEnabled = false; rgJitMode.isEnabled = false;
+  satMinEd.isEnabled = false; satMaxEd.isEnabled = false;
+  lightMinEd.isEnabled = false; lightMaxEd.isEnabled = false;
 
   const grp6   = col2.addGroup('Random');
   const seedEd = grp6.addUnitValueEditor('Seed', 'none', 'none', 1, 0, 999999);
@@ -388,37 +424,27 @@ if (sel.length === 0) {
   const btnPresetSave = grpTools.addButton('Save preset');
   const btnPresetLoad = grpTools.addButton('Load preset');
 
-  const grpAct = col2.addGroup('');
-  const btnSet = grpAct.addButtonSet('', ['Preview', 'Apply'], 0);
-
-  dlg.setOnControlValueChangedHandler(() => {
-    dupEd.isEnabled     = rgDup.selectedIndex > 0;
-    jitMinEd.isEnabled  = cbJit.value;
-    jitMaxEd.isEnabled  = cbJit.value;
-    satJitEd.isEnabled  = cbColJit.value;
-    lightJitEd.isEnabled = cbColJit.value;
+  function updateEnabled() {
+    dupEd.isEnabled      = rgDup.selectedIndex > 0;
+    jitMinEd.isEnabled   = cbJit.value;
+    jitMaxEd.isEnabled   = cbJit.value;
+    hueJitEd.isEnabled   = cbColJit.value;
+    satMinEd.isEnabled   = cbColJit.value;
+    satMaxEd.isEnabled   = cbColJit.value;
+    lightMinEd.isEnabled = cbColJit.value;
+    lightMaxEd.isEnabled = cbColJit.value;
     alphaJitEd.isEnabled = cbColJit.value;
-  });
-
-  let undoCount     = 0;
-  let lastParamsKey = null;
-  let lastStopCount = 0;
-
-  function currentParamsKey() {
-    return JSON.stringify([
-      rgSrc.selectedIndex, rgBlend.selectedIndex, cbAltCW.value,
-      rgDup.selectedIndex, dupEd.value, expEd.value,
-      cbJit.value, jitMinEd.value, jitMaxEd.value,
-      cbColJit.value, satJitEd.value, lightJitEd.value, alphaJitEd.value,
-      seedEd.value
-    ]);
+    rgJitMode.isEnabled  = cbColJit.value;
   }
+
   function collectFields() {
     return {
       src: rgSrc.selectedIndex, blend: rgBlend.selectedIndex, altCW: cbAltCW.value,
       dupMode: rgDup.selectedIndex, dupCount: dupEd.value, exp: expEd.value,
       jitOn: cbJit.value, jitMin: jitMinEd.value, jitMax: jitMaxEd.value,
-      colJitOn: cbColJit.value, satJit: satJitEd.value, lightJit: lightJitEd.value, alphaJit: alphaJitEd.value,
+      colJitOn: cbColJit.value, hueJit: hueJitEd.value, satMin: satMinEd.value, satMax: satMaxEd.value,
+      lightMin: lightMinEd.value, lightMax: lightMaxEd.value, alphaJit: alphaJitEd.value,
+      jitMode: rgJitMode.selectedIndex,
       seed: seedEd.value
     };
   }
@@ -433,22 +459,99 @@ if (sel.length === 0) {
     if (d.jitMin      != null) jitMinEd.value        = d.jitMin;
     if (d.jitMax      != null) jitMaxEd.value        = d.jitMax;
     if (d.colJitOn    != null) cbColJit.value        = d.colJitOn;
-    if (d.satJit      != null) satJitEd.value        = d.satJit;
-    if (d.lightJit    != null) lightJitEd.value      = d.lightJit;
+    // v33: older presets (before v33) have no hueJit -> 0
+    hueJitEd.value = (d.hueJit != null) ? d.hueJit : 0;
+    // v34/v35: Min/Max; older presets (satJit/lightJit, relative +/-)
+    // are loaded as -x..+x (and flagged "relative" below).
+    if (d.satMin != null || d.satMax != null) {
+      satMinEd.value = (d.satMin != null) ? d.satMin : 0;
+      satMaxEd.value = (d.satMax != null) ? d.satMax : 0;
+    } else {
+      const x = Math.abs(d.satJit || 0);
+      satMinEd.value = -x; satMaxEd.value = x;
+    }
+    if (d.lightMin != null || d.lightMax != null) {
+      lightMinEd.value = (d.lightMin != null) ? d.lightMin : 0;
+      lightMaxEd.value = (d.lightMax != null) ? d.lightMax : 0;
+    } else {
+      const x = Math.abs(d.lightJit || 0);
+      lightMinEd.value = -x; lightMaxEd.value = x;
+    }
+    // v35: mode; presets without Min/Max (v33, satJit/lightJit relative +/-x) -> relative (exact)
+    if (d.jitMode != null) rgJitMode.selectedIndex = d.jitMode;
+    else rgJitMode.selectedIndex = (d.satMin == null && d.satMax == null && d.lightMin == null && d.lightMax == null
+                                    && (d.satJit || d.lightJit)) ? 1 : 0;
     if (d.alphaJit    != null) alphaJitEd.value       = d.alphaJit;
     if (d.seed        != null) seedEd.value           = d.seed;
-    dupEd.isEnabled      = rgDup.selectedIndex > 0;
-    jitMinEd.isEnabled   = cbJit.value;
-    jitMaxEd.isEnabled   = cbJit.value;
-    satJitEd.isEnabled   = cbColJit.value;
-    lightJitEd.isEnabled = cbColJit.value;
-    alphaJitEd.isEnabled = cbColJit.value;
+    updateEnabled();
   }
 
+  // v31: plans from the current dialog values (read from the original, no change)
+  function computePlans(f) {
+    doc.clearPreviews();
+    const usePen   = f.src === 1;
+    const blendDir = f.blend === 1 ? 1 : f.blend === 2 ? -1 : 0;
+    const dupCount = f.dupMode === 0 ? 1 : Math.max(2, Math.round(f.dupCount));
+    const doMirror = f.dupMode === 2;
+    const expVal   = Math.max(0.1, f.exp);
+    const jitMin   = f.jitMin;
+    const jitMax   = Math.max(jitMin, f.jitMax);
+    const seedVal  = Math.round(f.seed) || 1;
+    const hueJit   = Math.max(0, f.hueJit || 0);
+
+    const plans = [];
+    for (const tgt of targetNodes) {
+      const rInfo = rangeInfo && tgt === rangeInfo.node ? rangeInfo : null;
+      const fd = getReadFD(tgt, usePen, rInfo);
+      if (!fd || fd.fill.fillType.value !== 3) continue;
+
+      const origFill = fd.fill;
+      const rawStops = readRawStops(origFill.gradient);
+      const rng = mulberry32(seedVal);
+      let newStops = buildStops(rawStops, blendDir, dupCount, doMirror, f.altCW);
+      newStops = applyRedistribution(newStops, expVal, jitMin, jitMax, f.jitOn, rng);
+      if (f.colJitOn) newStops = applyColourJitter(newStops, f.satMin, Math.max(f.satMin, f.satMax), f.lightMin, Math.max(f.lightMin, f.lightMax), f.jitMode === 1, f.alphaJit, hueJit, rng);
+
+      const newFd = buildFD(newStops, fd, origFill);
+      plans.push({ node: tgt, newFd, stopCount: newStops.length, rangeInfo: rInfo });
+    }
+    const maxStopCount = plans.length ? Math.max(...plans.map(p => p.stopCount)) : 0;
+    return { plans, usePen, maxStopCount };
+  }
+
+  // v31: native live preview (no history entry)
+  function updatePreview() {
+    doc.clearPreviews();
+    try {
+      const r = computePlans(collectFields());
+      if (!r.plans.length) {
+        statusText.text = r.usePen ? label.noStroke : label.noFill;
+        return;
+      }
+      runCommand(doc, makeCommand(doc, r.plans, r.usePen), true);
+      statusText.text = 'Preview: ' + r.plans.length + ' of ' + targetNodes.length +
+        ' object(s), max. ' + r.maxStopCount + ' colour stops' +
+        (r.maxStopCount > WARN_THRESHOLD ? ' (many!)' : '') + '.';
+    } catch (e) {
+      doc.clearPreviews();
+      statusText.text = 'Error: ' + (e && e.message ? e.message : String(e));
+    }
+  }
+
+  // v32: original display after "Reset" (stays until a parameter changes)
+  let showOriginal = false, resetKey = null;
+  dlg.setOnControlValueChangedHandler(() => {
+    updateEnabled();
+    if (showOriginal && JSON.stringify(collectFields()) === resetKey) { doc.clearPreviews(); return; }
+    showOriginal = false;
+    updatePreview();
+  });
+
   btnReset.setOnClickHandler(() => {
-    for (let i = 0; i < undoCount; i++) doc.undo();
-    undoCount = 0; lastParamsKey = null; lastStopCount = 0;
-    statusText.text = 'Reset to original.';
+    showOriginal = true;
+    resetKey = JSON.stringify(collectFields());
+    doc.clearPreviews();
+    statusText.text = 'Original shown (changing a parameter shows the preview again).';
   });
   btnPresetSave.setOnClickHandler(() => {
     const name = app.prompt('Enter preset name:', 'Save preset', '');
@@ -468,85 +571,30 @@ if (sel.length === 0) {
     try {
       const data = JSON.parse(File.readAll(path).toString());
       applyFields(data);
+      showOriginal = false;
+      updatePreview();
       statusText.text = 'Preset loaded: ' + baseName(path);
     } catch (e) { statusText.text = 'Error loading: ' + e.message; }
   });
 
-  // ── Dialog loop ──────────────────────────────────────────────
+  // ── Dialog: OK applies, Cancel discards ──────────────────────
   while (true) {
+    if (!showOriginal) updatePreview();
     const result = dlg.runModal();
+    doc.clearPreviews();
 
-    if (!result || result.value !== DialogResult.Ok.value) {
-      for (let i = 0; i < undoCount; i++) doc.undo();
-      break;
-    }
+    if (!result || result.value !== DialogResult.Ok.value) break;
+    // v32: original shown -> close without changes
+    if (showOriginal) break;
 
-    const action    = btnSet.selectedIndex;
-    const usePen    = rgSrc.selectedIndex === 1;
-    const nowKey    = currentParamsKey();
-    const unchanged = (undoCount > 0 && lastParamsKey === nowKey);
-
-    if (action === 1 && unchanged) {
-      if (!checkMarkerWarning(lastStopCount)) continue;
-      break;
-    }
-
-    for (let i = 0; i < undoCount; i++) doc.undo();
-    undoCount = 0;
-
-    const blendDir = rgBlend.selectedIndex === 1 ?  1
-                   : rgBlend.selectedIndex === 2 ? -1 : 0;
-    const dupMode  = rgDup.selectedIndex;
-    const dupCount = dupMode === 0 ? 1 : Math.max(2, Math.round(dupEd.value));
-    const doMirror = dupMode === 2;
-    const altCW    = cbAltCW.value;
-    const expVal   = Math.max(0.1, expEd.value);
-    const useJit   = cbJit.value;
-    const jitMin   = jitMinEd.value;
-    const jitMax   = Math.max(jitMin, jitMaxEd.value);
-    const useColJit  = cbColJit.value;
-    const satJit     = satJitEd.value;
-    const lightJit   = lightJitEd.value;
-    const alphaJit   = alphaJitEd.value;
-    const seedVal    = Math.round(seedEd.value) || 1;
-
-    const plans = [];
-    for (const tgt of targetNodes) {
-      const rInfo = rangeInfo && tgt === rangeInfo.node ? rangeInfo : null;
-      const fd = getReadFD(tgt, usePen, rInfo);
-      if (!fd || fd.fill.fillType.value !== 3) continue;
-
-      const origFill = fd.fill;
-      const rawStops = readRawStops(origFill.gradient);
-      const rng = mulberry32(seedVal);
-      let newStops = buildStops(rawStops, blendDir, dupCount, doMirror, altCW);
-      newStops = applyRedistribution(newStops, expVal, jitMin, jitMax, useJit, rng);
-      if (useColJit) newStops = applyColourJitter(newStops, satJit, lightJit, alphaJit, rng);
-
-      const newFd = buildFD(newStops, fd, origFill);
-      plans.push({ node: tgt, newFd, stopCount: newStops.length, rangeInfo: rInfo });
-    }
-
-    if (plans.length === 0) {
-      showMsg(usePen ? label.noStroke : label.noFill);
+    const r = computePlans(collectFields());
+    if (r.plans.length === 0) {
+      showMsg(r.usePen ? label.noStroke : label.noFill);
       continue;
     }
+    if (!checkMarkerWarning(r.maxStopCount)) continue;
 
-    const maxStopCount = Math.max(...plans.map(p => p.stopCount));
-    if (!checkMarkerWarning(maxStopCount)) continue;
-
-    for (const p of plans) {
-      applyFD(doc, p.newFd, usePen, p.rangeInfo, p.node);
-      undoCount++;
-    }
-
-    if (action === 0) {
-      lastParamsKey = nowKey;
-      lastStopCount = maxStopCount;
-      statusText.text = plans.length + ' of ' + targetNodes.length +
-        ' object(s) processed, max. ' + maxStopCount + ' colour stops.';
-    } else {
-      break;
-    }
+    runCommand(doc, makeCommand(doc, r.plans, r.usePen), false);
+    break;
   }
 }

@@ -1,28 +1,32 @@
 'use strict';
 // ============================================================
-//  Scribble v21 (English)
+//  Scribble v22 (English)
 //  Generates curves (individual lines / continuous zig-zag line /
 //  cross-hatch / contour hatch) and clips them into a vector shape
 //  or text object (incl. per-character support), so they can later
 //  be filled with a Vector Brush to create a scribble effect.
 //
-//  v21: GUI organised into 4 tabs (pages), like "Transform Objects":
-//   on the left a permanent tab selector, Preview/Randomize and
-//   presets; on the right two columns per page. Pages: 1 Method &
-//   Text (method, per character, seed, line direction), 2 Angle &
-//   Density, 3 Curvature (incl. wavelength & phase jitter), 4 Overlap
-//   & Output. Functions and parameters unchanged vs v20 (all fields
-//   stay effective on hidden pages). Fallback: if hiding groups is not
-//   possible, all groups stay visible.
-//
+//  v22: preview and undo (result unchanged, compared live against v21):
+//   - The preview is a native Affinity preview: all scribble curves,
+//     visibilities and placing in ONE compound that is only displayed -
+//     each preview replaces the previous one and creates NO history
+//     entry. v21 created 3 entries per object/letter per preview (curve,
+//     name, placing) plus show/hide and delete - hundreds after a few
+//     previews.
+//   - OK: exactly 1 entry for the result (for text plus 2 entries for
+//     the one-time conversion to curves, independent of the number of
+//     text objects). Cancel undoes exactly these own entries - nothing
+//     remains in the history or the document.
+//   - Text is duplicated and converted to curves only ONCE (all text
+//     objects in one command), no longer on every preview.
+//   - New curves are created directly inside the target object (or for
+//     the meander directly above the text) with their final name.
+//  v21: GUI organised into 4 tabs (pages).
 //  v20 fix (text with only ONE character): "Convert to Curves" returns
-//   a single curve object without children instead of a group for one
-//   character. getLetterNodes() then uses the object itself as the only
-//   letter.
+//   a single curve object without children for one character.
 //  v19 fix (stale preview): OK recalculates if settings changed since
 //   the last run.
-//  v18: spread transform via the complete parent chain (objects in
-//   scaled/rotated groups).
+//  v18: spread transform via the complete parent chain.
 //  v17: Direction change (0–6) for individual curves.
 //  v16: curvature option "Wavelength".
 //  v15: gradient -100..100, phase jitter 0..100 %.
@@ -34,7 +38,7 @@
 //   button, object names, hole avoidance, warnings.
 // ============================================================
 const { Document }        = require('/document');
-const { DocumentCommand, AddChildNodesCommandBuilder, NodeMoveType, NodeChildType } = require('/commands');
+const { DocumentCommand, AddChildNodesCommandBuilder, CompoundCommandBuilder } = require('/commands');
 const { Transform, CurveBuilder, PolyCurve } = require('/geometry');
 const { Colour }           = require('/colours');
 const { FillDescriptor }   = require('/fills');
@@ -498,119 +502,134 @@ function generateContinuousZigzagCombined(letters, gridBBSpread, p){
     return pc;
 }
 
-// ── Determine target masks per object (SPREAD coordinates) ──
-function collectTargets(node, perCharacter, tempNodesOut, warnings){
-    if (isTextNode(node)){
-        doc.executeCommand(DocumentCommand.createTransform(node.selfSelection, Transform.createIdentity(), {duplicateNodes:true}));
-        doc.executeCommand(DocumentCommand.createConvertToCurves(doc.selection));
-        const grp = doc.selection.at(0).node;
-        doc.executeCommand(DocumentCommand.createSetVisibility(grp.selfSelection, true));
-        tempNodesOut.push(grp);
-        const letters = getLetterNodes(grp);   // v20: for 1 character grp itself is the letter
-        if (!letters.length){
-            warnings.push('"'+(node.userDescription||node.defaultDescription||'Text')+'": no characters found, skipped.');
-            return { targets: [], lettersInfo: null };
-        }
-        let lettersSel = Selection.createEmpty(doc);
-        for (const l of letters) lettersSel.addNode(l);
-        doc.executeCommand(DocumentCommand.createSetVisibility(lettersSel, true));
-
-        if (perCharacter){
-            return { targets: letters.map(l => ({ host:l, bboxSpread: l.getSpreadBaseBox(false) })), lettersInfo: null };
-        } else {
-            let ux0=Infinity,uy0=Infinity,ux1=-Infinity,uy1=-Infinity;
-            const boxes = letters.map(l => l.getSpreadBaseBox(false));
-            for (const bb of boxes){ ux0=Math.min(ux0,bb.x); uy0=Math.min(uy0,bb.y); ux1=Math.max(ux1,bb.x+bb.width); uy1=Math.max(uy1,bb.y+bb.height); }
-            const shared = {x:ux0,y:uy0,width:ux1-ux0,height:uy1-uy0};
-            return {
-                targets: letters.map(l => ({ host:l, bboxSpread: shared })),
-                lettersInfo: { letters, bboxSpread: shared }
-            };
-        }
-    } else if (node.curvesInterface){
-        return { targets: [{ host:node, bboxSpread: node.getSpreadBaseBox(false) }], lettersInfo: null };
-    }
-    warnings.push('"'+(node.userDescription||node.defaultDescription||'Object')+'": no curves available, skipped.');
-    return { targets: [], lettersInfo: null };
-}
-
 function buildScribbleName(p){
     const methodNames = ['Individual Lines','Zig-Zag','Cross-Hatch','Contour Hatch'];
     const m = methodNames[p.method] || 'Scribble';
     return 'Scribble ('+m+', '+Math.round(p.angle)+'°, Density '+Math.round(p.density)+')';
 }
+function unionBox(nodes){
+    let ux0=Infinity,uy0=Infinity,ux1=-Infinity,uy1=-Infinity;
+    for (const l of nodes){ const bb=l.getSpreadBaseBox(false); ux0=Math.min(ux0,bb.x); uy0=Math.min(uy0,bb.y); ux1=Math.max(ux1,bb.x+bb.width); uy1=Math.max(uy1,bb.y+bb.height); }
+    return {x:ux0,y:uy0,width:ux1-ux0,height:uy1-uy0};
+}
+function nodeLabel(node,fallback){ return node.userDescription||node.defaultDescription||fallback; }
 
-// ── Create output node and clip into the target ──
-function emitAndClip(host, pc, p, warnings, objLabel){
-    if (pc.curveCount===0){
-        warnings.push('"'+objLabel+'": no lines generated (density may be too large for the object size).');
-        return null;
+// ── v22: duplicate text ONCE and convert to curves (2 entries for all texts) ──
+// The copy serves as geometry source (letters) and - for clipped output - as the result.
+const textNodes = origSelNodes.filter(isTextNode);
+let SETUP = null;   // {conv:[GroupNode|PolyCurveNode je Text], steps, sentinel}
+function nodeInDoc(n){ if(!n) return false; try{ for (const l of doc.layers.all) if (l.isSameNode(n)) return true; }catch(e){} return false; }
+function prepareTexts(){
+    if (SETUP) return SETUP;
+    SETUP = { conv:[], steps:0, sentinel:null };
+    if (!textNodes.length) return SETUP;
+    const dc = DocumentCommand.createTransform(Selection.create(doc, textNodes), Transform.createIdentity(), {duplicateNodes:true});
+    doc.executeCommand(dc); SETUP.steps++;
+    const dups = Array.from(dc.newNodes || []);
+    if (!dups.length) throw new Error('Text could not be duplicated.');
+    SETUP.sentinel = dups[0];
+    doc.executeCommand(DocumentCommand.createConvertToCurves(Selection.create(doc, dups))); SETUP.steps++;
+    const s = doc.selection; const conv = [];
+    for (let i=0;i<s.length;i++) conv.push(s.at(i).node);
+    if (conv.length) SETUP.sentinel = conv[0];
+    // map original -> converted copy by position (centre of the spread box)
+    const ctr = n => { const b=n.getSpreadBaseBox(false); return {x:b.x+b.width/2, y:b.y+b.height/2}; };
+    const free = conv.map(c => ({ node:c, c:ctr(c) }));
+    for (const t of textNodes){
+        const tc = ctr(t); let bi=-1, bd=Infinity;
+        for (let i=0;i<free.length;i++){ if (!free[i]) continue; const dx=free[i].c.x-tc.x, dy=free[i].c.y-tc.y, d=dx*dx+dy*dy; if (d<bd){ bd=d; bi=i; } }
+        SETUP.conv.push(bi>=0 ? free[bi].node : null);
+        if (bi>=0) free[bi] = null;
     }
+    return SETUP;
+}
+// Undo exactly the own entries (duplicate, convert). First check that the own result is still in
+// the document - then the own entries are on top (previews create none).
+function rollbackSetup(){
+    if (!SETUP || !SETUP.sentinel) { SETUP = null; return; }
+    if (nodeInDoc(SETUP.sentinel)){
+        for (let k=0;k<SETUP.steps;k++){ try{ doc.history.undo(); }catch(e){ break; } }
+    }
+    SETUP = null;
+}
+
+// ── v22: build a complete run as ONE compound ──
+// commit=false: for the native preview; commit=true: additionally delete original text or helper copy.
+function scribbleDef(pc, p){
     const lsd = LineStyleDescriptor.createDefault(Math.max(0.1,p.strokeWidth));
     const penFD = FillDescriptor.createSolid(p.penColour);
     const def = PolyCurveNodeDefinition.create(pc, FillDescriptor.createNone(), penFD, lsd, FillDescriptor.createNone());
-    const bld = AddChildNodesCommandBuilder.create();
-    bld.addPolyCurveNode(def);
-    doc.executeCommand(bld.createCommand());
-    doc.executeCommand(DocumentCommand.createSetDescription(doc.selection, buildScribbleName(p)));
-    doc.executeCommand(DocumentCommand.createMoveNodes(doc.selection, host, NodeMoveType.Inside, NodeChildType.Main));
-    return [...host.children].pop();
+    def.userDescription = buildScribbleName(p);
+    return def;
 }
-
-// ── Meander: do NOT clip, place visibly above host ──
-function emitUnclippedAboveHost(host, pc, p, warnings, objLabel){
-    if (pc.curveCount===0){
-        warnings.push('"'+objLabel+'": no lines generated (density may be too large for the object size).');
-        return null;
-    }
-    const lsd = LineStyleDescriptor.createDefault(Math.max(0.1,p.strokeWidth));
-    const penFD = FillDescriptor.createSolid(p.penColour);
-    const def = PolyCurveNodeDefinition.create(pc, FillDescriptor.createNone(), penFD, lsd, FillDescriptor.createNone());
-    const bld = AddChildNodesCommandBuilder.create();
-    bld.addPolyCurveNode(def);
-    doc.executeCommand(bld.createCommand());
-    const created = doc.selection.at(0).node;
-    doc.executeCommand(DocumentCommand.createSetDescription(created.selfSelection, buildScribbleName(p)));
-    doc.executeCommand(DocumentCommand.createMoveNodes(created.selfSelection, host, NodeMoveType.After, undefined));
-    return created;
+// curve INTO the target object (topmost child = clipping), like v21 MoveNodes Inside
+function cmdInside(host, def){
+    const b = AddChildNodesCommandBuilder.create(); b.setInsertionTarget(host); b.setInsertionMode(2); b.addPolyCurveNode(def);
+    return b.createCommand(false);
 }
-
-// ── Meander special handling (text with "Per Character" OFF) ──
-function processUnclippedMeander(node, p, warnings){
-    if (isTextNode(node)){
-        doc.executeCommand(DocumentCommand.createTransform(node.selfSelection, Transform.createIdentity(), {duplicateNodes:true}));
-        doc.executeCommand(DocumentCommand.createConvertToCurves(doc.selection));
-        const grp = doc.selection.at(0).node;
-        const letters = getLetterNodes(grp);   // v20: for 1 character grp itself is the letter
-        if (!letters.length){
-            warnings.push('"'+(node.userDescription||node.defaultDescription||'Text')+'": no characters found, skipped.');
-            grp.delete();
-            return;
+// curve directly ABOVE host (same level), like v21 MoveNodes After
+function cmdAbove(host, def){
+    const b = AddChildNodesCommandBuilder.create();
+    let next = null;
+    try { const sibs = [...host.parent.children]; for (let i=0;i<sibs.length-1;i++) if (sibs[i].isSameNode(host)){ next = sibs[i+1]; break; } } catch(e) {}
+    if (next){ b.setInsertionTarget(next); b.setInsertionMode(3); }   // in front of (below) the next higher one = directly above host
+    else     { b.setInsertionTarget(host); b.setInsertionMode(4); }   // at the very top of the same level
+    b.addPolyCurveNode(def);
+    return b.createCommand(false);
+}
+function buildRun(p, commit){
+    rng = mulberry32(p.seed>>>0);
+    const S = prepareTexts();
+    const warnings = [];
+    const cb = CompoundCommandBuilder.create(); let n = 0;
+    const add = c => { cb.addCommand(c); n++; };
+    const toDelete = [], keep = [];
+    let outCount = 0;
+    for (const node of origSelNodes){
+        if (isTextNode(node)){
+            const conv = S.conv[textNodes.indexOf(node)];
+            const letters = conv ? getLetterNodes(conv) : [];   // v20: for 1 character conv itself is the letter
+            if (!letters.length){ warnings.push('"'+nodeLabel(node,'Text')+'": no characters found, skipped.'); continue; }
+            const wantsMeander = p.method===1 && !p.perCharacter;
+            if (wantsMeander){
+                // meander: do NOT clip, visibly above the original text; helper copy hidden
+                add(DocumentCommand.createSetVisibility(Selection.create(doc,[conv]), false));
+                const pc = generateContinuousZigzagCombined(letters, unionBox(letters), p);
+                if (pc.curveCount===0) warnings.push('"'+nodeLabel(node,'Text')+'": no lines generated (density may be too large for the object size).');
+                else { add(cmdAbove(node, scribbleDef(pc,p))); outCount++; }
+                if (commit) toDelete.push(conv);
+                keep.push(node);
+            } else {
+                // clipped into the letters of the copy; hide the original text (deleted on OK)
+                add(DocumentCommand.createSetVisibility(Selection.create(doc,[conv]), true));
+                if (conv.children && letters.length) add(DocumentCommand.createSetVisibility(Selection.create(doc,letters), true));
+                add(DocumentCommand.createSetVisibility(Selection.create(doc,[node]), false));
+                const shared = p.perCharacter ? null : unionBox(letters);
+                for (const l of letters){
+                    const pc = generateForMask(l, shared || l.getSpreadBaseBox(false), p);
+                    if (pc.curveCount===0) warnings.push('"'+nodeLabel(node,'Object')+'": no lines generated (density may be too large for the object size).');
+                    else { add(cmdInside(l, scribbleDef(pc,p))); outCount++; }
+                }
+                if (commit) toDelete.push(node);
+                keep.push(conv);
+            }
+        } else if (node.curvesInterface){
+            const pc = generateForMask(node, node.getSpreadBaseBox(false), p);
+            if (pc.curveCount===0) warnings.push('"'+nodeLabel(node,'Object')+'": no lines generated (density may be too large for the object size).');
+            else { add(cmdInside(node, scribbleDef(pc,p))); outCount++; }
+            keep.push(node);
+        } else {
+            warnings.push('"'+nodeLabel(node,'Object')+'": no curves available, skipped.');
         }
-        let ux0=Infinity,uy0=Infinity,ux1=-Infinity,uy1=-Infinity;
-        const boxes = letters.map(l => l.getSpreadBaseBox(false));
-        for (const bb of boxes){ ux0=Math.min(ux0,bb.x); uy0=Math.min(uy0,bb.y); ux1=Math.max(ux1,bb.x+bb.width); uy1=Math.max(uy1,bb.y+bb.height); }
-        const shared = {x:ux0,y:uy0,width:ux1-ux0,height:uy1-uy0};
-        const pc = generateContinuousZigzagCombined(letters, shared, p);
-        const label = node.userDescription||node.defaultDescription||'Text';
-        const created = emitUnclippedAboveHost(node, pc, p, warnings, label);
-        if (created) previewHosts.push(created);
-        grp.delete();
-    } else if (node.curvesInterface){
-        const bboxSpread = node.getSpreadBaseBox(false);
-        const pc = generateForMask(node, bboxSpread, p);
-        const label = node.userDescription||node.defaultDescription||'Object';
-        const created = emitUnclippedAboveHost(node, pc, p, warnings, label);
-        if (created) previewHosts.push(created);
-    } else {
-        warnings.push('"'+(node.userDescription||node.defaultDescription||'Object')+'": no curves available, skipped.');
     }
+    if (toDelete.length) add(DocumentCommand.createDeleteSelection(Selection.create(doc,toDelete)));
+    // preview: restore the selection (last command in the compound). Not when applying - there the
+    // deleted original texts are part of the selection; the result (keep) is selected afterwards.
+    if (n>0 && !commit) add(DocumentCommand.createSetSelection(origSel));
+    return { cmd: n>0 ? cb.createCommand(false) : null, warnings, outCount, keep };
 }
 
 // ── Main loop ────────────────────────────────────────────────
-let previewHosts = [];
-let previewTemp = [];
-let hiddenOriginals = [];
 let lastWarningsStr = null;
 let lastRunKey = null;   // v19: settings of the last run
 
@@ -620,57 +639,25 @@ function paramsKey(p){
     try { const h = p.penColour.hslaf; col = [h.h, h.s, h.l, h.alpha]; } catch(e) {}
     return JSON.stringify(Object.assign({}, p, { penColour: col }));
 }
-
-function clearPreview(){
-    for (const n of previewHosts){ try{ n.delete(); }catch(e){} }
-    previewHosts = [];
-    for (const n of previewTemp){ try{ n.delete(); }catch(e){} }
-    previewTemp = [];
-}
-function restoreHiddenOriginals(){
-    for (const n of hiddenOriginals){
-        try{ doc.executeCommand(DocumentCommand.createSetVisibility(n.selfSelection, true)); }catch(e){}
-    }
-}
-
-function runOnce(p){
-    lastRunKey = paramsKey(p);
-    rng = mulberry32(p.seed>>>0);
-    clearPreview();
-    restoreHiddenOriginals();
-    hiddenOriginals = [];
-    doc.executeCommand(DocumentCommand.createSetSelection(origSel));
-    const warnings = [];
-    for (const node of origSelNodes){
-        const wantsMeander = p.method===1 && isTextNode(node) && !p.perCharacter;
-        if (wantsMeander){
-            processUnclippedMeander(node, p, warnings);
-            continue;
-        }
-        const tempOut = [];
-        const { targets } = collectTargets(node, p.perCharacter, tempOut, warnings);
-        for (const t of targets){
-            const pc = generateForMask(t.host, t.bboxSpread, p);
-            const label = node.userDescription||node.defaultDescription||'Object';
-            const created = emitAndClip(t.host, pc, p, warnings, label);
-            if (created) previewHosts.push(created);
-        }
-        previewTemp = previewTemp.concat(tempOut);
-
-        if (isTextNode(node) && tempOut.length>0){
-            if (!hiddenOriginals.some(n => n.isSameNode(node))){
-                doc.executeCommand(DocumentCommand.createSetVisibility(node.selfSelection, false));
-                hiddenOriginals.push(node);
-            }
-        }
-    }
-    doc.executeCommand(DocumentCommand.createSetSelection(origSel));
-
+function showWarnings(warnings){
     const warnStr = warnings.join('\n');
     if (warnings.length>0 && warnStr!==lastWarningsStr){
         app.alert(warnings.join('\n'), 'Scribble – Notes');
     }
     lastWarningsStr = warnStr || null;
+}
+// v22: preview = native preview (no history entry, replaces the previous one)
+function runOnce(p){
+    lastRunKey = paramsKey(p);
+    let r;
+    try {
+        r = buildRun(p, false);
+        if (r.cmd) doc.executeCommand(r.cmd, true); else doc.clearPreviews();
+    } catch(e){
+        try { doc.clearPreviews(); } catch(e2) {}
+        r = { warnings:['Error in preview: '+e.message] };
+    }
+    showWarnings(r.warnings);
 }
 
 // ── Dialog (v21: tabs like "Transform Objects") ──────────────
@@ -739,26 +726,26 @@ gDir.addStaticText('','dependent path brushes.');
 
 // --- Page 2: Angle & Density
 const gWinkel = pageGroup(1, cA, 'Angle (°)');
-const eAngle  = gWinkel.addUnitValueEditor('Angle','','');       eAngle.value=30;
-const eAngleJl= gWinkel.addUnitValueEditor('Jitter Low','','');  eAngleJl.value=-3;
+const eAngle  = gWinkel.addUnitValueEditor('Angle','','');      eAngle.value=30;
+const eAngleJl= gWinkel.addUnitValueEditor('Jitter Low','','');eAngleJl.value=-3;
 const eAngleJh= gWinkel.addUnitValueEditor('Jitter High','','');  eAngleJh.value=3;
 const gHatch = pageGroup(1, cA, 'Hatch Angle (Method 3 only)');
 const eHatch = gHatch.addUnitValueEditor('Extra Angle','',''); eHatch.value=60;
 const gDichte = pageGroup(1, cB, 'Density (Spacing)');
 const eDens   = gDichte.addUnitValueEditor('Spacing','','');      eDens.value=25;
-const eDensJl = gDichte.addUnitValueEditor('Jitter Low','','');   eDensJl.value=-4;
-const eDensJh = gDichte.addUnitValueEditor('Jitter High','','');  eDensJh.value=4;
+const eDensJl = gDichte.addUnitValueEditor('Jitter Low','','');  eDensJl.value=-4;
+const eDensJh = gDichte.addUnitValueEditor('Jitter High','','');   eDensJh.value=4;
 const eDensGrad = gDichte.addUnitValueEditor('Gradient (-100..100)','','',null,-100,100); eDensGrad.value=0;
 gDichte.addStaticText('','>0 = denser at edge');
 gDichte.addStaticText('','<0 = denser at centre');
 
 // --- Page 3: Curvature
 const gKruemm = pageGroup(2, cA, 'Curvature');
-const eCurv   = gKruemm.addUnitValueEditor('Strength','','');      eCurv.value=8;
-const eCurvJl = gKruemm.addUnitValueEditor('Jitter Low','','');    eCurvJl.value=-3;
+const eCurv   = gKruemm.addUnitValueEditor('Strength','','');       eCurv.value=8;
+const eCurvJl = gKruemm.addUnitValueEditor('Jitter Low','','');  eCurvJl.value=-3;
 const eCurvJh = gKruemm.addUnitValueEditor('Jitter High','','');   eCurvJh.value=3;
 const cbWave  = gKruemm.addComboBox('Type', ['Half Wave','Full Wave','Frequency'], 0);
-const eFreq   = gKruemm.addUnitValueEditor('Frequency','','');     eFreq.value=2;
+const eFreq   = gKruemm.addUnitValueEditor('Frequency','','');      eFreq.value=2;
 const gWelle = pageGroup(2, cB, 'Wavelength & Phase');
 const cbWaveRef = gWelle.addComboBox('Wavelength', ['Per line (individual)','Uniform (longest line)'], 0);
 gWelle.addStaticText('','Uniform: wavelength is based on');
@@ -769,8 +756,8 @@ const ePhase  = gWelle.addUnitValueEditor('Phase Jitter (0-100 %)','','',null,0,
 
 // --- Page 4: Overlap & Output
 const gOverlap = pageGroup(3, cA, 'Path Overlap');
-const eOverlap = gOverlap.addUnitValueEditor('Amount','','');       eOverlap.value=-4;
-const eOverlapJl=gOverlap.addUnitValueEditor('Jitter Low','','');   eOverlapJl.value=-4;
+const eOverlap = gOverlap.addUnitValueEditor('Amount','','');      eOverlap.value=-4;
+const eOverlapJl=gOverlap.addUnitValueEditor('Jitter Low','','');eOverlapJl.value=-4;
 const eOverlapJh=gOverlap.addUnitValueEditor('Jitter High','','');  eOverlapJh.value=4;
 const gAusgabe = pageGroup(3, cB, 'Output');
 const eStroke  = gAusgabe.addUnitValueEditor('Stroke Width','','',null,0.1,null); eStroke.value=2;
@@ -900,18 +887,31 @@ btnNewSeed.setOnClickHandler(()=>{
 
 btnVorschau.setOnClickHandler(()=>{ runOnce(readParams()); });
 
+let setupFailed = false;
+try { prepareTexts(); } catch(e){ setupFailed = true; rollbackSetup(); app.alert('Text could not be prepared: '+e.message,'Scribble'); }
+if (!setupFailed){
 runOnce(readParams());
 
 const result = dlg.runModal();
+try { doc.clearPreviews(); } catch(e) {}
 if (!result || result.value===DialogResult.Cancel.value){
-    clearPreview();
-    restoreHiddenOriginals();
-    doc.executeCommand(DocumentCommand.createSetSelection(origSel));
+    rollbackSetup();
+    try { doc.executeCommand(DocumentCommand.createSetSelection(origSel)); } catch(e) {}
     console.log('Cancelled.');
 } else {
-    // v19: recalculate if settings changed since the last run
+    // v22: result as ONE history entry (same seed -> identical to the preview)
     const pFinal = readParams();
-    if (paramsKey(pFinal) !== lastRunKey) runOnce(pFinal);
-    for (const n of hiddenOriginals){ try{ n.delete(); }catch(e){} }
-    console.log('Applied.');
+    let r = null;
+    try {
+        r = buildRun(pFinal, true);
+        if (paramsKey(pFinal) !== lastRunKey) showWarnings(r.warnings);
+        if (r.cmd && r.outCount>0) doc.executeCommand(r.cmd, false);
+        else { rollbackSetup(); r = null; }
+    } catch(e){
+        rollbackSetup(); r = null;
+        app.alert('Error while applying (rolled back): '+e.message,'Scribble');
+    }
+    try { doc.executeCommand(DocumentCommand.createSetSelection(r && r.keep.length ? Selection.create(doc, r.keep) : origSel)); } catch(e) {}
+    console.log(r ? 'Applied.' : 'Nothing applied.');
+}
 }

@@ -1,16 +1,21 @@
 'use strict';
 // ============================================================
-// Object Fill v36
-// Changes vs. v35 – performance (result and interface unchanged):
-//  • All values (colour, size, rotation, opacity, position, outside test) are
-//    computed in JavaScript up front; discarded points no longer create anything.
-//  • Each copy is created with ONE combined matrix (duplicate + transform),
-//    all copies in a single compound command.
-//  • Fills, opacity and sorting into the group are one compound command each
-//    (instead of 3–11 single commands per copy).
-//  • Pixel access via the whole buffer (Uint8Array) instead of readPixel per pixel.
-//  • Preview is discarded via the history position.
-//  • A few history entries instead of thousands – undo in one step.
+// Object Fill v38
+// v38: New option "Stroke width" (tab 4 Jitter, group "Jitter — size") as in Power Duplicate:
+//  • Scale stroke – visible stroke width grows/shrinks with the copy's scaling
+//  • Keep constant – visible stroke width stays as on the original
+//  • Use object setting (default) – Affinity's "Scale with object" setting decides
+//  Starting point is the original's effective (visible) width. Factor per copy = geometric
+//  mean of the total transform (size jitter, size by brightness, radius/distance scaling).
+//  Groups down to single objects; text stays unchanged.
+// v37: robust preview undo:
+//  • With a full undo history (2048 entries) doc.history.position no longer
+//    advances – resetting via the position then had no effect and old previews
+//    remained. Now: undo via the difference of the history position (exact);
+//    with a full history the safety net deletes the preview group (all copies
+//    are inside it).
+// v36: performance (all values computed in JavaScript up front, creation via
+//      compound commands, pixel access via the whole buffer).
 // v35: colour fixes for Affinity 3.3.3. v34: 6-tab GUI.
 // v33: stale preview, exact path test, focal point via full parent chain.
 // v32: gradient transfer, Blur Shadow interaction model, presets with prefix "OF_".
@@ -30,6 +35,7 @@ const { NodeRenderingEngine,
         RasterFormat }               = require('/rasterobject');
 const { FillDescriptor, SolidFill }  = require('/fills');
 const { Gradient, Colour }           = require('/colours');
+const { LineStyleMask }              = require('/linestyle');
 const { app }                        = require('/application');
 const { File, FileSystemApi }        = require('/fs');
 
@@ -40,6 +46,10 @@ const doc = Document.current;
 if (!doc) { app.alert('No document open.','Object Fill'); throw new Error(); }
 const initSel = doc.selection;
 if (!initSel || initSel.length < 2) { app.alert('Select at least 2 objects.','Object Fill'); throw new Error(); }
+
+// v37: document commands run through docExec (the count tells whether a run created anything)
+let EXEC=0;
+function docExec(cmd){ doc.executeCommand(cmd); EXEC++; }
 
 const allNodes = [];
 for (let i = 0; i < initSel.length; i++) allNodes.push(initSel.at(i).node);
@@ -58,6 +68,36 @@ function rgbToHsl(r,g,b) {
     let h;
     switch(max){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;default:h=(r-g)/d+4;}
     return{h:h/6,s,l};
+}
+
+// ── v38: Stroke width (as Power Duplicate v62c) ──────────────
+// 0=Scale stroke, 1=Keep constant, 2=Use object setting (default, previous behaviour)
+const STROKE_DEF=2;
+function isTextNode(node){const tag=node[Symbol.toStringTag]||'';return tag==='ArtTextNode'||tag==='FrameTextNode';}
+function lineScaleOfTF(xf){try{const d=xf.data;return Math.sqrt(Math.abs(d[0]*d[4]-d[1]*d[3]));}catch(e){return 1;}}
+// The command sets the VISIBLE (effective) width; starting point is the original's effective width.
+function collectStrokeWeight(dupNode,origNode,mode,s,out){
+    if(mode!==0&&mode!==1) return 0;
+    if(!(s>0)||Math.abs(s-1)<1e-4) return 0;
+    let n=0;
+    if(dupNode.isGroupNode&&!isTextNode(dupNode)){
+        const dc=[],oc=[];for(const ch of dupNode.children)dc.push(ch);for(const ch of origNode.children)oc.push(ch);
+        const len=Math.min(dc.length,oc.length);
+        for(let i=0;i<len;i++)n+=collectStrokeWeight(dc[i],oc[i],mode,s,out);
+        return n;
+    }
+    if(isTextNode(dupNode)) return 0;
+    let li=null;try{li=origNode.lineStyleInterface;}catch(e){}
+    if(!li) return 0;
+    try{ if(!li.isLineStyleVisible) return 0; }catch(e){}
+    let lsd=null;try{lsd=li.lineStyleDescriptor;}catch(e){}
+    if(!lsd) return 0;
+    let w0=0;try{w0=lsd.lineStyle.weight;}catch(e){}
+    if(!(w0>0)) return 0;
+    let e0=w0;try{const ew=lsd.effectiveWeight(li.domainTransform,li.scalarDomainTransform);if(ew>0)e0=ew;}catch(e){}
+    const f=((mode===0)?e0*s:e0)/w0;
+    try{out.push(DocumentCommand.createSetLineStyleDescriptor(Selection.create(doc,[dupNode]),lsd.cloneScaled(f),{lineStyleMask:LineStyleMask.Weight}));n++;}catch(e){}
+    return n;
 }
 
 function makePRNG(seed) {
@@ -251,7 +291,7 @@ function createCopies(specs){
         cb.addCommand(DocumentCommand.createTransform(Selection.create(doc,[fillNodes[s.src]]),s.F,{duplicateNodes:true}));
         perSrc.set(s.src,(perSrc.get(s.src)||0)+1);
     }
-    doc.executeCommand(cb.createCommand());
+    docExec(cb.createCommand());
     // duplicates sit directly above their source, newest lowest: [source, last, …, first]
     const bySrc=new Map();
     for(const [si,n] of perSrc){
@@ -264,13 +304,13 @@ function createCopies(specs){
     for(const s of specs){ const u=used.get(s.src)||0; out.push(bySrc.get(s.src)[u]); used.set(s.src,u+1); }
     return out;
 }
-function runCompound(list){ if(!list.length)return; const cb=CompoundCommandBuilder.create(); for(const c of list)cb.addCommand(c); doc.executeCommand(cb.createCommand()); }
+function runCompound(list){ if(!list.length)return; const cb=CompoundCommandBuilder.create(); for(const c of list)cb.addCommand(c); docExec(cb.createCommand()); }
 function createFillGroup(){
     const grpName='ObjectFill_'+nextGroupIndex();
     const grpB2=AddChildNodesCommandBuilder.create();
     grpB2.addContainerNode(ContainerNodeDefinition.create(grpName));
     const grpCmd=grpB2.createCommand(false);
-    doc.executeCommand(grpCmd);
+    docExec(grpCmd);
     return{grp:grpCmd.newNodes[0],name:grpName};
 }
 function moveIntoGroup(nodes,grp){
@@ -400,7 +440,7 @@ function performFill(params){
             }
 
             const F=Transform.createTranslate(ox,oy).multiply(Transform.createScale(sc,sc)).multiply(Transform.createTranslate(-tcx,-tcy)).multiply(L);
-            specs.push({src:srcIdx,F,hsl,op,area:tb.width*tb.height*sc*sc});
+            specs.push({src:srcIdx,F,hsl,op,area:tb.width*tb.height*sc*sc,ls:lineScaleOfTF(F)});
         }
     }
 
@@ -414,6 +454,10 @@ function performFill(params){
         else if(params.useGrad){ try{ fd=targetGradientFD(n.brushFillDescriptor); }catch(e){} }
         if(fd) fillCmds.push(DocumentCommand.createSetBrushFill(Selection.create(doc,[n]),fd));
     }
+    // v38: stroke width in the same compound
+    if(params.strokeScale===0||params.strokeScale===1){
+        for(let i=0;i<nodes.length;i++){ if(nodes[i]) collectStrokeWeight(nodes[i],fillNodes[specs[i].src],params.strokeScale,specs[i].ls,fillCmds); }
+    }
     runCompound(fillCmds);
 
     const opCmds=[];
@@ -426,9 +470,9 @@ function performFill(params){
     if(!fillGroup)return null;
     moveIntoGroup(order.map(o=>o.n),fillGroup);
 
-    console.log('Object Fill v36: '+order.length+' placed, '+deleted+' discarded → "'+grpName+'" ('+(Date.now()-t0)+' ms)');
+    console.log('Object Fill v38: '+order.length+' placed, '+deleted+' discarded → "'+grpName+'" ('+(Date.now()-t0)+' ms)');
     try{
-        doc.executeCommand(DocumentCommand.createMoveNodes(fillGroup.selfSelection,targetNode,NodeMoveType.Inside,NodeChildType.Main));
+        docExec(DocumentCommand.createMoveNodes(fillGroup.selfSelection,targetNode,NodeMoveType.Inside,NodeChildType.Main));
     }catch(e){console.log('Embedding: '+e);}
     return fillGroup;
 }
@@ -446,8 +490,8 @@ function performQuickPreview(params,targetBB,fillBB,isRadial){
     const{grp:fillGroup,name:grpName}=createFillGroup();
     if(!fillGroup)return null;
     moveIntoGroup(nodes.filter(n=>n),fillGroup);
-    console.log('Quick preview v36: '+nodes.length+' dots → "'+grpName+'"');
-    try{doc.executeCommand(DocumentCommand.createMoveNodes(fillGroup.selfSelection,targetNode,NodeMoveType.Inside,NodeChildType.Main));}catch(e){}
+    console.log('Quick preview v38: '+nodes.length+' dots → "'+grpName+'"');
+    try{docExec(DocumentCommand.createMoveNodes(fillGroup.selfSelection,targetNode,NodeMoveType.Inside,NodeChildType.Main));}catch(e){}
     return fillGroup;
 }
 
@@ -564,6 +608,10 @@ function buildDialog(){
     const edSYMin=gJS.addUnitValueEditor('Min. Y (%)','none','none',null,-100,500); edSYMin.value=0;
     const edSYMax=gJS.addUnitValueEditor('Max. Y (%)','none','none',null,-100,500); edSYMax.value=0;
     const cbAspect=gJS.addCheckBox('Keep aspect ratio',true);
+    // v38: stroke width (as Power Duplicate)
+    const cbStroke=gJS.addComboBox('Stroke width',['Scale stroke','Keep constant','Use object setting']);
+    try{ cbStroke.selectedIndex=STROKE_DEF; }catch(e){}
+    function readStroke(){ let i=STROKE_DEF; try{ i=cbStroke.selectedIndex; }catch(e){} return (i===0||i===1||i===2)?i:STROKE_DEF; }
 
     const gJO=pageGroup(3,cB,'Jitter — opacity');
     const edOpMin=gJO.addUnitValueEditor('Min. opacity (%)','none','none',null,0,100); edOpMin.value=100;
@@ -616,6 +664,7 @@ function buildDialog(){
             jSXMin:edSXMin.value||0,jSXMax:edSXMax.value||0,
             jSYMin:edSYMin.value||0,jSYMax:edSYMax.value||0,
             keepAspect:cbAspect.value,
+            strokeScale:readStroke(),
             jOpMin:edOpMin.value!==undefined?edOpMin.value:100,
             jOpMax:edOpMax.value!==undefined?edOpMax.value:100,
             jPX:edPX.value||0,jPY:edPY.value||0,
@@ -643,10 +692,10 @@ function buildDialog(){
         };
     }
     function collectParams(){
-        return{copies:edCop.value,gridType:cbGT.selectedIndex,cellSize:edCS.value,gridRot:edGRot.value,radCenter:cbRadCenter.selectedIndex,rStart:edRStart.value,numRings:edRings.value,alignToPath:cbAlign.value,ptsOuter:edPtsOuter.value,propScale:cbPropScale.value,ringOffsetPct:edRingOffset.value,ringOffsetMode:cbOffsetMode.selectedIndex,arcSpacingPct:edArcSpacing.value,jRot:edRot.value,jSXMin:edSXMin.value,jSXMax:edSXMax.value,jSYMin:edSYMin.value,jSYMax:edSYMax.value,keepAspect:cbAspect.value,jOpMin:edOpMin.value,jOpMax:edOpMax.value,jPX:edPX.value,jPY:edPY.value,randomSelect:cbRandom.value,seed:edSeed.value,useBr:cbBr.value,bAt0:edB0.value,bAt100:edB100.value,alphaExp:edAlphaExp.value,useOpBr:cbOpBr.value,opBrDark:edOpBrDark.value,opBrLight:edOpBrLight.value,useColor:cbColor.value,radScaleInner:edRSInner.value,radScaleOuter:edRSOuter.value,useDist:cbDist.value,distCenter:edDSCenter.value,distEdge:edDSEdge.value,useGrad:cbGrad.value,sortBySize:cbSort.value,sortDir:cbSortDir.selectedIndex,outsideTestMode:cbTestMode.selectedIndex,deleteOutside:cbDel.value,quickPreview:cbQuickPrev.value};
+        return{copies:edCop.value,gridType:cbGT.selectedIndex,cellSize:edCS.value,gridRot:edGRot.value,radCenter:cbRadCenter.selectedIndex,rStart:edRStart.value,numRings:edRings.value,alignToPath:cbAlign.value,ptsOuter:edPtsOuter.value,propScale:cbPropScale.value,ringOffsetPct:edRingOffset.value,ringOffsetMode:cbOffsetMode.selectedIndex,arcSpacingPct:edArcSpacing.value,jRot:edRot.value,jSXMin:edSXMin.value,jSXMax:edSXMax.value,jSYMin:edSYMin.value,jSYMax:edSYMax.value,keepAspect:cbAspect.value,strokeScale:readStroke(),jOpMin:edOpMin.value,jOpMax:edOpMax.value,jPX:edPX.value,jPY:edPY.value,randomSelect:cbRandom.value,seed:edSeed.value,useBr:cbBr.value,bAt0:edB0.value,bAt100:edB100.value,alphaExp:edAlphaExp.value,useOpBr:cbOpBr.value,opBrDark:edOpBrDark.value,opBrLight:edOpBrLight.value,useColor:cbColor.value,radScaleInner:edRSInner.value,radScaleOuter:edRSOuter.value,useDist:cbDist.value,distCenter:edDSCenter.value,distEdge:edDSEdge.value,useGrad:cbGrad.value,sortBySize:cbSort.value,sortDir:cbSortDir.selectedIndex,outsideTestMode:cbTestMode.selectedIndex,deleteOutside:cbDel.value,quickPreview:cbQuickPrev.value};
     }
     function applyParams(p){
-        if(p.copies!=null)edCop.value=p.copies;if(p.gridType!=null)cbGT.selectedIndex=p.gridType;if(p.cellSize!=null)edCS.value=p.cellSize;if(p.gridRot!=null)edGRot.value=p.gridRot;if(p.radCenter!=null)cbRadCenter.selectedIndex=p.radCenter;if(p.rStart!=null)edRStart.value=p.rStart;if(p.numRings!=null)edRings.value=p.numRings;if(p.alignToPath!=null)cbAlign.value=p.alignToPath;if(p.ptsOuter!=null)edPtsOuter.value=p.ptsOuter;if(p.propScale!=null)cbPropScale.value=p.propScale;if(p.ringOffsetPct!=null)edRingOffset.value=p.ringOffsetPct;if(p.ringOffsetMode!=null)cbOffsetMode.selectedIndex=p.ringOffsetMode;if(p.arcSpacingPct!=null)edArcSpacing.value=p.arcSpacingPct;if(p.jRot!=null)edRot.value=p.jRot;if(p.jSXMin!=null)edSXMin.value=p.jSXMin;if(p.jSXMax!=null)edSXMax.value=p.jSXMax;if(p.jSYMin!=null)edSYMin.value=p.jSYMin;if(p.jSYMax!=null)edSYMax.value=p.jSYMax;if(p.keepAspect!=null)cbAspect.value=p.keepAspect;if(p.jOpMin!=null)edOpMin.value=p.jOpMin;if(p.jOpMax!=null)edOpMax.value=p.jOpMax;if(p.jPX!=null)edPX.value=p.jPX;if(p.jPY!=null)edPY.value=p.jPY;if(p.randomSelect!=null)cbRandom.value=p.randomSelect;if(p.seed!=null)edSeed.value=p.seed;if(p.useBr!=null)cbBr.value=p.useBr;if(p.bAt0!=null)edB0.value=p.bAt0;if(p.bAt100!=null)edB100.value=p.bAt100;if(p.alphaExp!=null)edAlphaExp.value=p.alphaExp;if(p.useOpBr!=null)cbOpBr.value=p.useOpBr;if(p.opBrDark!=null)edOpBrDark.value=p.opBrDark;if(p.opBrLight!=null)edOpBrLight.value=p.opBrLight;if(p.useColor!=null)cbColor.value=p.useColor;if(p.radScaleInner!=null)edRSInner.value=p.radScaleInner;if(p.radScaleOuter!=null)edRSOuter.value=p.radScaleOuter;if(p.useDist!=null)cbDist.value=p.useDist;if(p.distCenter!=null)edDSCenter.value=p.distCenter;if(p.distEdge!=null)edDSEdge.value=p.distEdge;if(p.useGrad!=null)cbGrad.value=p.useGrad;if(p.sortBySize!=null)cbSort.value=p.sortBySize;if(p.sortDir!=null)cbSortDir.selectedIndex=p.sortDir;if(p.outsideTestMode!=null)cbTestMode.selectedIndex=p.outsideTestMode;if(p.deleteOutside!=null)cbDel.value=p.deleteOutside;if(p.quickPreview!=null)cbQuickPrev.value=p.quickPreview;
+        if(p.copies!=null)edCop.value=p.copies;if(p.gridType!=null)cbGT.selectedIndex=p.gridType;if(p.cellSize!=null)edCS.value=p.cellSize;if(p.gridRot!=null)edGRot.value=p.gridRot;if(p.radCenter!=null)cbRadCenter.selectedIndex=p.radCenter;if(p.rStart!=null)edRStart.value=p.rStart;if(p.numRings!=null)edRings.value=p.numRings;if(p.alignToPath!=null)cbAlign.value=p.alignToPath;if(p.ptsOuter!=null)edPtsOuter.value=p.ptsOuter;if(p.propScale!=null)cbPropScale.value=p.propScale;if(p.ringOffsetPct!=null)edRingOffset.value=p.ringOffsetPct;if(p.ringOffsetMode!=null)cbOffsetMode.selectedIndex=p.ringOffsetMode;if(p.arcSpacingPct!=null)edArcSpacing.value=p.arcSpacingPct;if(p.jRot!=null)edRot.value=p.jRot;if(p.jSXMin!=null)edSXMin.value=p.jSXMin;if(p.jSXMax!=null)edSXMax.value=p.jSXMax;if(p.jSYMin!=null)edSYMin.value=p.jSYMin;if(p.jSYMax!=null)edSYMax.value=p.jSYMax;if(p.keepAspect!=null)cbAspect.value=p.keepAspect;try{cbStroke.selectedIndex=p.strokeScale!=null?p.strokeScale:STROKE_DEF;}catch(e){}if(p.jOpMin!=null)edOpMin.value=p.jOpMin;if(p.jOpMax!=null)edOpMax.value=p.jOpMax;if(p.jPX!=null)edPX.value=p.jPX;if(p.jPY!=null)edPY.value=p.jPY;if(p.randomSelect!=null)cbRandom.value=p.randomSelect;if(p.seed!=null)edSeed.value=p.seed;if(p.useBr!=null)cbBr.value=p.useBr;if(p.bAt0!=null)edB0.value=p.bAt0;if(p.bAt100!=null)edB100.value=p.bAt100;if(p.alphaExp!=null)edAlphaExp.value=p.alphaExp;if(p.useOpBr!=null)cbOpBr.value=p.useOpBr;if(p.opBrDark!=null)edOpBrDark.value=p.opBrDark;if(p.opBrLight!=null)edOpBrLight.value=p.opBrLight;if(p.useColor!=null)cbColor.value=p.useColor;if(p.radScaleInner!=null)edRSInner.value=p.radScaleInner;if(p.radScaleOuter!=null)edRSOuter.value=p.radScaleOuter;if(p.useDist!=null)cbDist.value=p.useDist;if(p.distCenter!=null)edDSCenter.value=p.distCenter;if(p.distEdge!=null)edDSEdge.value=p.distEdge;if(p.useGrad!=null)cbGrad.value=p.useGrad;if(p.sortBySize!=null)cbSort.value=p.sortBySize;if(p.sortDir!=null)cbSortDir.selectedIndex=p.sortDir;if(p.outsideTestMode!=null)cbTestMode.selectedIndex=p.outsideTestMode;if(p.deleteOutside!=null)cbDel.value=p.deleteOutside;if(p.quickPreview!=null)cbQuickPrev.value=p.quickPreview;
         try{stREnd.setText('Outer radius: '+calcREndInfo(cbRadCenter.selectedIndex===1)+' px');}catch(e){}
     }
     const PRESET_PREFIX='OF_';
@@ -686,20 +735,21 @@ function buildDialog(){
         }catch(e){app.alert('Error deleting:\n'+e.message,'Object Fill');}
     }
 
-    // v36: preview is discarded via the history position
-    const basePos=doc.history.position;
-    let previewGroup=null,previewKey=null,previewWasQuick=false;
+    // v37: preview undo via the position difference (see rollbackPreview)
+    let previewGroup=null,previewKey=null,previewWasQuick=false,previewPos0=0,previewSteps=0;
     function cleanupPreview(){
-        if(previewGroup){ rollbackTo(basePos); }
-        previewGroup=null; previewKey=null; previewWasQuick=false;
+        if(previewGroup){ rollbackPreview(previewPos0,previewSteps,previewGroup); }
+        previewGroup=null; previewKey=null; previewWasQuick=false; previewSteps=0;
     }
     function keyOf(p){ const q=Object.assign({},p); delete q.quickPreview; return JSON.stringify(q); }
     btnPreview.setOnClickHandler(()=>{
         cleanupPreview();
         const p=readParams();
         const t=Date.now();
-        try{ previewGroup=performFill(p); }catch(e){ rollbackTo(basePos); previewGroup=null; try{stStatus.setText('Error: '+e.message);}catch(e2){} return; }
-        if(previewGroup){ previewKey=keyOf(p); previewWasQuick=!!p.quickPreview; }
+        const pos0=doc.history.position; EXEC=0;
+        try{ previewGroup=performFill(p); }catch(e){ rollbackPreview(pos0,EXEC,null); previewGroup=null; try{stStatus.setText('Error: '+e.message);}catch(e2){} return; }
+        if(previewGroup){ previewKey=keyOf(p); previewWasQuick=!!p.quickPreview; previewPos0=pos0; previewSteps=EXEC; }
+        else if(EXEC>0){ rollbackPreview(pos0,EXEC,null); }
         try{ stStatus.setText((previewGroup?previewGroup.children.length:0)+' objects · '+(Date.now()-t)+' ms'); }catch(e){}
     });
     btnSave.setOnClickHandler(()=>{ savePreset(); });
@@ -713,9 +763,17 @@ function buildDialog(){
     };
 }
 
-function rollbackTo(pos){
-    try{ if(doc.history.position!==pos) doc.history.position=pos; }
-    catch(e){ while(doc.history.position>pos) doc.history.undo(); }
+// v37: undo via the position difference (exact). Then a safety net: if the group is still
+// there, it is deleted – with a full history (position does not advance) this is the complete
+// clean-up, because all copies sit inside the ObjectFill group.
+function nodeExists(n){ if(!n)return false; try{ for(const l of doc.layers.all){ if(l.isSameNode(n))return true; } }catch(e){} return false; }
+function rollbackPreview(pos0,counted,grp){
+    const delta=doc.history.position-pos0;
+    // The difference is exact. With a full history (0) there is no undo by count (it could hit
+    // older work) – the safety net deletes the group; everything created sits inside it.
+    const n=delta>0?delta:0;
+    for(let i=0;i<n;i++){ try{ doc.history.undo(); }catch(e){ break; } }
+    if(grp&&nodeExists(grp)){ try{ grp.delete(); }catch(e){} }
 }
 
 // ── Run dialog ──────────────────────────────────────────────

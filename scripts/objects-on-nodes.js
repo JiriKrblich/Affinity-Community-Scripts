@@ -1,4 +1,4 @@
-// Objects on Nodes v13
+// Objects on Nodes v14
 // Places duplicates of the objects of a "base" group onto the curve nodes (anchor points) of
 // the objects of a "target" group, including all subgroups. Each node receives exactly one
 // base-object duplicate, centred on the node. Nodes closer than the distance tolerance are
@@ -6,17 +6,31 @@
 // (Random/Sequential/Reverse/Ping-pong). Colour, rotation and size jitter as in
 // "Replace Objects"; the target objects stay unchanged.
 //
-// v2-v8: new group for all duplicates (hasPreview flag + cleanupLeaks()), one runModal(),
-//        presets subfolder, group name "Node_Objects_<index>", text support.
+// v2-v8: new group for all duplicates, one runModal(), presets subfolder,
+//        group name "Node_Objects_<index>", text support.
 // v9:  base/target via "_" name prefix, otherwise object count.
 // v10: safe rollback at history position 0, OK recalculates when settings changed.
 // v11: few history steps (duplicating in rounds, CompoundCommands).
 // v12: GUI split into tabs (pages), as in "Transform Objects" v8.
+// v13: Affinity 3.3.3 - toColour() for gradient stops.
 //
-// v13: Affinity 3.3.3 - gradient.getStop(i).colour now already returns a Colour object;
-//      new Colour(st.colour) produced an invalid colour ("expected ColourHandle"), so node
-//      points with gradient base objects were silently skipped. New helper toColour() only
-//      wraps when needed (works with older and newer Affinity versions).
+// v14: performance and robust undo (result unchanged, compared live against v13):
+//   • Duplicate and place in ONE command: every copy is created directly with its placement
+//     matrix (createTransform with duplicateNodes). v13 duplicated in "rounds" (as many
+//     commands as nodes received by the most frequent base object, e.g. 50 for 6 base objects
+//     and 296 nodes) and checked every round with a signature comparison.
+//   • Only 3 history steps in total: group (named right away), all copies, then colours +
+//     sorting-in + group behind the target.
+//   • Node points and placement are computed in JavaScript across the parent chain (no engine
+//     query per point); tolerance merging via a grid instead of pairwise comparison.
+//   • Placement now in spread coordinates: with a rotated base group of unequal X/Y size, the
+//     position/size of the copies used to be distorted.
+//   • Undo (preview/cancel/error) as in Power Duplicate v61: undo via the position difference,
+//     otherwise a safety net deletes exactly the nodes this run created. Replaces the comparison
+//     of all document nodes with a start list, which ran quadratically with the document size on
+//     every preview and on cancel.
+//   • Degenerate copies are no longer placed (determinant 0 → skipped instead of left at the
+//     original position); notices (no nodes / skipped) are shown for the preview too.
 (function () {
     const { Document } = require('/document');
     const { Selection } = require('/selections');
@@ -35,21 +49,13 @@
     const doc = Document.current;
     if (!doc) { app.alert('No document open.', TITLE); return; }
 
-    // Safe rollback - "doc.history.position = 0" throws COMMAND_FAILED.
-    function rollbackTo(pos) {
-        if (doc.history.position === pos) return;
-        try { doc.history.position = pos; } catch (e) { /* position 0: undo loop below */ }
-        let guard = 0;
-        while (doc.history.position > pos && guard++ < 100000) doc.history.undo();
-    }
-
     // Collects commands for ONE CompoundCommand (an empty compound throws INVALID_OP)
     function makeBatch() {
         const builder = CompoundCommandBuilder.create();
         let count = 0;
         return {
             add(cmd) { builder.addCommand(cmd); count++; },
-            run() { if (count > 0) doc.executeCommand(builder.createCommand()); return count; }
+            run() { let c = null; if (count > 0) { c = builder.createCommand(); doc.executeCommand(c); } return c; }
         };
     }
 
@@ -58,50 +64,30 @@
     // v13: version-safe wrapping (3.3.3+: already a Colour)
     function toColour(c) { return (c instanceof Colour) ? c : new Colour(c); }
 
-    function nodeSig(n) {
-        let s = (n[Symbol.toStringTag] || '') + '|';
-        try { const b = n.getSpreadBaseBox(false); s += [b.x, b.y, b.width, b.height].map(v => v.toFixed(2)).join(','); } catch (e) { s += '?'; }
-        try {
-            const fd = n.brushFillDescriptor;
-            if (fd && fd.fill) {
-                s += '|' + fd.fill.fillType.value;
-                if (fd.fill.colour) { const c = fd.fill.colour.rgba8; s += ':' + c.r + ',' + c.g + ',' + c.b + ',' + c.alpha; }
-            }
-        } catch (e) { /* no fill */ }
-        return s;
+    // ---------- v14: matrices (affine, [a,b,c,d,e,f]: x'=a*x+b*y+c, y'=d*x+e*y+f) ----------
+    function mMul(A, B) { return [A[0]*B[0]+A[1]*B[3], A[0]*B[1]+A[1]*B[4], A[0]*B[2]+A[1]*B[5]+A[2], A[3]*B[0]+A[4]*B[3], A[3]*B[1]+A[4]*B[4], A[3]*B[2]+A[4]*B[5]+A[5]]; }
+    function mApply(M, x, y) { return { x: M[0]*x+M[1]*y+M[2], y: M[3]*x+M[4]*y+M[5] }; }
+    // Spread matrix of a node across the whole parent chain (node.transform is parent-local only)
+    function spreadMat(node) {
+        const d = node.transform.data; let m = [d[0], d[1], d[2], d[3], d[4], d[5]];
+        let p = node.parent;
+        while (p) { const q = p.transform.data; m = mMul([q[0], q[1], q[2], q[3], q[4], q[5]], m); p = p.parent; }
+        return m;
     }
 
-    // v11: duplicates srcArr[map[t]] for every point t in as few commands as possible.
-    function duplicateRounds(srcArr, map) {
-        const docIdx = srcArr.map(() => -1);
-        let i = 0;
-        for (const l of doc.layers.all) {
-            for (let s = 0; s < srcArr.length; s++) if (docIdx[s] < 0 && l.isSameNode(srcArr[s])) docIdx[s] = i;
-            i++;
-        }
-        const perSrc = srcArr.map(() => []);
-        map.forEach((s, t) => perSrc[s].push(t));
-        let rounds = 0;
-        for (const a of perSrc) rounds = Math.max(rounds, a.length);
-        const dups = new Array(map.length).fill(null);
-        for (let r = 0; r < rounds; r++) {
-            const needed = [];
-            for (let s = 0; s < srcArr.length; s++) if (perSrc[s].length > r) needed.push(s);
-            needed.sort((a, b) => docIdx[a] - docIdx[b]);
-            const cmd = DocumentCommand.createTransform(Selection.create(doc, needed.map(s => srcArr[s])), null, { duplicateNodes: true });
-            doc.executeCommand(cmd);
-            const nn = toArr(cmd.newNodes);
-            let ok = nn.length === needed.length;
-            for (let k = 0; ok && k < nn.length; k++) if (nodeSig(nn[k]) !== nodeSig(srcArr[needed[k]])) ok = false;
-            if (ok) { needed.forEach((s, k) => { dups[perSrc[s][r]] = nn[k]; }); continue; }
-            if (nn.length) doc.executeCommand(DocumentCommand.createDeleteSelection(Selection.create(doc, nn)));
-            for (const s of needed) {
-                const c1 = DocumentCommand.createTransform(Selection.create(doc, [srcArr[s]]), null, { duplicateNodes: true });
-                doc.executeCommand(c1);
-                dups[perSrc[s][r]] = toArr(c1.newNodes)[0] || null;
-            }
-        }
-        return dups;
+    // ---------- v14: undo without counting ----------
+    // Undo via the difference of doc.history.position (exact). With a full history the position
+    // does not rise (or too little) - then the safety net deletes everything this run created that
+    // still exists. A node exists if its parent chain reaches the spread (verified live: undone
+    // nodes have parent=null, and so do children of deleted groups).
+    function isAlive(n) {
+        try { let p = n ? n.parent : null; for (let i = 0; p && i < 64; i++) { if ((p[Symbol.toStringTag] || '') === 'SpreadNode') return true; p = p.parent; } } catch (e) { /* dead */ }
+        return false;
+    }
+    function rollback(pos0, created) {
+        const delta = doc.history.position - pos0;
+        for (let i = 0; i < delta; i++) { try { doc.history.undo(); } catch (e) { break; } }
+        if (created) for (const n of created) { if (isAlive(n)) { try { n.delete(); } catch (e) { /* ignore */ } } }
     }
 
     // ---------- Helpers ----------
@@ -259,14 +245,13 @@
         return rand(rotMin, rotMax);
     }
 
-    // v11: returns the placement transform (added to the compound)
-    function placeAtPointTF(node, point, p) {
-        const m = node.transform.data;
+    // v14: placement transform from source data read in advance (spread matrix m, spread bbox bb).
+    // Same random sequence as v13. Returns null for a degenerate matrix.
+    function placeAtPointTF(si, point, p) {
+        const m = si.m, bb = si.bb;
         const sx = Math.sqrt(m[0] * m[0] + m[3] * m[3]);
         const sy = Math.sqrt(m[1] * m[1] + m[4] * m[4]);
         const theta = Math.atan2(m[3], m[0]);
-
-        const bb = node.getSpreadBaseBox(false);
         const refDim = (bb.width + bb.height) / 2;
 
         const dRot = jitterRotation(p.rotMin, p.rotMax, p.rotIncrement);
@@ -342,47 +327,48 @@
         return out;
     }
 
-    function composedSpreadTF(node) {
-        const chain = [];
-        let cur = node;
-        while (cur && cur.parent) {
-            chain.push(cur.transform);
-            cur = cur.parent;
-        }
-        return {
-            applyToPoint(pt) {
-                let p = pt;
-                for (let i = 0; i < chain.length; i++) p = chain[i].applyToPoint(p);
-                return p;
-            }
-        };
-    }
-
+    // v14: node points via ONE spread matrix per object (instead of an engine call per point and level)
     function getObjectAnchorPointsSpread(node) {
         if (!node.curvesInterface) return [];
         const pc = node.curvesInterface.polyCurve;
-        const tf = composedSpreadTF(node);
+        const M = spreadMat(node);
         const pts = [];
         for (let ci = 0; ci < pc.curveCount; ci++) {
             const curve = pc.at(ci);
             const bez = curve.beziers.toArray();
             if (bez.length === 0) continue;
-            for (let k = 0; k < bez.length; k++) pts.push(tf.applyToPoint(bez[k].start));
-            if (!curve.isClosed) pts.push(tf.applyToPoint(bez[bez.length - 1].end));
+            for (let k = 0; k < bez.length; k++) pts.push(mApply(M, bez[k].start.x, bez[k].start.y));
+            if (!curve.isClosed) { const e = bez[bez.length - 1].end; pts.push(mApply(M, e.x, e.y)); }
         }
         return pts;
     }
 
+    // v14: tolerance merging via a grid (cell size = tolerance) instead of pairwise comparison;
+    // same result as the linear search (a point is dropped as soon as an earlier insertion point
+    // lies within the tolerance).
     function dedupeNodePoints(entries, tolerance) {
+        const cs = tolerance > 0 ? tolerance : 1;
+        const grid = new Map();
         const clusters = [];
         for (const e of entries) {
-            let found = null;
-            for (const c of clusters) {
-                const dx = e.x - c.x, dy = e.y - c.y;
-                if (Math.sqrt(dx * dx + dy * dy) <= tolerance) { found = c; break; }
+            const gx = Math.floor(e.x / cs), gy = Math.floor(e.y / cs);
+            let found = false;
+            for (let ix = gx - 1; ix <= gx + 1 && !found; ix++) {
+                for (let iy = gy - 1; iy <= gy + 1 && !found; iy++) {
+                    const cell = grid.get(ix + ',' + iy);
+                    if (!cell) continue;
+                    for (const c of cell) {
+                        const dx = e.x - c.x, dy = e.y - c.y;
+                        if (Math.sqrt(dx * dx + dy * dy) <= tolerance) { found = true; break; }
+                    }
+                }
             }
             if (found) continue;
-            clusters.push({ x: e.x, y: e.y, sourceNode: e.sourceNode });
+            const c = { x: e.x, y: e.y, sourceNode: e.sourceNode };
+            const key = gx + ',' + gy;
+            let cell = grid.get(key); if (!cell) { cell = []; grid.set(key, cell); }
+            cell.push(c);
+            clusters.push(c);
         }
         return clusters;
     }
@@ -432,11 +418,6 @@
 
     const srcCount = collectChildren(groups.src).length;
     const dstLeaves = collectChildren(groups.dst);
-
-    const originalSrcChildren = collectChildren(groups.src);
-
-    const originalTopLevel = [];
-    for (const l of doc.layers.all) originalTopLevel.push(l);
 
     // ---------- Dialog (v12: tabbed GUI) ----------
     const PAGE_TITLES = ['1  Nodes & assignment', '2  Colour jitter', '3  Rotation & size'];
@@ -617,32 +598,9 @@
         }
     }
 
-    // ---------- Apply ----------
-    function cleanupLeaks() {
-        const current = collectChildren(groups.src);
-        for (const ch of current) {
-            let isOriginal = false;
-            for (const orig of originalSrcChildren) {
-                if (ch.isSameNode(orig)) { isOriginal = true; break; }
-            }
-            if (!isOriginal) {
-                try { doc.executeCommand(DocumentCommand.createDeleteSelection(ch.selfSelection)); } catch (e) { /* ignore */ }
-            }
-        }
-        const currentTop = [];
-        for (const l of doc.layers.all) currentTop.push(l);
-        for (const l of currentTop) {
-            let isOriginal = false;
-            for (const orig of originalTopLevel) {
-                if (l.isSameNode(orig)) { isOriginal = true; break; }
-            }
-            if (!isOriginal) {
-                try { doc.executeCommand(DocumentCommand.createDeleteSelection(l.selfSelection)); } catch (e) { /* ignore */ }
-            }
-        }
-    }
-
-    function doApply(p) {
+    // ---------- Apply (v14) ----------
+    // created: list receiving every newly created node (safety net of the undo)
+    function doApply(p, created) {
         setSeed(p.seed);
         const srcArr = collectChildren(groups.src);
 
@@ -659,91 +617,102 @@
 
         const map = buildMapping(srcArr.length, uniquePoints.length, p.mapMode);
 
-        // Step 1: create all duplicates in few commands
-        const dups = duplicateRounds(srcArr, map);
-
-        // Step 2: place + colour jitter in ONE CompoundCommand
-        const batch = makeBatch();
-        let skipped = 0, placed = 0;
-        const placedDups = [];
+        // Phase A: everything computed in JS (same random sequence as v13)
+        const srcInfo = srcArr.map(n => {
+            let m = null, bb = null;
+            try { m = spreadMat(n); bb = n.getSpreadBaseBox(false); } catch (e) { m = null; }
+            return { m, bb };
+        });
+        const plan = [];
+        let skipped = 0;
         for (let i = 0; i < uniquePoints.length; i++) {
+            const dh = rand(p.hueMin, p.hueMax);
+            const ds = rand(p.satMin, p.satMax);
+            const dl = rand(p.lumMin, p.lumMax);
+            const da = rand(p.opacityMin, p.opacityMax);
+            const s = map[i], si = srcInfo[s];
+            if (!si.m || !si.bb) { skipped++; continue; }
+            const tf = placeAtPointTF(si, uniquePoints[i], p);
+            if (!tf) { skipped++; continue; }
+            plan.push({ s, tf, dh, ds, dl, da });
+        }
+        if (plan.length === 0) return { skipped, placed: 0, noNodes: false };
+
+        // Phase B: 3 history steps
+        // 1) create the target group, named right away
+        const bldr = AddChildNodesCommandBuilder.create();
+        bldr.addContainerNode(ContainerNodeDefinition.create('Node_Objects_' + getNextGroupIndex()));
+        const gcmd = bldr.createCommand(false);
+        doc.executeCommand(gcmd);
+        const newGroup = toArr(gcmd.newNodes)[0] || null;
+        if (newGroup) created.push(newGroup);
+        if (!newGroup) throw new Error('Group could not be created');
+
+        // 2) all copies: duplicate + place in ONE compound (newNodes in command order)
+        const b1 = makeBatch();
+        for (const pl of plan) b1.add(DocumentCommand.createTransform(Selection.create(doc, [srcArr[pl.s]]), pl.tf, { duplicateNodes: true }));
+        const c1 = b1.run();
+        const dups = c1 ? toArr(c1.newNodes) : [];
+        for (const d of dups) created.push(d);
+        if (dups.length !== plan.length) throw new Error('Copies: ' + dups.length + ' instead of ' + plan.length);
+
+        // 3) colour jitter, sorting-in (same order as v13) and group behind the target as ONE compound
+        const b2 = makeBatch();
+        for (let k = 0; k < plan.length; k++) {
+            const pl = plan[k], dup = dups[k], src = srcArr[pl.s];
             try {
-                const dh = rand(p.hueMin, p.hueMax);
-                const ds = rand(p.satMin, p.satMax);
-                const dl = rand(p.lumMin, p.lumMax);
-                const da = rand(p.opacityMin, p.opacityMax);
-                const dup = dups[i];
-                if (!dup) throw new Error('no duplicate');
-
-                const tf = placeAtPointTF(dup, uniquePoints[i], p);
-                if (tf) batch.add(DocumentCommand.createTransform(dup.selfSelection, tf));
-
                 if (p.colorMode === 0 || p.colorMode === 2) {
-                    const fd = getFDFromNode(dup, false);
-                    if (fd) addFDCommand(batch, dup, jitterOwnFillDescriptor(fd, dh, ds, dl, da, p.transferBlend), false);
+                    const fd = getFDFromNode(src, false);
+                    if (fd) addFDCommand(b2, dup, jitterOwnFillDescriptor(fd, pl.dh, pl.ds, pl.dl, pl.da, p.transferBlend), false);
                 }
                 if (p.colorMode === 1 || p.colorMode === 2) {
-                    const pfd = getFDFromNode(dup, true);
-                    if (pfd) addFDCommand(batch, dup, jitterOwnFillDescriptor(pfd, dh, ds, dl, da, p.transferBlend), true);
+                    const pfd = getFDFromNode(src, true);
+                    if (pfd) addFDCommand(b2, dup, jitterOwnFillDescriptor(pfd, pl.dh, pl.ds, pl.dl, pl.da, p.transferBlend), true);
                 }
-                placed++;
-                placedDups.push(dup);
-            } catch (e) {
-                skipped++;
-            }
+            } catch (e) { /* colour not changeable: copy keeps its original colour */ }
         }
-        batch.run();
+        for (const d of dups) b2.add(DocumentCommand.createMoveNodes(d.selfSelection, newGroup, NodeMoveType.Inside, NodeChildType.Main));
+        b2.add(DocumentCommand.createMoveNodes(newGroup.selfSelection, groups.dst, NodeMoveType.After, NodeChildType.Main));
+        b2.run();
 
-        // Step 3: create, name and fill the new group (second CompoundCommand)
-        if (placedDups.length > 0) {
-            try {
-                const bldr = AddChildNodesCommandBuilder.create();
-                bldr.addContainerNode(ContainerNodeDefinition.createDefault());
-                const gcmd = bldr.createCommand(false);
-                doc.executeCommand(gcmd);
-                const newGroup = toArr(gcmd.newNodes)[0] || null;
-                if (newGroup) {
-                    const b2 = makeBatch();
-                    b2.add(DocumentCommand.createSetDescription(newGroup.selfSelection, 'Node_Objects_' + getNextGroupIndex()));
-                    for (const d of placedDups) {
-                        b2.add(DocumentCommand.createMoveNodes(d.selfSelection, newGroup, NodeMoveType.Inside, NodeChildType.Main));
-                    }
-                    b2.add(DocumentCommand.createMoveNodes(newGroup.selfSelection, groups.dst, NodeMoveType.After, NodeChildType.Main));
-                    b2.run();
-                }
-            } catch (e5) { /* grouping failed -> duplicates stay in the base group, rollback cleans up */ }
-        }
-
-        return { skipped, placed, noNodes: false };
+        return { skipped, placed: plan.length, noNodes: false };
     }
 
     // ---------- Dialog (ONE runModal() call) ----------
-    const basePos = doc.history.position;
-    function undoToBase() {
-        rollbackTo(basePos);
-        cleanupLeaks();
-    }
-
-    // Explicit flag instead of position comparison (group creation does not always increment the position).
     let hasPreview = false;
     let previewKey = null;
+    let previewPos0 = 0, previewCreated = null;
+
+    function discardPreview() {
+        if (hasPreview) rollback(previewPos0, previewCreated);
+        hasPreview = false; previewKey = null; previewCreated = null;
+    }
 
     function reportResult(res) {
         if (res.noNodes) app.alert('No curve nodes found in the target group.', TITLE);
         else if (res.skipped > 0) app.alert(res.skipped + ' node point(s) could not be filled and were skipped.', TITLE);
     }
 
+    // One run with complete undo on error
+    function run(p) {
+        const pos0 = doc.history.position, created = [];
+        try {
+            const res = doApply(p, created);
+            return { res, pos0, created };
+        } catch (e) {
+            rollback(pos0, created);
+            throw e;
+        }
+    }
+
     function updatePreview() {
-        undoToBase();
-        hasPreview = false;
-        previewKey = null;
+        discardPreview();
         try {
             const p = fixMinMax(readParams());
-            doApply(p);
-            hasPreview = true;
-            previewKey = JSON.stringify(p);
+            const r = run(p);
+            if (r.res.placed > 0) { hasPreview = true; previewKey = JSON.stringify(p); previewPos0 = r.pos0; previewCreated = r.created; }
+            reportResult(r.res);
         } catch (e) {
-            undoToBase();
             app.alert('Error: ' + e.message, TITLE);
         }
     }
@@ -755,18 +724,16 @@
     const result = dlg.runModal();
 
     if (!result || result.value === DialogResult.Cancel.value) {
-        undoToBase();
+        discardPreview();
     } else {
         const p = fixMinMax(readParams());
         if (!(hasPreview && previewKey === JSON.stringify(p))) {
-            if (hasPreview) undoToBase();
+            discardPreview();
             try {
-                reportResult(doApply(p));
+                reportResult(run(p).res);
             } catch (e) {
-                undoToBase();
                 app.alert('Error: ' + e.message, TITLE);
             }
         }
-        // IMPORTANT: do NOT call cleanupLeaks() here (it would delete the new group).
     }
 })();

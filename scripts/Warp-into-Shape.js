@@ -1,19 +1,36 @@
+/**
+ * name: shape-in-warp-group-v76
+ */
+
 'use strict';
-// Shape in Warp Group v73 (EN)
-// New compared to v72:
-// - BUGFIX Affinity 3.3.3: Colour.createRGBA8() now expects ONE object {r,g,b,alpha}
-//   instead of four numbers. The call Colour.createRGBA8(77,77,77,255) for the grid
-//   colour threw "expected RGBA8 Object" -> the build aborted, no warp group.
-//   Now RGBA8(77,77,77,255) (factory function, older + newer versions).
+// Shape in Warp Group v76 (EN)
+// New in v75/v76: extra points (oversampling) limit raised (0-40), strength range -5 to 5
+// New compared to v73:
+// - Native live preview: doc.executeCommand(cmd,true). The preview no longer creates
+//   history entries (v73: a full build with many entries on every change, reset via
+//   doc.history.position) and is therefore much faster.
+//   Area mode: grid + results are shown as the topmost children of the base shape
+//   (same clipping as the result). Duplicates (adjustment layers, images inside the
+//   object) only appear when applying.
+// - Apply with few own commands: containers, content, one per duplicate and ONE compound
+//   for nesting/hiding/selection (v73: one entry per object and move). The grid name is
+//   set directly in the definition.
+// - No history position any more: Cancel discards the preview and only undoes the
+//   script's own conversion to curves (counted, with a sentinel object); an error while
+//   applying only undoes the script's own build commands.
+// - Shapes are converted to curves once before the dialog and the references are
+//   updated (v73 converted again on every preview and then kept working with the old,
+//   no longer valid reference).
 //
-// v72: rollback at position 0 (rollbackTo with undo loop); top/bottom detection via
-//      isSameNode(). v71: numOr(). v70: File.create(). v69: PolyCurveNodeDefinition
+// v73: RGBA8() factory for the grid colour (Affinity 3.3.3). v72: top/bottom detection
+//      via isSameNode(). v71: numOr(). v70: File.create(). v69: PolyCurveNodeDefinition
 //      argument order. v68: mesh method at reduced strength, mesh extra.
 // Preset files ("WarpPreset - <name>.json") are exchangeable with the German version.
 
 const { Document }                    = require('/document');
 const { DocumentCommand,
-        AddChildNodesCommandBuilder } = require('/commands');
+        AddChildNodesCommandBuilder,
+        CompoundCommandBuilder }      = require('/commands');
 const { Selection }                   = require('/selections');
 const { Dialog, DialogResult }        = require('/dialog');
 const { ContainerNodeDefinition,
@@ -27,7 +44,6 @@ const { File, createDirectories }     = require('/fs');
 const { app }                         = require('/application');
 
 const MOVE_INSIDE = 2;
-const MOVE_AFTER  = 0;
 
 function numOr(v,def){const n=Number(v);return Number.isFinite(n)?n:def;}
 
@@ -128,32 +144,6 @@ function autoDetectRoles(nodeA, nodeB){
     if(aC&&!bC)return{formNode:nodeA,objNode:nodeB};
     if(bC&&!aC)return{formNode:nodeB,objNode:nodeA};
     return null;
-}
-
-// ── Automatic curve conversion ────────────────────────────────────────────────
-function tryConvertToCurves(doc,node){
-    try{
-        doc.executeCommand(DocumentCommand.createConvertToCurves(Selection.create(doc,[node])));
-        return true;
-    }catch(e){return false;}
-}
-function findFirstShapeNode(node){
-    const tag=node[Symbol.toStringTag]||'';
-    if(node.isGroupNode||tag==='GroupNode'){
-        for(const ch of node.children){const r=findFirstShapeNode(ch);if(r)return r;}
-        return null;
-    }
-    if(classifyLeaf(node)==='shape')return node;
-    return null;
-}
-function convertDescendantShapesToCurves(doc,node){
-    const tag=node[Symbol.toStringTag]||'';
-    if(!(node.isGroupNode||tag==='GroupNode'))return;
-    for(let iter=0;iter<200;iter++){
-        const target=findFirstShapeNode(node);
-        if(!target)break;
-        if(!tryConvertToCurves(doc,target))break;
-    }
 }
 
 // ── Contour calculation (area warp) ───────────────────────────────────────────
@@ -554,20 +544,60 @@ function getSrcLocalBB(node){
     try{return node.getSpreadBaseBox(false);}catch(e){}
     return null;
 }
+// ── v74: curve conversion (once before the dialog, counted) ──────────────────
+let CONV={steps:0,sentinel:null};
+function convertNodeToCurves(doc,node){
+    try{
+        // replacement object: same position in the parent (doc.selection and newNodes do not return it, tested live)
+        let par=null,idx=-1;
+        try{par=node.parent;const k=par.children.toArray();for(let i=0;i<k.length;i++)if(k[i].isSameNode(node)){idx=i;break;}}catch(e){}
+        doc.executeCommand(DocumentCommand.createConvertToCurves(Selection.create(doc,[node])));
+        CONV.steps++;
+        let fresh=null;try{if(par&&idx>=0)fresh=par.children.toArray()[idx]||null;}catch(e){}
+        if(fresh&&!CONV.sentinel)CONV.sentinel=fresh;
+        return fresh;
+    }catch(e){return null;}
+}
+function findFirstShapeNode(node){
+    const tag=node[Symbol.toStringTag]||'';
+    if(node.isGroupNode||tag==='GroupNode'){
+        for(const ch of node.children){const r=findFirstShapeNode(ch);if(r)return r;}
+        return null;
+    }
+    if(classifyLeaf(node)==='shape')return node;
+    return null;
+}
+function convertDescendantShapesToCurves(doc,node){
+    const tag=node[Symbol.toStringTag]||'';
+    if(!(node.isGroupNode||tag==='GroupNode'))return;
+    for(let iter=0;iter<200;iter++){
+        const target=findFirstShapeNode(node);
+        if(!target)break;
+        if(!convertNodeToCurves(doc,target))break;
+    }
+}
+// Convert an object's shapes to curves; returns the (possibly new) reference
+function prepareNode(doc,node){
+    convertDescendantShapesToCurves(doc,node);
+    if(classifyLeaf(node)==='shape'){const f=convertNodeToCurves(doc,node);if(f)return f;}
+    return node;
+}
+function nodeInDoc(doc,n){
+    if(!n)return false;
+    try{for(const l of doc.layers.all)if(l.isSameNode(n))return true;}catch(e){}
+    return false;
+}
 
-// ── Node creation ─────────────────────────────────────────────────────────────
+// ── v74: plan (calculation only, no commands) ────────────────────────────────
 
-function buildPolyCurveNode(doc,curves,fd,pfd,ls){
+function makeCurveDef(curves,fd,pfd,ls){
     const pc=PolyCurve.create(),nof=FillDescriptor.createNone();
     for(const c of curves){if(!c.bzs?.length)continue;const cb=new CurveBuilder();cb.begin(c.bzs[0].start);for(const bz of c.bzs)cb.addBezier(bz.c1,bz.c2,bz.end);if(c.isClosed)cb.close();pc.addCurve(cb.createCurve());}
     if(pc.curveCount===0)return null;
-    const def=PolyCurveNodeDefinition.create(pc,fd||nof,pfd||nof,ls||LineStyleDescriptor.createDefault(),nof);
-    const gb=AddChildNodesCommandBuilder.create(doc);gb.addPolyCurveNode(def);doc.executeCommand(gb.createCommand());
-    return doc.selection.at(0).node;
+    return PolyCurveNodeDefinition.create(pc,fd||nof,pfd||nof,ls||LineStyleDescriptor.createDefault(),nof);
 }
 
-function buildGridNode(doc,con,cols,rows,method,strength,lockX,lockY,pathAlign,meshExtra){
-    // v73: RGBA8() factory instead of Colour.createRGBA8(r,g,b,a) (3.3.3 expects an object there)
+function makeGridDef(con,cols,rows,method,strength,lockX,lockY,pathAlign,meshExtra){
     const nof=FillDescriptor.createNone(),gFD=FillDescriptor.createSolid(RGBA8(77,77,77,255));
     const ls=LineStyleDescriptor.createDefault(),pc=PolyCurve.create();
     const S=60;
@@ -592,28 +622,33 @@ function buildGridNode(doc,con,cols,rows,method,strength,lockX,lockY,pathAlign,m
     for(let ci=0;ci<=cols;ci++){const u=ci/cols,cb=new CurveBuilder();cb.begin(gPt(u,0));for(let ri=1;ri<=S;ri++)cb.lineTo(gPt(u,ri/S));pc.addCurve(cb.createCurve());}
     for(let ri=0;ri<=rows;ri++){const v=ri/rows,cb=new CurveBuilder();cb.begin(gPt(0,v));for(let ci2=1;ci2<=S;ci2++)cb.lineTo(gPt(ci2/S,v));pc.addCurve(cb.createCurve());}
     const def=PolyCurveNodeDefinition.create(pc,nof,gFD,ls,nof);
-    const gb=AddChildNodesCommandBuilder.create(doc);gb.addPolyCurveNode(def);doc.executeCommand(gb.createCommand());
-    const gn=doc.selection.at(0).node;try{gn.userDescription='Warp grid';}catch(e){}return gn;
+    def.userDescription='Warp grid';   // v74: name directly in the definition (no separate command)
+    return def;
 }
 
-function moveNodeInto(doc,node,tgt){doc.executeCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[node]),tgt,MOVE_INSIDE,NodeChildType.Main));}
-function moveNodeAfter(doc,node,tgt){doc.executeCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[node]),tgt,MOVE_AFTER,NodeChildType.Main));}
-function dupNode(doc,node){try{doc.executeCommand(DocumentCommand.createTransform(Selection.create(doc,[node]),null,{duplicateNodes:true}));return doc.selection.at(0)?.node||null;}catch(e){return null;}}
-
+// ── v74: insert directly above an object (tested live: mode 3 reverses the order,
+//    mode 4 does not) ───────────────────────────────────────────────────────────
+function addAboveCmd(host,defs){
+    const b=AddChildNodesCommandBuilder.create();
+    let next=null;
+    try{const sibs=host.parent.children.toArray();for(let i=0;i<sibs.length-1;i++)if(sibs[i].isSameNode(host)){next=sibs[i+1];break;}}catch(e){}
+    if(next){b.setInsertionTarget(next);b.setInsertionMode(3);for(let i=defs.length-1;i>=0;i--)b.addNode(defs[i]);}
+    else{b.setInsertionTarget(host);b.setInsertionMode(4);for(const d of defs)b.addNode(d);}
+    return b.createCommand(false);
+}
+// New objects as the topmost children of host (mode 1, order as added)
+function addInsideTopCmd(host,defs){
+    const b=AddChildNodesCommandBuilder.create();
+    b.setInsertionTarget(host);b.setInsertionMode(1);
+    for(const d of defs)b.addNode(d);
+    return b.createCommand(false);
+}
+function nodeLabel(n){return n.userDescription||n.defaultDescription||'';}
 // ── Main script ───────────────────────────────────────────────────────────────
 
 const doc=Document.current;
 if(!doc)throw new Error('No document open.');
 const sel=doc.selection;
-
-// v72: safe rollback - "doc.history.position = 0" throws COMMAND_FAILED.
-function rollbackTo(pos){
-    if(doc.history.position===pos)return true;
-    try{doc.history.position=pos;}catch(e){/* position 0: undo loop below */}
-    let guard=0;
-    while(doc.history.position>pos&&guard++<100000)doc.history.undo();
-    return doc.history.position===pos;
-}
 
 if(sel.length!==2){
     const d=Dialog.create('Shape in Warp Group');
@@ -624,7 +659,7 @@ if(sel.length!==2){
     g.addStaticText('','Selected: '+sel.length+' object(s)');
     g.addStaticText('','');
     g.addStaticText('','Note: run the script with the Move tool active.');
-    g.addStaticText('','All vector objects must be converted to curves first.');
+    g.addStaticText('','Shapes are converted to curves automatically.');
     g.addStaticText('','(Adjustment layers are carried along. Masks are ignored.)');
     col.addGroup('').addButtonSet('', [' OK '], 0);
     d.runModal();
@@ -634,7 +669,7 @@ if(sel.length!==2){
     let idxA=-1,idxB=-1,idx=0;
     for(const l of doc.layers.all){if(idxA<0&&l.isSameNode(nodeA))idxA=idx;if(idxB<0&&l.isSameNode(nodeB))idxB=idx;idx++;}
     // doc.layers.all runs from bottom to top: higher index = further up
-    const[topNode,botNode]=idxA>idxB?[nodeA,nodeB]:[nodeB,nodeA];
+    let[topNode,botNode]=idxA>idxB?[nodeA,nodeB]:[nodeB,nodeA];
 
     const autoRole=autoDetectRoles(nodeA,nodeB);
     let defaultFormIdx=0;
@@ -643,7 +678,12 @@ if(sel.length!==2){
     const dTop=(topNode.userDescription||topNode.defaultDescription||'top').substring(0,26);
     const dBot=(botNode.userDescription||botNode.defaultDescription||'bottom').substring(0,26);
 
-    const dlg=Dialog.create('Shape in Warp Group v73');
+    // v74: convert shapes ONCE before the dialog (counted, references updated);
+    // v73 converted again on every preview and then worked with stale references.
+    topNode=prepareNode(doc,topNode);
+    botNode=prepareNode(doc,botNode);
+
+    const dlg=Dialog.create('Shape in Warp Group v76');
     dlg.initialWidth=700;
     dlg.setIsResizable(true);
     const colL=dlg.addColumn(); colL.widthProportion=0.52;
@@ -665,7 +705,7 @@ if(sel.length!==2){
         'Trapezoid','Squeezed','Cone/Fan','Barrel/Pincushion',
         'Banner/Flag','Swing warp','Twirl','Mesh (Coons patch)',
     ],0);
-    const edStr=gM.addUnitValueEditor('Strength:','none',null,1.0,-3.0,3.0);edStr.value=1.0;
+    const edStr=gM.addUnitValueEditor('Strength:','none',null,1.0,-5.0,5.0);edStr.value=1.0;
     const chkLockX=gM.addCheckBox('Lock X axis',false);
     const chkLockY=gM.addCheckBox('Lock Y axis',false);
     const cboMeshExtra=gM.addComboBox('Mesh extra:',[
@@ -690,7 +730,7 @@ if(sel.length!==2){
     const edScanRes=gRes.addUnitValueEditor('Res.:','none',null,400,100,2000);edScanRes.value=400;
     const edEpsilon=gRes.addUnitValueEditor('Eps. (px):','none',null,2.0,0.5,20.0);edEpsilon.value=2.0;
     const edSimplify=gRes.addUnitValueEditor('Simplify (px):','none',null,0.0,0.0,10.0);edSimplify.value=0.0;
-    const edOversample=gRes.addUnitValueEditor('Extra points:','none',null,2,0,5);edOversample.value=2;
+    const edOversample=gRes.addUnitValueEditor('Extra points:','none',null,2,0,40);edOversample.value=2;
 
     const gG=colR.addGroup('Grid');
     const edCols=gG.addUnitValueEditor('Columns:','none',null,12,4,40);edCols.value=12;
@@ -709,13 +749,13 @@ if(sel.length!==2){
         return{
             formIdx:    cboForm.selectedIndex,
             method:     cboMeth.selectedIndex,
-            strength:   Math.max(-3.0,Math.min(3.0,numOr(edStr.value,1.0))),
+            strength:   Math.max(-5.0,Math.min(5.0,numOr(edStr.value,1.0))),
             angleDeg:   Math.max(-180,Math.min(180,numOr(edAngle.value,0))),
             cols:       Math.max(4,Math.min(40,Math.round(numOr(edCols.value,12)))),
             rows:       Math.max(4,Math.min(80,Math.round(numOr(edRows.value,24)))),
             offStart:   Math.max(0,Math.min(45,numOr(edOffStart.value,0))),
             offEnd:     Math.max(0,Math.min(45,numOr(edOffEnd.value,0))),
-            oversample: Math.max(0,Math.min(5,Math.round(numOr(edOversample.value,0)))),
+            oversample: Math.max(0,Math.min(40,Math.round(numOr(edOversample.value,0)))),
             scanRes:    Math.max(100,Math.min(2000,Math.round(numOr(edScanRes.value,400)))),
             epsilon:    Math.max(0.5,Math.min(20,numOr(edEpsilon.value,2.0))),
             simplify:   Math.max(0,Math.min(10,numOr(edSimplify.value,0))),
@@ -765,81 +805,11 @@ if(sel.length!==2){
         return conCache;
     }
 
-    function buildResultNodes(items,sbb,con,p){
-        const em=p.method===4?0:p.method;
-        const curveItems=items.filter(it=>it.type==='curve');
-        const dupItems=items.filter(it=>it.type==='dup');
-
-        const offSbb=computeOffsetSbb(sbb,p.offStart,p.offEnd);
-        const prepared=curveItems.map(item=>{
-            const uni=subdivideCurvesUniform(item.curves,p.oversample);
-            const sub=subdivideCurvesAdaptive(uni,p.epsilon,8);
-            let warped=warpCurves(sub,offSbb,con,em,p.strength,p.lockX,p.lockY,p.pathMode?p.pathAlign:0,p.meshExtra);
-            if(p.simplify>0)warped=simplifyCurves(warped,p.simplify);
-            let remFd=item.fd, remPfd=item.pfd;
-            const srcBB=item.srcNode?getSrcLocalBB(item.srcNode):null;
-            const dstBB=computeCurvesBB(warped);
-            if(srcBB&&dstBB){
-                remFd=remapFillTransform(item.fd,srcBB,dstBB);
-                remPfd=remapFillTransform(item.pfd,srcBB,dstBB);
-            }
-            return{item:{...item,fd:remFd,pfd:remPfd},warped};
-        }).filter(pr=>pr.warped.some(c=>c.bzs.length));
-
-        const resultNodes=[];
-        if(prepared.length){
-            const nof=FillDescriptor.createNone();
-            const gb=AddChildNodesCommandBuilder.create(doc);
-            const validPrepared=[];
-            for(const pr of prepared){
-                const pc=PolyCurve.create();
-                for(const c of pr.warped){
-                    if(!c.bzs?.length)continue;
-                    const cb=new CurveBuilder();
-                    cb.begin(c.bzs[0].start);
-                    for(const bz of c.bzs)cb.addBezier(bz.c1,bz.c2,bz.end);
-                    if(c.isClosed)cb.close();
-                    pc.addCurve(cb.createCurve());
-                }
-                if(pc.curveCount===0)continue;
-                const def=PolyCurveNodeDefinition.create(pc,pr.item.fd||nof,pr.item.pfd||nof,pr.item.ls||LineStyleDescriptor.createDefault(),nof);
-                gb.addPolyCurveNode(def);
-                validPrepared.push(pr);
-            }
-            if(validPrepared.length){
-                doc.executeCommand(gb.createCommand());
-                const sel2=doc.selection;
-                const newNodes=[];
-                for(let i=0;i<sel2.length;i++)newNodes.push(sel2.at(i).node);
-                if(newNodes.length===validPrepared.length){
-                    for(let i=0;i<validPrepared.length;i++){
-                        const wNode=newNodes[i],item=validPrepared[i].item;
-                        for(const co of item.childDups){const cd=dupNode(doc,co);if(cd)moveNodeInto(doc,cd,wNode);}
-                        resultNodes.push(wNode);
-                    }
-                }else{
-                    for(const pr of validPrepared){
-                        const wNode=buildPolyCurveNode(doc,pr.warped,pr.item.fd,pr.item.pfd,pr.item.ls);
-                        if(wNode){for(const co of pr.item.childDups){const cd=dupNode(doc,co);if(cd)moveNodeInto(doc,cd,wNode);}resultNodes.push(wNode);}
-                    }
-                }
-            }
-        }
-        for(const item of dupItems){
-            const dup=dupNode(doc,item.node);
-            if(dup)resultNodes.push(dup);
-        }
-        return resultNodes;
-    }
-
-    function doFullBuild(p){
+    // v74: calculates everything (contours, warped curves, grid) WITHOUT changing the document.
+    // Call doc.clearPreviews() first so it works from the original.
+    function computePlan(p){
         const formNode=p.formIdx===0?topNode:botNode;
         const objNode =p.formIdx===0?botNode:topNode;
-
-        convertDescendantShapesToCurves(doc,objNode);
-        if(classifyLeaf(formNode)==='shape')tryConvertToCurves(doc,formNode);
-        if(classifyLeaf(objNode)==='shape')tryConvertToCurves(doc,objNode);
-
         const em=p.method===4?0:p.method;
         const con=getCon(formNode,p);
         if(!con){
@@ -849,71 +819,142 @@ if(sel.length!==2){
             }
             return{success:false,message:'Contour calculation failed (base shape invalid or empty).'};
         }
-        const sbb=objNode.getSpreadBaseBox(false);
         const tag=objNode[Symbol.toStringTag]||'';
-
+        const hide=p.pathMode&&p.hidePathBase;
         if(tag==='ImageNode'||tag==='RasterNode'||tag==='PixelNode'){
-            const grpDef=ContainerNodeDefinition.create('Warp group');
-            const gb2=AddChildNodesCommandBuilder.create(doc);gb2.setInsertionTargetSelection(Selection.create(doc,[formNode]));gb2.addContainerNode(grpDef);doc.executeCommand(gb2.createCommand());
-            let mainGrp=null;const ns=doc.selection;for(let i=0;i<ns.length;i++){const n=ns.at(i).node;if(n.isGroupNode||n.isContainerNode){mainGrp=n;break;}}
-            if(mainGrp){moveNodeInto(doc,formNode,mainGrp);moveNodeInto(doc,objNode,formNode);}
-            if(p.pathMode&&p.hidePathBase){
-                try{doc.executeCommand(DocumentCommand.createSetVisibility(Selection.create(doc,[formNode]),false));}catch(e){}
-            }
-            return{success:true};
+            return{success:true,kind:'image',formNode,objNode,hide};
         }
-
         const badName=findFirstShape(objNode);
         if(badName)return{success:false,message:'"'+badName+'" is not a curve yet. Please convert via Layer -> Convert to Curves first.'};
         const items=collectAllItems(objNode);
         if(!items.length)return{success:false,message:'No curve objects found in the object to be warped.'};
-        const resultNodes=buildResultNodes(items,sbb,con,p);
-        if(!resultNodes.length)return{success:false,message:'The warp produced no result objects.'};
-
-        const gNode=buildGridNode(doc,con,p.cols,p.rows,em,p.strength,p.lockX,p.lockY,p.pathMode?p.pathAlign:0,p.meshExtra);
-        const subDef=ContainerNodeDefinition.create('Warp content');
-        const gbS=AddChildNodesCommandBuilder.create(doc);gbS.addContainerNode(subDef);doc.executeCommand(gbS.createCommand());
-        const subGrp=doc.selection.at(0).node;
-        moveNodeInto(doc,gNode,subGrp);
-        for(const n of resultNodes)moveNodeInto(doc,n,subGrp);
-
-        const grpDef=ContainerNodeDefinition.create('Warp group');
-        const gb2=AddChildNodesCommandBuilder.create(doc);gb2.setInsertionTargetSelection(Selection.create(doc,[formNode]));gb2.addContainerNode(grpDef);doc.executeCommand(gb2.createCommand());
-        let mainGrp=null;const ns=doc.selection;for(let i=0;i<ns.length;i++){const n=ns.at(i).node;if(n.isGroupNode||n.isContainerNode){mainGrp=n;break;}}
-
-        if(p.pathMode){
-            if(mainGrp){
-                moveNodeInto(doc,formNode,mainGrp);
-                moveNodeInto(doc,subGrp,mainGrp);
-                if(p.hidePathBase){
-                    try{doc.executeCommand(DocumentCommand.createSetVisibility(Selection.create(doc,[formNode]),false));}catch(e){}
-                }
+        const sbb=objNode.getSpreadBaseBox(false);
+        const offSbb=computeOffsetSbb(sbb,p.offStart,p.offEnd);
+        const results=[];
+        for(const item of items.filter(it=>it.type==='curve')){
+            const uni=subdivideCurvesUniform(item.curves,p.oversample);
+            const sub=subdivideCurvesAdaptive(uni,p.epsilon,8);
+            let warped=warpCurves(sub,offSbb,con,em,p.strength,p.lockX,p.lockY,p.pathMode?p.pathAlign:0,p.meshExtra);
+            if(p.simplify>0)warped=simplifyCurves(warped,p.simplify);
+            if(!warped.some(c=>c.bzs.length))continue;
+            let remFd=item.fd, remPfd=item.pfd;
+            const srcBB=item.srcNode?getSrcLocalBB(item.srcNode):null;
+            const dstBB=computeCurvesBB(warped);
+            if(srcBB&&dstBB){
+                remFd=remapFillTransform(item.fd,srcBB,dstBB);
+                remPfd=remapFillTransform(item.pfd,srcBB,dstBB);
             }
-        }else{
-            moveNodeInto(doc,subGrp,formNode);
-            if(mainGrp)moveNodeInto(doc,formNode,mainGrp);
+            const def=makeCurveDef(warped,remFd,remPfd,item.ls);
+            if(def)results.push({def,childDups:item.childDups});
         }
-        return{success:true};
+        const dups=items.filter(it=>it.type==='dup').map(it=>it.node);
+        if(!results.length&&!dups.length)return{success:false,message:'The warp produced no result objects.'};
+        const gridDef=makeGridDef(con,p.cols,p.rows,em,p.strength,p.lockX,p.lockY,p.pathMode?p.pathAlign:0,p.meshExtra);
+        return{success:true,kind:'curves',formNode,objNode,results,dups,gridDef,pathMode:p.pathMode,hide};
     }
 
-    // ── Live preview ──────────────────────────────────────────────────────────
-    const posBeforePreview=doc.history.position;
-    let rollbackFailed=false;
-    function updatePreview(){
-        // v72: safe rollback; on failure do not stack another preview
-        if(!rollbackTo(posBeforePreview)){
-            rollbackFailed=true;
-            try{stStatus.setText('The preview could not be reset - please cancel.');}catch(e){}
+    // v74: preview as ONE command without a history entry. Area mode: grid + results as the
+    // topmost children of the base shape (same clipping as the final result); path mode:
+    // directly above the base shape. Duplicates (adjustment layers etc.) only when applying.
+    function previewCommand(plan){
+        const cb=CompoundCommandBuilder.create();
+        if(plan.kind==='image'){
+            cb.addCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[plan.objNode]),plan.formNode,MOVE_INSIDE,NodeChildType.Main));
+        }else{
+            const defs=[plan.gridDef,...plan.results.map(r=>r.def)];
+            cb.addCommand(plan.pathMode?addAboveCmd(plan.formNode,defs):addInsideTopCmd(plan.formNode,defs));
+        }
+        if(plan.hide)cb.addCommand(DocumentCommand.createSetVisibility(Selection.create(doc,[plan.formNode]),false));
+        return cb.createCommand();
+    }
+
+    // v74: final build with few, counted own commands:
+    //  1) containers (Warp group + Warp content) directly above the base shape
+    //  2) grid + results directly into Warp content
+    //  3) one command per duplicate
+    //  4) ONE compound: place duplicates, nesting, hiding, selection
+    let BUILD=null;
+    function runBuild(plan){
+        BUILD={steps:0,sentinel:null};
+        const ex=(c)=>{doc.executeCommand(c);BUILD.steps++;};
+        const{formNode}=plan;
+        const grpDef=ContainerNodeDefinition.create('Warp group');
+        if(plan.kind==='image'){
+            const c1=addAboveCmd(formNode,[grpDef]);ex(c1);
+            const mainGrp=Array.from(c1.newNodes)[0];BUILD.sentinel=mainGrp;
+            const cb=CompoundCommandBuilder.create();
+            cb.addCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[formNode]),mainGrp,MOVE_INSIDE,NodeChildType.Main));
+            cb.addCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[plan.objNode]),formNode,MOVE_INSIDE,NodeChildType.Main));
+            if(plan.hide)cb.addCommand(DocumentCommand.createSetVisibility(Selection.create(doc,[formNode]),false));
+            cb.addCommand(DocumentCommand.createSetSelection(Selection.create(doc,[mainGrp])));
+            ex(cb.createCommand());
             return;
         }
+        const subDef=ContainerNodeDefinition.create('Warp content');
+        const c1=addAboveCmd(formNode,[grpDef,subDef]);ex(c1);
+        const created=Array.from(c1.newNodes);
+        const mainGrp=created.find(n=>nodeLabel(n)==='Warp group');
+        const subGrp=created.find(n=>nodeLabel(n)==='Warp content');
+        if(!mainGrp||!subGrp)throw new Error('Containers could not be created.');
+        BUILD.sentinel=mainGrp;
+        // grid at the bottom, results above in order (as in v73)
+        const c2=addInsideTopCmd(subGrp,[plan.gridDef,...plan.results.map(r=>r.def)]);ex(c2);
+        const nn=Array.from(c2.newNodes).reverse();   // newNodes come in reverse order of adding
+        const wNodes=nn.slice(1);
+        const moves=[];
+        function dup(node){
+            const dc=DocumentCommand.createTransform(Selection.create(doc,[node]),Transform.createIdentity(),{duplicateNodes:true});
+            ex(dc);
+            try{return Array.from(dc.newNodes)[0]||null;}catch(e){return null;}
+        }
+        for(let i=0;i<plan.results.length&&i<wNodes.length;i++){
+            for(const co of plan.results[i].childDups){const d=dup(co);if(d)moves.push([d,wNodes[i]]);}
+        }
+        for(const n of plan.dups){const d=dup(n);if(d)moves.push([d,subGrp]);}
+        const cb=CompoundCommandBuilder.create();
+        for(const[n,t]of moves)cb.addCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[n]),t,MOVE_INSIDE,NodeChildType.Main));
+        if(plan.pathMode){
+            cb.addCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[formNode]),mainGrp,MOVE_INSIDE,NodeChildType.Main));
+            cb.addCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[subGrp]),mainGrp,MOVE_INSIDE,NodeChildType.Main));
+            if(plan.hide)cb.addCommand(DocumentCommand.createSetVisibility(Selection.create(doc,[formNode]),false));
+        }else{
+            cb.addCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[subGrp]),formNode,MOVE_INSIDE,NodeChildType.Main));
+            cb.addCommand(DocumentCommand.createMoveNodes(Selection.create(doc,[formNode]),mainGrp,MOVE_INSIDE,NodeChildType.Main));
+        }
+        cb.addCommand(DocumentCommand.createSetSelection(Selection.create(doc,[mainGrp])));
+        ex(cb.createCommand());
+    }
+    // v74: undo only the build's own commands (sentinel still present)
+    function undoBuild(){
+        const b=BUILD;BUILD=null;
+        if(!b||b.steps<=0)return;
+        if(b.sentinel&&!nodeInDoc(doc,b.sentinel))return;
+        for(let i=0;i<b.steps;i++){try{doc.history.undo();}catch(e){break;}}
+    }
+    function undoConversion(){
+        if(CONV.steps>0&&nodeInDoc(doc,CONV.sentinel)){
+            for(let i=0;i<CONV.steps;i++){try{doc.history.undo();}catch(e){break;}}
+        }
+        CONV={steps:0,sentinel:null};
+    }
+
+    // ── Live preview (native preview, no history entries) ────────────────────
+    let previewKey=null,previewPlan=null;
+    function updatePreview(){
+        doc.clearPreviews();
+        previewKey=null;previewPlan=null;
+        const p=getParams();
         try{
-            const res=doFullBuild(getParams());
-            if(res&&res.success){
+            const plan=computePlan(p);
+            if(plan&&plan.success){
+                doc.executeCommand(previewCommand(plan),true);
+                previewPlan=plan;previewKey=JSON.stringify(p);
                 try{stStatus.setText('Preview up to date.');}catch(e){}
             }else{
-                try{stStatus.setText((res&&res.message)?res.message:'Build failed.');}catch(e){}
+                try{stStatus.setText((plan&&plan.message)?plan.message:'Build failed.');}catch(e){}
             }
         }catch(e){
+            doc.clearPreviews();
             try{stStatus.setText('Error: '+(e&&e.message?e.message:String(e)));}catch(e2){}
         }
     }
@@ -979,9 +1020,21 @@ if(sel.length!==2){
 
     const result=dlg.runModal();
     const cancelled = !result || result.value!==DialogResult.Ok.value;
+    doc.clearPreviews();
     if(cancelled){
-        if(!rollbackTo(posBeforePreview)||rollbackFailed){
-            app.alert('The preview could not be fully reset.\nPlease check the original state with Edit > Undo.','Shape in Warp Group');
+        // v74: discard the preview and only undo the script's own conversion
+        undoConversion();
+    }else{
+        const p=getParams();
+        let plan=(previewPlan&&previewKey===JSON.stringify(p))?previewPlan:null;
+        let msg=null;
+        try{
+            if(!plan){const r=computePlan(p);if(r&&r.success)plan=r;else msg=(r&&r.message)||'Build failed.';}
+            if(plan)runBuild(plan);
+        }catch(e){
+            undoBuild();
+            msg='Error: '+(e&&e.message?e.message:String(e));
         }
+        if(msg)app.alert(msg+'\nNo warp group was created.','Shape in Warp Group');
     }
 }

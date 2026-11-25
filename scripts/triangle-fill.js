@@ -1,27 +1,35 @@
-// Triangle Fill (v17)
-// Fills a selected closed vector shape completely with triangles.
+// Triangle Fill (v19)
+// Fills selected closed vector shapes and artistic text completely with triangles.
 //
-// CHANGES v17:
-// - Affinity 3.3.3: gradient.getStop(i).colour now already returns a Colour object;
-//   new Colour(s.colour) threw "expected ColourHandle". The error was caught in
-//   makeFillSampler() -> with a gradient source shape ALL triangles became grey.
-//   New helper toColour() only wraps when needed. Otherwise unchanged from v16.
+// NEW v19:
+// - Multiple selection: any number of curves/shapes are filled in ONE pass with the same
+//   parameters (one group "TriangleFill_N" per object, directly above the object).
+//   Selected groups are resolved (contained shapes/texts are filled individually).
+// - Artistic text (and frame text): ALL characters at once. The text is converted to curves
+//   internally on a duplicate, the glyph outlines (incl. counters as in "O", "e") are read and
+//   the conversion is rolled back immediately - the text itself stays unchanged and editable.
+//   All triangles of a text end up in ONE group above the text.
+//   (v18 filled a wrong contour for text: the curves of a text node are not the glyph outlines.)
+// - "Count applies": per object (every object gets the target count, for text distributed
+//   over the characters by area) or for all together (distributed over all objects by area).
+// - Colour per character taken from the character fill (differently coloured characters are kept).
 //
-// v16: angle band [Min..Max] for the smallest angle; preview groups tracked and
-//      deleted explicitly (instead of history rollback).
-// v15: rollback hardening, recalculation on OK if settings changed.
-// v14: Blur-Shadow dialog concept, preset prefix "DF_" (identical to the German
-//      version, presets are interchangeable), delete preset.
+// v18: no curve conversion of the original shape, rollback until group gone, position fix as compound.
+// v17: toColour() for gradient stops (3.3.3). v16: angle band [Min..Max]. v15: recalculation on OK.
+// v14: Blur-Shadow dialog concept, preset prefix "DF_" (identical to the German version,
+//      presets are interchangeable), delete preset.
 //
 // LIMITATIONS:
 // - No true constrained Delaunay with edge recovery.
 // - Gradient per triangle is an approximation (3-stop linear along one axis).
 // - Grid mode ignores the angle parameters completely.
+// - Very small characters get somewhat more triangles than their share due to the minimum
+//   number of boundary points.
 
 (function () {
     const { Document } = require('/document');
     const { Selection } = require('/selections');
-    const { DocumentCommand, NodeChildType, AddChildNodesCommandBuilder } = require('/commands');
+    const { DocumentCommand, NodeChildType, AddChildNodesCommandBuilder, CompoundCommandBuilder } = require('/commands');
     const { NodeMoveType } = require('affinity:dom');
     const { CurveBuilder, PolyCurve, Transform } = require('/geometry');
     const { Dialog, DialogResult } = require('/dialog');
@@ -31,55 +39,49 @@
     const { FillDescriptor, GradientFill, GradientFillType, BlendMode } = require('/fills');
     const { Colour, Gradient } = require('/colours');
 
-    // v17: version-safe wrapping (3.3.3+: stop.colour is already a Colour)
+    const TITLE = 'Triangle Fill';
+    const GROUP_PREFIX = 'TriangleFill';
     function toColour(c) { return (c instanceof Colour) ? c : new Colour(c); }
 
     const doc = Document.current;
-    if (!doc) {
-        app.alert('No document open.', 'Triangle Fill');
-        return;
-    }
+    if (!doc) { app.alert('No document open.', TITLE); return; }
 
-    function rollbackTo(pos) {
-        if (doc.history.position === pos) return;
-        try { doc.history.position = pos; } catch (e) { /* position 0: undo loop below */ }
-        let guard = 0;
-        while (doc.history.position > pos && guard++ < 100000) doc.history.undo();
+    // ---------------- Preview management ----------------
+    // Every created group is remembered with the number of its history steps. Discarding = undo
+    // until the FIRST group is gone (creating it is the first own entry), then a safety net.
+    let currentRecs = [];
+    function nodeInDoc(n) {
+        if (!n) return false;
+        try { for (const l of doc.layers.all) if (l.isSameNode(n)) return true; } catch (e) { }
+        return false;
     }
-
-    const createdGroups = [];
-    function clearCreatedGroups() {
-        for (const g of createdGroups) {
-            try {
-                doc.executeCommand(DocumentCommand.createDeleteSelection(Selection.create(doc, [g]), true));
-            } catch (e) { /* group no longer exists */ }
+    function discardCurrent() {
+        const recs = currentRecs; currentRecs = [];
+        if (!recs.length) return;
+        const first = recs.find(r => r.group);
+        let total = 0;
+        for (const r of recs) total += r.steps;
+        let k = 0;
+        if (first) {
+            while (nodeInDoc(first.group) && k < total + 4) { try { doc.history.undo(); } catch (e) { break; } k++; }
         }
-        createdGroups.length = 0;
+        const rest = recs.filter(r => r.group && nodeInDoc(r.group)).map(r => r.group);
+        if (rest.length) {
+            try { doc.executeCommand(DocumentCommand.createDeleteSelection(Selection.create(doc, rest), true)); } catch (e) { }
+        }
     }
 
-    function snapshotAll(doc) {
-        const arr = [];
-        for (const l of doc.layers.all) arr.push(l);
-        return arr;
-    }
-    function diffNewNodes(doc, beforeArr) {
-        const after = snapshotAll(doc);
-        return after.filter(a => !beforeArr.some(b => b.isSameNode(a)));
-    }
-    function ensureMutable(doc, node) {
-        if (node.curvesInterface && node.curvesInterface.isMutable) return node;
-        const before = snapshotAll(doc);
-        doc.executeCommand(DocumentCommand.createConvertToCurves(Selection.create(doc, [node])));
-        const created = diffNewNodes(doc, before);
-        return created.length ? created[0] : node;
-    }
     function isVectorNode(node) { return !!node.curvesInterface; }
+    function isTextNode(node) { try { return !!node.isTextNode || !!node.storyInterface; } catch (e) { return false; } }
     function isClosedNode(node) {
-        const pc = node.curvesInterface.polyCurve;
-        if (pc.curveCount === 0) return false;
-        for (const c of pc.curves) { if (!c.isClosed) return false; }
-        return true;
+        try {
+            const pc = node.curvesInterface.polyCurve;
+            if (pc.curveCount === 0) return false;
+            for (const c of pc.curves) { if (!c.isClosed) return false; }
+            return true;
+        } catch (e) { return false; }
     }
+    function hasChildren(node) { try { return node.children && node.children.length > 0; } catch (e) { return false; } }
 
     function mulberry32(seed) {
         let a = seed >>> 0;
@@ -91,6 +93,7 @@
         };
     }
 
+    function copyData(d) { return { 0: d[0], 1: d[1], 2: d[2], 3: d[3], 4: d[4], 5: d[5] }; }
     function matMulData(A, B) {
         return {
             0: A[0] * B[0] + A[1] * B[3], 1: A[0] * B[1] + A[1] * B[4], 2: A[0] * B[2] + A[1] * B[5] + A[2],
@@ -115,6 +118,7 @@
         td[0] = d[0]; td[1] = d[1]; td[2] = d[2]; td[3] = d[3]; td[4] = d[4]; td[5] = d[5];
         return tf;
     }
+    function detData(d) { return Math.abs(d[0] * d[4] - d[1] * d[3]); }
 
     // ---------------- Geometry core ----------------
 
@@ -189,9 +193,14 @@
             for (const e of edgeCount.values()) if (e.count === 1) boundary.push([e.u, e.v]);
             return { bad, boundary };
         }
+        _removeBad(bad) {
+            if (!bad.length) return;
+            const s = new Set(bad);
+            this.tris = this.tris.filter(t => !s.has(t));
+        }
         _insertExistingIndex(pIdx) {
             const { bad, boundary } = this._cavity(this.pts[pIdx]);
-            this.tris = this.tris.filter(t => bad.indexOf(t) === -1);
+            this._removeBad(bad);
             for (const [u, v] of boundary) this.tris.push(makeTri(u, v, pIdx, this.pts));
         }
         insertPoint(p) {
@@ -199,7 +208,7 @@
             this.pts.push(p);
             this._gridAdd(idx);
             const { bad, boundary } = this._cavity(p);
-            this.tris = this.tris.filter(t => bad.indexOf(t) === -1);
+            this._removeBad(bad);
             const added = [];
             for (const [u, v] of boundary) { const nt = makeTri(u, v, idx, this.pts); this.tris.push(nt); added.push(nt); }
             return { idx: idx, removed: bad, added: added };
@@ -264,22 +273,26 @@
         const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
         return dist(p, { x: a.x + t * dx, y: a.y + t * dy });
     }
+    function P(p) { return { x: p.x, y: p.y }; }
 
+    // v19: points are copied as plain numbers (geometry stays valid after the temporary text
+    // conversion has been rolled back).
     function extractShapeGroups(node, flatnessTol) {
         const tol = flatnessTol || 0.5;
         const pc = node.curvesInterface.polyCurve;
         const rawRings = [];
         for (const curve of pc.curves) {
-            if (!curve.isClosed || curve.isEmpty) continue;
+            if (!curve.isClosed || curve.isEmpty || curve.pointCount === 0) continue;
             const bezArr = curve.beziers.toArray();
             const pts = [];
             for (const b of bezArr) {
-                pts.push(b.start);
-                const d1 = pointLineDist(b.c1, b.start, b.end);
-                const d2 = pointLineDist(b.c2, b.start, b.end);
-                if (Math.max(d1, d2) > tol) { const nSub = 6; for (let i = 1; i < nSub; i++) pts.push(b.evaluate(i / nSub)); }
+                const s = P(b.start), e = P(b.end), c1 = P(b.c1), c2 = P(b.c2);
+                pts.push(s);
+                const d1 = pointLineDist(c1, s, e);
+                const d2 = pointLineDist(c2, s, e);
+                if (Math.max(d1, d2) > tol) { const nSub = 6; for (let i = 1; i < nSub; i++) pts.push(P(b.evaluate(i / nSub))); }
             }
-            if (pts.length >= 3) rawRings.push(pts);
+            if (pts.length >= 3 && ringArea(pts) > 1e-6) rawRings.push(pts);
         }
         if (rawRings.length === 0) return null;
         const n = rawRings.length;
@@ -305,6 +318,11 @@
             if (depth[i] % 2 === 1) { const g = groups.find(g => g.outerIdx === containerOf[i]); if (g) g.holes.push(i); }
         }
         return groups.map(g => ({ outer: rawRings[g.outerIdx], holes: g.holes.map(hi => rawRings[hi]) }));
+    }
+    function groupsArea(groups) {
+        let a = 0;
+        for (const g of groups) { a += ringArea(g.outer); for (const h of g.holes) a -= ringArea(h); }
+        return Math.max(1e-6, a);
     }
 
     function scatterInteriorPoints(tri, outer, holes, n, minEdgeLen, rng) {
@@ -435,6 +453,8 @@
                 if (pointInsideDomain(triCentroid(tri.ptsOf(t)), outer, holes)) keptSet.add(t);
             }
         }
+        const minAOf = t => { if (t.mA === undefined) t.mA = Math.min(...triAngles(tri.ptsOf(t))); return t.mA; };
+        const areaOf = t => { if (t.ar === undefined) t.ar = triArea(tri.ptsOf(t)); return t.ar; };
 
         const maxIterations = opts.maxIterations || Math.max(1200, hardCap * 3);
         let iter = 0, cappedOut = false;
@@ -442,15 +462,15 @@
         while (iter < maxIterations) {
             if (keptSet.size >= hardCap) { cappedOut = true; break; }
             iter++;
-            let worst = null, worstScore = -1, worstPts = null;
+            let worst = null, worstScore = -1;
             for (const t of keptSet) {
-                const pts = tri.ptsOf(t);
-                const minA = Math.min(...triAngles(pts));
+                const minA = minAOf(t);
                 if (minA < opts.minAngle) {
                     const score = opts.minAngle - minA;
-                    if (score > worstScore) { worstScore = score; worst = t; worstPts = pts; }
+                    if (score > worstScore) { worstScore = score; worst = t; }
                 }
             }
+            const worstPts = worst ? tri.ptsOf(worst) : null;
             let steiner = null;
             if (worst) {
                 const cc = circumcircle(worstPts[0], worstPts[1], worstPts[2]);
@@ -463,14 +483,13 @@
                     if (pointInsideDomain(mid, outer, holes) && !tri.nearAny(mid, minEdgeLen * 0.5)) steiner = mid;
                 }
             } else if (keptSet.size < targetLow) {
-                let big = null, bigArea = -1, bigPts = null;
+                let big = null, bigArea = -1;
                 for (const t of keptSet) {
-                    const pts = tri.ptsOf(t);
-                    const a = triArea(pts);
-                    if (a > bigArea) { bigArea = a; big = t; bigPts = pts; }
+                    const a = areaOf(t);
+                    if (a > bigArea) { bigArea = a; big = t; }
                 }
                 if (big) {
-                    const c = triCentroid(bigPts);
+                    const c = triCentroid(tri.ptsOf(big));
                     if (!tri.nearAny(c, minEdgeLen * 0.5)) steiner = c;
                 }
             }
@@ -482,12 +501,9 @@
         const kept = Array.from(keptSet, t => tri.ptsOf(t));
         const relaxedMoves = relaxIntoBand(kept, boundarySet, opts.minAngle, opts.maxAngleTarget, rng);
 
-        const st = bandStats(kept, opts.minAngle, opts.maxAngleTarget);
         return {
             triangles: kept, iterations: iter, capped: cappedOut, hardCap: hardCap,
-            innerPlaced: innerPlaced, innerRequested: innerRequested, relaxedMoves: relaxedMoves,
-            achievedMinAngle: st.achievedMinAngle, achievedMaxOfMinAngle: st.achievedMaxOfMinAngle,
-            achievedAvgMinAngle: st.achievedAvgMinAngle, pctInBand: st.pctInBand
+            innerPlaced: innerPlaced, innerRequested: innerRequested, relaxedMoves: relaxedMoves
         };
     }
 
@@ -495,7 +511,7 @@
         const outerArea = ringArea(outerRaw);
         let holesArea = 0;
         for (const h of holesRaw) holesArea += ringArea(h);
-        const netArea = Math.max(1, outerArea - holesArea);
+        const netArea = Math.max(1e-6, outerArea - holesArea);
         const s = Math.sqrt(4 * (netArea / Math.max(1, targetCount)) / Math.sqrt(3));
 
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -523,37 +539,30 @@
         return { triangles: kept, iterations: 0, capped: false, hardCap: kept.length, innerPlaced: 0, innerRequested: 0, relaxedMoves: 0 };
     }
 
-    function triangulateWholeShape(groups, opts, rng) {
+    // Fills a shape group (outer contours + holes) - target count distributed over the contours by area.
+    function triangulateGroups(groups, opts, rng) {
         const areas = groups.map(g => {
             let a = ringArea(g.outer);
             for (const h of g.holes) a -= ringArea(h);
-            return Math.max(1, a);
+            return Math.max(1e-6, a);
         });
         const totalArea = areas.reduce((s, a) => s + a, 0);
-        const allTriangles = [];
-        let sumIter = 0, anyCapped = false, sumInnerPlaced = 0, sumInnerRequested = 0, maxHardCap = 0, sumRelaxed = 0;
+        const out = { triangles: [], iterations: 0, capped: false, hardCap: 0, innerPlaced: 0, innerRequested: 0, relaxedMoves: 0 };
         for (let gi = 0; gi < groups.length; gi++) {
             const g = groups[gi];
             const groupTarget = Math.max(1, Math.round(opts.targetCount * areas[gi] / totalArea));
             const res = opts.gridMode
                 ? triangulateGrid(g.outer, g.holes, groupTarget)
                 : triangulateAndRefine(g.outer, g.holes, Object.assign({}, opts, { targetCount: groupTarget }), rng);
-            allTriangles.push(...res.triangles);
-            sumIter += res.iterations;
-            anyCapped = anyCapped || res.capped;
-            sumInnerPlaced += res.innerPlaced;
-            sumInnerRequested += res.innerRequested;
-            sumRelaxed += res.relaxedMoves || 0;
-            maxHardCap = Math.max(maxHardCap, res.hardCap);
+            for (const t of res.triangles) out.triangles.push(t);
+            out.iterations += res.iterations;
+            out.capped = out.capped || res.capped;
+            out.innerPlaced += res.innerPlaced;
+            out.innerRequested += res.innerRequested;
+            out.relaxedMoves += res.relaxedMoves || 0;
+            out.hardCap = Math.max(out.hardCap, res.hardCap);
         }
-        const st = bandStats(allTriangles, opts.minAngle, opts.maxAngleTarget);
-        return {
-            triangles: allTriangles, iterations: sumIter, capped: anyCapped, hardCap: maxHardCap,
-            innerPlaced: sumInnerPlaced, innerRequested: sumInnerRequested, relaxedMoves: sumRelaxed,
-            achievedMinAngle: st.achievedMinAngle, achievedMaxOfMinAngle: st.achievedMaxOfMinAngle,
-            achievedAvgMinAngle: st.achievedAvgMinAngle, pctInBand: st.pctInBand,
-            groupCount: groups.length
-        };
+        return out;
     }
 
     // ---------------- Fill ----------------
@@ -566,32 +575,36 @@
         h = ((h % 1) + 1) % 1;
         return { h: h, s: a.s + (b.s - a.s) * f, l: a.l + (b.l - a.l) * f, alpha: a.alpha + (b.alpha - a.alpha) * f };
     }
+    const GREY = function () { return { h: 0, s: 0, l: 0.6, alpha: 1 }; };
+    function hslPlain(c) { const v = c.hslaf; return { h: v.h, s: v.s, l: v.l, alpha: v.alpha }; }
     function makeFillSampler(srcNode) {
         try { return makeFillSamplerInner(srcNode); }
-        catch (e) { return function () { return { h: 0, s: 0, l: 0.6, alpha: 1 }; }; }
+        catch (e) { return GREY; }
     }
+    // v19: all values are copied as plain numbers right away (sampler stays valid after the
+    // temporary text conversion has been rolled back).
     function makeFillSamplerInner(srcNode) {
         const fd = srcNode.brushFillDescriptor;
-        if (!fd || !fd.fill) return function () { return { h: 0, s: 0, l: 0.6, alpha: 1 }; };
+        if (!fd || !fd.fill) return GREY;
         const ft = fd.fill.fillType.value;
         if (ft === 2) {
-            const hsl = fd.fill.colour.hslaf;
+            const hsl = hslPlain(fd.fill.colour);
             return function () { return { h: hsl.h, s: hsl.s, l: hsl.l, alpha: hsl.alpha }; };
         }
         if (ft === 3) {
             const g = fd.fill.gradient;
             const gtypeVal = fd.fill.gradientFillType.value;
             const tr = fd.transform;
-            const origin = tr.origin, xAxis = tr.xAxis, yAxis = tr.yAxis;
+            const origin = P(tr.origin), xAxis = P(tr.xAxis), yAxis = P(tr.yAxis);
             const stops = [];
             for (let i = 0; i < g.stopCount; i++) {
                 const s = g.getStop(i);
-                stops.push({ pos: s.position, hsl: toColour(s.colour).hslaf });
+                stops.push({ pos: s.position, hsl: hslPlain(toColour(s.colour)) });
             }
             stops.sort((a, b) => a.pos - b.pos);
             function sampleAt(t) {
                 t = Math.max(0, Math.min(1, t));
-                if (stops.length === 0) return { h: 0, s: 0, l: 0.6, alpha: 1 };
+                if (stops.length === 0) return GREY();
                 if (t <= stops[0].pos) return stops[0].hsl;
                 if (t >= stops[stops.length - 1].pos) return stops[stops.length - 1].hsl;
                 for (let i = 0; i < stops.length - 1; i++) {
@@ -617,7 +630,7 @@
                 return sampleAt(t);
             };
         }
-        return function () { return { h: 0, s: 0, l: 0.6, alpha: 1 }; };
+        return GREY;
     }
     function jitterHSL(hsl, p, rng) {
         const dh = (rng() * (p.hMax - p.hMin) + p.hMin) / 360;
@@ -650,7 +663,7 @@
 
     // ---------------- Node creation ----------------
 
-    function nextIndex(doc, prefix) {
+    function nextIndex(prefix) {
         const re = new RegExp('^' + prefix + '_(\\d+)$');
         let maxIdx = 0;
         for (const l of doc.layers.all) {
@@ -660,95 +673,183 @@
         return maxIdx + 1;
     }
 
-    function buildTriangleGroup(doc, srcNode, triangles, sampler, jitterParams, rng, useGradient) {
+    // parts: [{ triangles, tfData, sampler }] - all triangles of a target in ONE group above anchor.
+    // rec = { group, steps } is filled as we go, so that an abort in the middle of building
+    // can be rolled back completely as well.
+    function buildTriangleGroup(anchor, parts, jitterParams, rng, useGradient, rec) {
+        function exec(cmd) { doc.executeCommand(cmd); rec.steps++; }
         const grpDef = NodesM.ContainerNodeDefinition.createDefault();
-        grpDef.setUserDescription('TriangleFill_' + nextIndex(doc, 'TriangleFill'));
+        grpDef.setUserDescription(GROUP_PREFIX + '_' + nextIndex(GROUP_PREFIX));
         const gBldr = AddChildNodesCommandBuilder.create();
         gBldr.addContainerNode(grpDef);
         const gCmd = gBldr.createCommand(false);
-        doc.executeCommand(gCmd);
+        exec(gCmd);
         const group = gCmd.newNodes[0];
-        createdGroups.push(group);
+        rec.group = group;
 
-        doc.executeCommand(DocumentCommand.createMoveNodes(group.selfSelection, srcNode, NodeMoveType.After, NodeChildType.Main));
+        exec(DocumentCommand.createMoveNodes(group.selfSelection, anchor, NodeMoveType.After, NodeChildType.Main));
         const compTf = group.transform.inverted;
-        doc.executeCommand(DocumentCommand.createTransform(group.selfSelection, compTf));
+        exec(DocumentCommand.createTransform(group.selfSelection, compTf));
 
-        const nodeTF = srcNode.transform;
-        const nodeTFData = nodeTF.data;
         const bldr2 = AddChildNodesCommandBuilder.create();
         bldr2.setInsertionTarget(group);
-        for (const t of triangles) {
-            const cb = CurveBuilder.create();
-            cb.beginXY(t[0].x, t[0].y);
-            cb.lineToXY(t[1].x, t[1].y);
-            cb.lineToXY(t[2].x, t[2].y);
-            cb.close();
-            const pc = PolyCurve.create();
-            pc.addCurve(cb.createCurve());
+        const wantData = [];
+        for (const part of parts) {
+            const partTf = dataToTransform(part.tfData);
+            for (const t of part.triangles) {
+                const cb = CurveBuilder.create();
+                cb.beginXY(t[0].x, t[0].y);
+                cb.lineToXY(t[1].x, t[1].y);
+                cb.lineToXY(t[2].x, t[2].y);
+                cb.close();
+                const pc = PolyCurve.create();
+                pc.addCurve(cb.createCurve());
 
-            let fd = null;
-            if (useGradient) {
-                const cornerHsls = t.map(pt => jitterHSL(sampler(pt), jitterParams, rng));
-                fd = buildTriangleGradientFD(t, cornerHsls);
+                let fd = null;
+                if (useGradient) {
+                    const cornerHsls = t.map(pt => jitterHSL(part.sampler(pt), jitterParams, rng));
+                    fd = buildTriangleGradientFD(t, cornerHsls);
+                }
+                if (!fd) {
+                    const baseHsl = part.sampler(triCentroid(t));
+                    fd = FillDescriptor.createSolid(Colour.createHSLAf(jitterHSL(baseHsl, jitterParams, rng)));
+                }
+                const def = NodesM.PolyCurveNodeDefinition.createDefault();
+                def.setCurves(pc);
+                def.setTransform(partTf.clone());
+                if (def.brushFillDescriptorCount > 0) {
+                    def.setBrushFillDescriptor(fd, 0);
+                    while (def.brushFillDescriptorCount > 1) def.removeBrushFillDescriptor(def.brushFillDescriptorCount - 1);
+                } else {
+                    def.insertBrushFillDescriptor(fd, 0);
+                }
+                def.currentBrushFillIndex = 0;
+                bldr2.addNode(def);
+                wantData.push(part.tfData);
             }
-            if (!fd) {
-                const baseHsl = sampler(triCentroid(t));
-                fd = FillDescriptor.createSolid(Colour.createHSLAf(jitterHSL(baseHsl, jitterParams, rng)));
-            }
-            const def = NodesM.PolyCurveNodeDefinition.createDefault();
-            def.setCurves(pc);
-            def.setTransform(nodeTF.clone());
-            if (def.brushFillDescriptorCount > 0) {
-                def.setBrushFillDescriptor(fd, 0);
-                while (def.brushFillDescriptorCount > 1) def.removeBrushFillDescriptor(def.brushFillDescriptorCount - 1);
-            } else {
-                def.insertBrushFillDescriptor(fd, 0);
-            }
-            def.currentBrushFillIndex = 0;
-            bldr2.addNode(def);
         }
         const cmd2 = bldr2.createCommand(false);
-        doc.executeCommand(cmd2);
+        exec(cmd2);
 
-        for (const tn of cmd2.newNodes) {
+        // Position corrections as ONE compound
+        const cbFix = CompoundCommandBuilder.create();
+        let nFix = 0;
+        const newNodes = cmd2.newNodes;
+        for (let i = 0; i < newNodes.length; i++) {
+            const tn = newNodes[i];
+            const want = wantData[i] || wantData[0];
             const invActual = invertData(tn.transform.data);
             if (!invActual) continue;
-            const deltaData = matMulData(nodeTFData, invActual);
+            const deltaData = matMulData(want, invActual);
             if (isIdentityData(deltaData)) continue;
-            doc.executeCommand(DocumentCommand.createTransform(tn.selfSelection, dataToTransform(deltaData)));
+            cbFix.addCommand(DocumentCommand.createTransform(tn.selfSelection, dataToTransform(deltaData)));
+            nFix++;
         }
+        if (nFix > 0) exec(cbFix.createCommand(false));
         return group;
     }
 
-    // ---------------- Check selection ----------------
+    // ---------------- Collect selection ----------------
 
-    const sel = doc.selection;
-    if (sel.length !== 1 || !isVectorNode(sel.at(0).node)) {
-        app.alert('Please select exactly one closed vector shape.', 'Triangle Fill');
-        return;
+    // Local -> parent space of anchor: transform chain from the leaf up to (excluding) stopParent.
+    function chainData(node, stopParent) {
+        let M = copyData(node.transform.data);
+        let p = node.parent;
+        let guard = 0;
+        while (p && !(stopParent && p.isSameNode(stopParent)) && guard < 64) {
+            try { M = matMulData(p.transform.data, M); } catch (e) { }
+            p = p.parent; guard++;
+        }
+        return M;
     }
-    const srcNodeOrig = sel.at(0).node;
 
-    const posStart = doc.history.position;
-    const srcNode = ensureMutable(doc, srcNodeOrig);
-    const conversionHappened = !srcNode.isSameNode(srcNodeOrig);
-    if (!isClosedNode(srcNode)) {
-        app.alert('The selected shape must be closed.', 'Triangle Fill');
-        if (conversionHappened) rollbackTo(posStart);
+    // v19: convert text to curves on a duplicate, read glyph outlines + fill, roll the conversion
+    // back immediately. Result: list of parts (one part per character).
+    function extractTextParts(textNode) {
+        const pos0 = doc.history.position;
+        let steps = 0;
+        const parts = [];
+        let created = [];
+        try {
+            const dupCmd = DocumentCommand.createTransform(Selection.create(doc, [textNode]), Transform.createIdentity(), { duplicateNodes: true });
+            doc.executeCommand(dupCmd); steps++;
+            const dup = dupCmd.newNodes[0];
+            created = [dup];
+            const all0 = Array.from(doc.layers.all);
+            doc.executeCommand(DocumentCommand.createConvertToCurves(Selection.create(doc, [dup]))); steps++;
+            const all1 = Array.from(doc.layers.all);
+            created = all1.filter(a => !all0.some(b => b.isSameNode(a)));
+            const stop = textNode.parent;
+            for (const n of created) {
+                if (!isVectorNode(n) || isTextNode(n)) continue;
+                let groups = null;
+                try { groups = extractShapeGroups(n); } catch (e) { groups = null; }
+                if (!groups || !groups.length) continue;
+                const tfData = chainData(n, stop);
+                parts.push({ groups: groups, tfData: tfData, sampler: makeFillSampler(n), area: groupsArea(groups) * Math.max(1e-9, detData(tfData)) });
+            }
+        } finally {
+            // Roll back: via history (no entries left), otherwise safety net delete
+            let k = 0;
+            while (doc.history.position > pos0 && k < steps + 2) { try { doc.history.undo(); } catch (e) { break; } k++; }
+            const left = created.filter(n => nodeInDoc(n) && !(n.parent && created.some(c => c.isSameNode(n.parent))));
+            if (left.length) {
+                try { doc.executeCommand(DocumentCommand.createDeleteSelection(Selection.create(doc, left), true)); } catch (e) { }
+            }
+        }
+        return parts;
+    }
+
+    const targets = [];       // { anchor, isText, parts: [{groups, tfData, sampler, area}], area }
+    let skipped = 0, textCount = 0, charCount = 0;
+    function alreadyTarget(n) { return targets.some(t => t.anchor.isSameNode(n)); }
+    function collect(node) {
+        if (alreadyTarget(node)) return;
+        if (isTextNode(node)) {
+            const parts = extractTextParts(node);
+            if (parts.length) {
+                targets.push({ anchor: node, isText: true, parts: parts, area: parts.reduce((s, p) => s + p.area, 0) });
+                textCount++; charCount += parts.length;
+            } else skipped++;
+            return;
+        }
+        if (isVectorNode(node) && isClosedNode(node)) {
+            const groups = extractShapeGroups(node);
+            if (groups && groups.length) {
+                const tfData = copyData(node.transform.data);
+                targets.push({
+                    anchor: node, isText: false,
+                    parts: [{ groups: groups, tfData: tfData, sampler: makeFillSampler(node), area: groupsArea(groups) * Math.max(1e-9, detData(tfData)) }]
+                });
+                targets[targets.length - 1].area = targets[targets.length - 1].parts[0].area;
+            } else skipped++;
+            return;
+        }
+        if (hasChildren(node)) {
+            for (const c of node.children) collect(c);
+            return;
+        }
+        skipped++;
+    }
+
+    const selNodes = doc.selection.nodes.toArray();
+    if (!selNodes.length) {
+        app.alert('Please select one or more closed vector shapes or artistic texts.', TITLE);
         return;
     }
-    const shapeGroups = extractShapeGroups(srcNode);
-    if (!shapeGroups || shapeGroups.length === 0) {
-        app.alert('No closed contour found in the shape.', 'Triangle Fill');
-        if (conversionHappened) rollbackTo(posStart);
+    for (const n of selNodes) {
+        try { collect(n); } catch (e) { skipped++; }
+    }
+    if (!targets.length) {
+        app.alert('No closed vector shape and no text found in the selection.' +
+            (skipped ? '\n(' + skipped + ' object(s) skipped: open, pixel or similar)' : ''), TITLE);
         return;
     }
-    const sampler = makeFillSampler(srcNode);
+    const totalArea = targets.reduce((s, t) => s + t.area, 0);
 
     // ---------------- Presets ----------------
 
-    const PRESET_KEYS = ['targetCount', 'tolerancePct', 'minAngle', 'maxAngleTarget', 'innerPts', 'deleteSrc', 'seed', 'useGradient', 'gridMode', 'hMin', 'hMax', 'sMin', 'sMax', 'lMin', 'lMax'];
+    const PRESET_KEYS = ['targetCount', 'countMode', 'tolerancePct', 'minAngle', 'maxAngleTarget', 'innerPts', 'deleteSrc', 'seed', 'useGradient', 'gridMode', 'hMin', 'hMax', 'sMin', 'sMax', 'lMin', 'lMax'];
     const PRESET_PREFIX = 'DF_';
 
     function presetDir() {
@@ -776,16 +877,16 @@
         return presetDir() + '/' + PRESET_PREFIX + sanitizePresetName(name) + '.json';
     }
     function savePreset(params) {
-        const name = app.prompt('Name for the preset:', 'Triangle Fill', 'Preset1');
+        const name = app.prompt('Name for the preset:', TITLE, 'Preset1');
         if (!name || !name.trim()) return;
         try {
             const path = presetPath(name);
             const f = File.create(path, 'w');
             f.writeStringAsUtf8(encodePreset(params));
             f.close();
-            app.alert('Preset saved as:\n' + path, 'Triangle Fill');
+            app.alert('Preset saved as:\n' + path, TITLE);
         } catch (e) {
-            app.alert('Preset could not be saved: ' + e.message, 'Triangle Fill');
+            app.alert('Preset could not be saved: ' + e.message, TITLE);
         }
     }
     function loadPreset() {
@@ -794,10 +895,10 @@
         try {
             const txt = File.readAll(path).toString('utf8');
             const p = decodePreset(txt);
-            if (!p) { app.alert('The file could not be read as a preset.', 'Triangle Fill'); return null; }
+            if (!p) { app.alert('The file could not be read as a preset.', TITLE); return null; }
             return p;
         } catch (e) {
-            app.alert('Preset could not be loaded: ' + e.message, 'Triangle Fill');
+            app.alert('Preset could not be loaded: ' + e.message, TITLE);
             return null;
         }
     }
@@ -806,16 +907,16 @@
         if (!path) return;
         try {
             remove(path);
-            app.alert('Preset deleted:\n' + path, 'Triangle Fill');
+            app.alert('Preset deleted:\n' + path, TITLE);
         } catch (e) {
-            app.alert('Preset could not be deleted: ' + e.message, 'Triangle Fill');
+            app.alert('Preset could not be deleted: ' + e.message, TITLE);
         }
     }
 
     // ---------------- Dialog ----------------
 
-    const dlg = Dialog.create('Triangle Fill');
-    dlg.initialWidth = 820;
+    const dlg = Dialog.create(TITLE);
+    dlg.initialWidth = 860;
     dlg.setIsResizable(true);
     const col1 = dlg.addColumn();
     const col2 = dlg.addColumn();
@@ -824,8 +925,11 @@
     const gCount = col1.addGroup('Count');
     const edCount = gCount.addUnitValueEditor('Target number of triangles', 'none', 'none', null, 4, 20000);
     edCount.value = 30;
+    const cbCountMode = gCount.addComboBox('Count applies', ['per object', 'for all together (by area)'], 0);
+    cbCountMode.selectedIndex = 0;
     const edTol = gCount.addUnitValueEditor('Tolerance (%)', 'none', 'none', null, 0, 200);
     edTol.value = 15;
+    gCount.addStaticText('', 'A text counts as ONE object - the count is distributed over its characters by area.');
 
     const gAngle = col1.addGroup('Smallest angle per triangle');
     const edMinA = gAngle.addUnitValueEditor('Min (deg)', 'none', 'none', null, 3, 55);
@@ -837,7 +941,7 @@
     const gInner = col1.addGroup('Inner points');
     const edInner = gInner.addUnitValueEditor('Additional inner points', 'none', 'none', null, 0, 5000);
     edInner.value = 0;
-    gInner.addStaticText('', 'No symbol of its own - just an extra vertex. Organic mode only.');
+    gInner.addStaticText('', 'Per contour. No symbol of its own - just an extra vertex. Organic mode only.');
 
     const gH = col2.addGroup('HSL jitter: hue (deg)');
     const edHMin = gH.addUnitValueEditor('Min', 'none', 'none', null, -180, 180);
@@ -857,8 +961,13 @@
     const edLMax = gL.addUnitValueEditor('Max', 'none', 'none', null, -100, 100);
     edLMax.value = 15;
 
+    const gSel = col3.addGroup('Selection');
+    const shapeCount = targets.length - textCount;
+    gSel.addStaticText('', shapeCount + ' shape(s), ' + textCount + ' text(s) with ' + charCount + ' characters' +
+        (skipped ? '\n' + skipped + ' object(s) skipped' : ''));
+
     const gOpt = col3.addGroup('Options');
-    const cbDeleteSrc = gOpt.addCheckBox('Delete original shape', false);
+    const cbDeleteSrc = gOpt.addCheckBox('Delete original(s)', false);
     const cbGradient = gOpt.addCheckBox('Gradient per triangle (instead of solid colour)', false);
     const cbGridMode = gOpt.addCheckBox('Regular grid instead of organic', false);
     const edSeed = gOpt.addUnitValueEditor('Random seed', 'none', 'none', null, 1, 999999);
@@ -873,7 +982,7 @@
         const minA = Math.max(3, Math.min(55, edMinA.value));
         const maxA = Math.max(minA, Math.min(60, edMaxA.value));
         return {
-            targetCount: edCount.value, tolerancePct: edTol.value,
+            targetCount: edCount.value, countMode: cbCountMode.selectedIndex, tolerancePct: edTol.value,
             minAngle: minA, maxAngleTarget: maxA,
             innerPts: Math.max(0, edInner.value),
             deleteSrc: cbDeleteSrc.value, useGradient: cbGradient.value, gridMode: cbGridMode.value,
@@ -890,6 +999,7 @@
     }
     function applyParams(p) {
         if (p.targetCount != null) edCount.value = p.targetCount;
+        if (p.countMode != null) cbCountMode.selectedIndex = p.countMode;
         if (p.tolerancePct != null) edTol.value = p.tolerancePct;
         if (p.minAngle != null) edMinA.value = p.minAngle;
         if (p.maxAngleTarget != null) edMaxA.value = p.maxAngleTarget;
@@ -906,19 +1016,53 @@
         if (p.lMax != null) edLMax.value = p.lMax;
     }
 
-    // ---------------- Preview ----------------
+    // ---------------- Calculation + preview ----------------
+
+    // Target count per object or by area; within an object (text) by character area.
+    function computeAll(params, rng) {
+        const refineOpts = {
+            tolerancePct: params.tolerancePct,
+            minAngle: params.minAngle, maxAngleTarget: params.maxAngleTarget,
+            innerPts: params.innerPts, gridMode: params.gridMode
+        };
+        const stats = { triangles: 0, iterations: 0, capped: false, hardCap: 0, innerPlaced: 0, innerRequested: 0, relaxedMoves: 0, allTris: [] };
+        const results = [];
+        for (const t of targets) {
+            const tCount = params.countMode === 1 ? params.targetCount * t.area / totalArea : params.targetCount;
+            const parts = [];
+            for (const part of t.parts) {
+                const partTarget = Math.max(1, Math.round(tCount * part.area / t.area));
+                const res = triangulateGroups(part.groups, Object.assign({}, refineOpts, { targetCount: partTarget }), rng);
+                if (!res.triangles.length) continue;
+                parts.push({ triangles: res.triangles, tfData: part.tfData, sampler: part.sampler });
+                stats.triangles += res.triangles.length;
+                stats.iterations += res.iterations;
+                stats.capped = stats.capped || res.capped;
+                stats.hardCap = Math.max(stats.hardCap, res.hardCap);
+                stats.innerPlaced += res.innerPlaced;
+                stats.innerRequested += res.innerRequested;
+                stats.relaxedMoves += res.relaxedMoves;
+                for (const tr of res.triangles) stats.allTris.push(tr);
+            }
+            if (parts.length) results.push({ target: t, parts: parts });
+        }
+        const st = bandStats(stats.allTris, params.minAngle, params.maxAngleTarget);
+        Object.assign(stats, st);
+        delete stats.allTris;
+        return { results: results, stats: stats };
+    }
 
     let hasPreview = false;
     let previewKey = null;
-    let lastRes = null;
-    let lastGroup = null;
+    let lastStats = null;
+    let lastGroups = [];
 
     function undoPreview() {
-        clearCreatedGroups();
+        discardCurrent();
         hasPreview = false;
         previewKey = null;
-        lastRes = null;
-        lastGroup = null;
+        lastStats = null;
+        lastGroups = [];
     }
 
     function updatePreview() {
@@ -927,26 +1071,26 @@
         if (params.targetCount < 2) return;
         try {
             const rng = mulberry32(params.seed);
-            const refineOpts = {
-                targetCount: params.targetCount, tolerancePct: params.tolerancePct,
-                minAngle: params.minAngle, maxAngleTarget: params.maxAngleTarget,
-                innerPts: params.innerPts, gridMode: params.gridMode
-            };
-            const res = triangulateWholeShape(shapeGroups, refineOpts, rng);
-            if (!res.triangles || res.triangles.length === 0) return;
+            const all = computeAll(params, rng);
+            if (!all.results.length) return;
             const jitterParams = {
                 hMin: params.hMin, hMax: params.hMax, sMin: params.sMin, sMax: params.sMax,
                 lMin: params.lMin, lMax: params.lMax
             };
-            const group = buildTriangleGroup(doc, srcNode, res.triangles, sampler, jitterParams, rng, params.useGradient);
-            lastRes = res;
-            lastGroup = group;
+            const groups = [];
+            for (const r of all.results) {
+                const rec = { group: null, steps: 0 };
+                currentRecs.push(rec);
+                groups.push(buildTriangleGroup(r.target.anchor, r.parts, jitterParams, rng, params.useGradient, rec));
+            }
+            lastStats = all.stats;
+            lastGroups = groups;
             hasPreview = true;
             previewKey = previewKeyOf(params);
         } catch (e) {
-            clearCreatedGroups();
+            discardCurrent();
             hasPreview = false;
-            app.alert('Preview failed: ' + e.message, 'Triangle Fill');
+            app.alert('Preview failed: ' + e.message, TITLE);
         }
     }
 
@@ -966,7 +1110,6 @@
     const result = dlg.runModal();
     if (!result || result.value !== DialogResult.Ok.value) {
         undoPreview();
-        if (conversionHappened) rollbackTo(posStart);
         return;
     }
 
@@ -974,43 +1117,45 @@
         updatePreview();
     }
     if (!hasPreview) {
-        app.alert('No triangles could be created.', 'Triangle Fill');
+        app.alert('No triangles could be created.', TITLE);
         undoPreview();
-        if (conversionHappened) rollbackTo(posStart);
         return;
     }
 
-    createdGroups.length = 0;
+    currentRecs = [];   // keep the result
 
     const finalParams = readParams();
     if (finalParams.deleteSrc) {
-        doc.executeCommand(DocumentCommand.createDeleteSelection(Selection.create(doc, [srcNode])));
+        const src = targets.map(t => t.anchor).filter(n => nodeInDoc(n));
+        if (src.length) doc.executeCommand(DocumentCommand.createDeleteSelection(Selection.create(doc, src)));
     }
 
-    let msg = 'Done.\n\nTriangles created: ' + lastRes.triangles.length +
-        '\nShape parts detected (separate outer contours): ' + lastRes.groupCount +
-        '\nIterations: ' + lastRes.iterations +
-        '\nUpper limit (diagnostic): ' + lastRes.hardCap +
-        '\nAdditional inner points placed: ' + lastRes.innerPlaced + (lastRes.innerPlaced < lastRes.innerRequested ? ' (of ' + lastRes.innerRequested + ' requested)' : '') +
-        '\nGroup: "' + lastGroup.description + '"' +
+    const s = lastStats;
+    const names = lastGroups.slice(0, 6).map(g => '"' + g.description + '"').join(', ') + (lastGroups.length > 6 ? ', ...' : '');
+    let msg = 'Done.\n\nTriangles created: ' + s.triangles +
+        '\nObjects filled: ' + lastGroups.length + ' (' + shapeCount + ' shape(s), ' + textCount + ' text(s) with ' + charCount + ' characters)' +
+        (skipped ? '\nSkipped: ' + skipped : '') +
+        '\nCount applies: ' + (finalParams.countMode === 1 ? 'for all together (by area)' : 'per object') +
+        '\nGroup(s): ' + names +
+        '\nIterations: ' + s.iterations +
+        '\nAdditional inner points placed: ' + s.innerPlaced + (s.innerPlaced < s.innerRequested ? ' (of ' + s.innerRequested + ' requested)' : '') +
         '\nMode: ' + (finalParams.gridMode ? 'Regular grid' : 'Organic (Delaunay)') +
         '\nFill: ' + (finalParams.useGradient ? 'Gradient per triangle' : 'Solid colour per triangle') +
         '\nRandom seed: ' + finalParams.seed;
     if (!finalParams.gridMode) {
         msg += '\n\nSmallest angle per triangle (band ' + finalParams.minAngle + '-' + finalParams.maxAngleTarget + ' deg):' +
-            '\n  Smallest value overall: ' + lastRes.achievedMinAngle.toFixed(1) + ' deg' +
-            '\n  Largest value overall: ' + lastRes.achievedMaxOfMinAngle.toFixed(1) + ' deg' +
-            '\n  Average: ' + lastRes.achievedAvgMinAngle.toFixed(1) + ' deg' +
-            '\n  Share of triangles in the band: ' + lastRes.pctInBand + '%' +
-            '\n  Inner-point moves to keep the band: ' + lastRes.relaxedMoves +
-            (lastRes.pctInBand < 100 ? '\n  (Triangles made only of boundary points cannot be deformed.)' : '');
+            '\n  Smallest value overall: ' + s.achievedMinAngle.toFixed(1) + ' deg' +
+            '\n  Largest value overall: ' + s.achievedMaxOfMinAngle.toFixed(1) + ' deg' +
+            '\n  Average: ' + s.achievedAvgMinAngle.toFixed(1) + ' deg' +
+            '\n  Share of triangles in the band: ' + s.pctInBand + '%' +
+            '\n  Inner-point moves to keep the band: ' + s.relaxedMoves +
+            (s.pctInBand < 100 ? '\n  (Triangles made only of boundary points cannot be deformed.)' : '');
     } else {
         msg += '\n\nGrid mode: angle parameters were ignored (grid triangles are approximately equilateral).';
     }
-    if (lastRes.capped) {
-        msg += '\n\nNote: the safety limit for the total count was reached ' +
-            '(probably sharp/concave corners in the shape). For more triangles: reduce the min. ' +
-            'angle or increase the target count/tolerance.';
+    if (s.capped) {
+        msg += '\n\nNote: the safety limit for the count was reached for at least one contour ' +
+            '(probably sharp/concave corners). For more triangles: reduce the min. angle or increase the target count/tolerance.';
     }
-    app.alert(msg, 'Triangle Fill');
+    app.alert(msg, TITLE);
 })();

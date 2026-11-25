@@ -1,17 +1,24 @@
 // =====================================================================
-// Transform Objects / Objekte Transformieren  — v9 (EN)
+// Transform Objects / Objekte Transformieren  — v10 (EN)
 // Transforms the objects of a group (or several selected objects) in sequence.
 // Values run from the first to the last object (start → end) for width, height, size,
 // rotation, offset X/Y, radial offset, opacity and HSL; plus jitter (uniform or Gaussian,
 // increasing/decreasing along the sequence). Reference point: anchor per object or _PD.
 // v2–v7: see earlier versions (orders, sequence pattern, sub-sequences, counting …).
 // v8: GUI organised in 6 tabs (pages).
-// v9 (Affinity 3.3.3): FIX colour manipulation. gradient.getStop(i).colour now already
-//     returns a Colour object; new Colour(...) threw "expected ColourHandle" -> objects with
-//     gradients were silently skipped by the HSL shift, and sorting by lightness/hue only got
-//     default values for them. New: toColour().
-//     Also: HSL shift on text via formatText (StoryDelta) instead of SetBrush-/SetPenFill.
-//     Otherwise unchanged from v8. Presets (prefix OT_) are interchangeable with the German version.
+// v9 (Affinity 3.3.3): toColour() for gradient stops; HSL on text via formatText.
+// v10: performance and robust preview undo (result unchanged, compared live against v9):
+//   • Stacking paths (layer order, restack) linear instead of quadratic: per parent group the
+//     siblings are traversed only once (v9 searched all siblings for every object).
+//   • Command build in JavaScript matrices instead of engine Transform objects (pivot,
+//     rotation, scaling along object axes, own rotation) - faster live preview.
+//   • Preview fallback (if the native preview rejects a command): the preview is exactly ONE
+//     compound command and is discarded with exactly one undo. v9 rewound to a stored history
+//     position - with a full history (position stops counting) the old preview stayed and the
+//     next one was applied on top of it.
+//   • If a command fails mid-execution, an already created history entry is undone
+//     immediately (preview and OK).
+//     Presets (prefix OT_) are interchangeable with the German version.
 // =====================================================================
 'use strict';
 const LANG = 'en';   // 'de' | 'en'
@@ -272,6 +279,7 @@ const doc = Document.current;
 if (!doc) { app.alert(TXT.noDoc, TXT.title); throw new Error('no doc'); }
 const selNodes = doc.selection ? doc.selection.nodes.toArray() : [];
 if (selNodes.length === 0) { app.alert(TXT.noSel, TXT.title); throw new Error('no selection'); }
+//@@CORE_START
 const origSelNodes = selNodes.slice();
 function restoreSelCmd() { return DocumentCommand.createSetSelection(Selection.create(doc, origSelNodes)); }
 function selectionChanged() {
@@ -297,13 +305,27 @@ function leaves(n) {
   return [n];
 }
 
+// ---------------------------------------------------------------- v10: matrices in JavaScript
+// Affine [a,b,c,d,e,f]: x' = a*x + b*y + c, y' = d*x + e*y + f; mMul(A,B) = B first, then A
+// (corresponds to Transform A.multiply(B)).
+function mMul(A, B) { return [A[0]*B[0]+A[1]*B[3], A[0]*B[1]+A[1]*B[4], A[0]*B[2]+A[1]*B[5]+A[2], A[3]*B[0]+A[4]*B[3], A[3]*B[1]+A[4]*B[4], A[3]*B[2]+A[4]*B[5]+A[5]]; }
+function mApply(M, p) { return { x: M[0]*p.x + M[1]*p.y + M[2], y: M[3]*p.x + M[4]*p.y + M[5] }; }
+function mTr(x, y) { return [1, 0, x, 0, 1, y]; }
+function mRot(r) { const c = Math.cos(r), s = Math.sin(r); return [c, -s, 0, s, c, 0]; }
+function mScale(sx, sy) { return [sx, 0, 0, 0, sy, 0]; }
+function mLin(M) { return [M[0], M[1], 0, M[3], M[4], 0]; }
+function mInvLin(M) { const det = M[0]*M[4] - M[1]*M[3]; if (Math.abs(det) < 1e-300) throw new Error('singular'); return [M[4]/det, -M[1]/det, 0, -M[3]/det, M[0]/det, 0]; }
+function mToTransform(M) { const t = Transform.createIdentity(); const d = t.data; for (let k = 0; k < 6; k++) d[k] = M[k]; return t; }
+function tfData(T) { const d = T.data; return [d[0], d[1], d[2], d[3], d[4], d[5]]; }
+
 // ---------------------------------------------------------------- Geometry helpers
 function isSpreadLike(n) { const t = tag(n); return t === 'SpreadNode' || t === 'DocumentNode'; }
-function composedSpreadTF(node) {
-  let M = node.transform.clone();
+// v10: spread matrix as an array (parent chain up to the spread, as v9 composedSpreadTF)
+function composedSpreadM(node) {
+  let M = tfData(node.transform);
   let p = node.parent;
   while (p && !isSpreadLike(p)) {
-    try { if (p.transform) M = p.transform.multiply(M); } catch (e) {}
+    try { if (p.transform) M = mMul(tfData(p.transform), M); } catch (e) {}
     p = p.parent;
   }
   return M;
@@ -384,7 +406,7 @@ function isPathNode(n) {
   try { const pc = n.curvesInterface.polyCurve; let pts = 0; for (let i = 0; i < pc.curveCount; i++) pts += pc.at(i).nodeCount; return pts >= 2; } catch (e) { return false; }
 }
 function samplePath(node) {
-  const F = composedSpreadTF(node);
+  const F = composedSpreadM(node);   // v10: JS matrix instead of an engine call per sample point
   const pc = node.curvesInterface.polyCurve;
   const curves = [];
   let total = 0;
@@ -401,7 +423,7 @@ function samplePath(node) {
     for (const b of cv.bz) {
       const nS = Math.max(4, Math.round(3000 * b.length / total));
       for (let i = (first ? 0 : 1); i <= nS; i++) {
-        const lp = b.evaluate(i / nS), sp = F.applyToPoint(lp);
+        const lp = b.evaluate(i / nS), sp = mApply(F, lp);
         if (pts.length && !first) s += Math.hypot(sp.x - pts[pts.length - 1].x, sp.y - pts[pts.length - 1].y);
         pts.push({ x: sp.x, y: sp.y, s, brk: first });
         first = false;
@@ -435,11 +457,11 @@ function buildInfo(flatten) {
   info = objs.map((n, idx) => {
     const sb = spreadBox(n) || { x: 0, y: 0, width: 0, height: 0 };
     let F = null, lb = null, fp = null;
-    try { F = composedSpreadTF(n); } catch (e) { F = null; }
+    try { F = composedSpreadM(n); } catch (e) { F = null; }
     try { lb = n.baseBoxInterface ? n.baseBoxInterface.getBaseBox(false) : null; } catch (e) { lb = null; }
-    try { const f = n.transformInterface.focalPoint; if (f && f.isValid && F) fp = F.applyToPoint(f.point); } catch (e) { fp = null; }
+    try { const f = n.transformInterface.focalPoint; if (f && f.isValid && F) fp = mApply(F, f.point); } catch (e) { fp = null; }
     let ax = 1, ay = 1, phi = 0;
-    if (F) { const d = F.data; ax = Math.hypot(d[0], d[3]); ay = Math.hypot(d[1], d[4]); phi = Math.atan2(d[3], d[0]); }
+    if (F) { ax = Math.hypot(F[0], F[3]); ay = Math.hypot(F[1], F[4]); phi = Math.atan2(F[3], F[0]); }
     const wLoc = (lb && lb.width > 0) ? lb.width * ax : sb.width;
     const hLoc = (lb && lb.height > 0) ? lb.height * ay : sb.height;
     let opacity = 1; try { const o = n.globalOpacity; if (typeof o === 'number' && isFinite(o)) opacity = o; } catch (e) {}
@@ -470,20 +492,51 @@ function buildInfo(flatten) {
   }
   refW = info.reduce((a, o) => a + o.wLoc, 0) / Math.max(N, 1);
   refH = info.reduce((a, o) => a + o.hLoc, 0) / Math.max(N, 1);
-  for (const o of info) { try { o.stack = stackPath(o.node); } catch (e) { o.stack = [o.idx]; } }
+  computeStackPaths();
 }
 
-function stackPath(n) {
-  const path = [];
-  let c = n, p = n.parent;
-  while (p && !isSpreadLike(p)) {
-    const sib = kids(p); let i = 0;
-    for (; i < sib.length; i++) if (sib[i].isSameNode(c)) break;
-    path.unshift(i);
-    c = p; p = p.parent;
+// v10: stacking paths linear. Objects are grouped by parent; per group the siblings are
+// traversed only once (the objects are almost always in sibling order).
+// Result identical to v9 stackPath(): [index on spread, …, index in own group].
+function computeStackPaths() {
+  const memo = [];
+  function pathOf(n) {
+    for (const m of memo) if (m.node.isSameNode(n)) return m.path;
+    let path;
+    const p = n.parent;
+    if (!p) path = [];
+    else {
+      const base = isSpreadLike(p) ? [] : pathOf(p);
+      const sib = kids(p); let i = 0;
+      for (; i < sib.length; i++) if (sib[i].isSameNode(n)) break;
+      path = base.concat([i]);
+    }
+    memo.push({ node: n, path });
+    return path;
   }
-  if (p) { const sib = kids(p); let i = 0; for (; i < sib.length; i++) if (sib[i].isSameNode(c)) break; path.unshift(i); }
-  return path;
+  const groups = [];
+  let last = null;
+  for (const o of info) {
+    let par = null; try { par = o.node.parent; } catch (e) { par = null; }
+    if (!par) { o.stack = [o.idx]; continue; }
+    let g = null;
+    if (last && last.par.isSameNode(par)) g = last;
+    else { for (const x of groups) if (x.par.isSameNode(par)) { g = x; break; } }
+    if (!g) { g = { par, list: [] }; groups.push(g); }
+    g.list.push(o); last = g;
+  }
+  for (const g of groups) {
+    let base = [];
+    try { base = isSpreadLike(g.par) ? [] : pathOf(g.par); } catch (e) { base = []; }
+    const ks = kids(g.par), L = ks.length;
+    let j = 0;
+    for (const o of g.list) {
+      let found = -1;
+      for (let s = 0; s < L; s++) { const jj = (j + s) % L; if (ks[jj].isSameNode(o.node)) { found = jj; break; } }
+      if (found >= 0) j = found + 1;
+      o.stack = base.concat([found >= 0 ? found : L]);
+    }
+  }
 }
 function cmpPath(a, b) {
   const L = Math.min(a.length, b.length);
@@ -662,7 +715,6 @@ function shapeT(t0, p) {
 }
 const lerp = (a, b, t) => a + (b - a) * t;
 function safeScale(s) { if (!isFinite(s)) return 1; if (Math.abs(s) < 0.001) return s < 0 ? -0.001 : 0.001; return s; }
-function linearPart(T) { const L = T.clone(); const d = L.data; d[2] = 0; d[5] = 0; return L; }
 
 function pivotFor(o, p) {
   if (p.refMode === 1) return o.near;
@@ -670,8 +722,7 @@ function pivotFor(o, p) {
   if (a === 10) return o.fp ? { x: o.fp.x, y: o.fp.y } : { x: o.cx, y: o.cy };
   const rel = ANCHOR_REL[a] || [0.5, 0.5];
   if ((p.objAxes || p.sizeMode === 1) && o.F && o.lb && o.lb.width > 0 && o.lb.height > 0) {
-    const sp = o.F.applyToPoint({ x: o.lb.x + rel[0] * o.lb.width, y: o.lb.y + rel[1] * o.lb.height });
-    return { x: sp.x, y: sp.y };
+    return mApply(o.F, { x: o.lb.x + rel[0] * o.lb.width, y: o.lb.y + rel[1] * o.lb.height });
   }
   return { x: o.sb.x + rel[0] * o.sb.width, y: o.sb.y + rel[1] * o.sb.height };
 }
@@ -770,25 +821,23 @@ function buildCommand(p) {
 
     const sel = Selection.create(doc, o.node);
     if (!(noScale && Math.abs(theta) < 1e-9 && Math.abs(lrot) < 1e-9 && Math.abs(mx) < 1e-9 && Math.abs(my) < 1e-9)) {
+      // v10: whole transformation in JS matrices (as v9, just without engine objects)
       const P = pivotFor(o, p);
-      let Lin = Transform.createScale(sx, sy);
+      let Lin = mScale(sx, sy);
       if ((p.objAxes || p.sizeMode === 1) && o.F && !noScale) {
-        const FL = linearPart(o.F);
-        try { Lin = FL.multiply(Transform.createScale(sx, sy)).multiply(FL.inverted); } catch (e) { Lin = Transform.createScale(sx, sy); }
+        const FL = mLin(o.F);
+        try { Lin = mMul(mMul(FL, mScale(sx, sy)), mInvLin(FL)); } catch (e) { Lin = mScale(sx, sy); }
       }
-      let D = Transform.createTranslate(P.x + mx, P.y + my)
-        .multiply(Transform.createRotate(theta)).multiply(Lin)
-        .multiply(Transform.createTranslate(-P.x, -P.y));
+      let D = mMul(mMul(mMul(mTr(P.x + mx, P.y + my), mRot(theta)), Lin), mTr(-P.x, -P.y));
       if (Math.abs(lrot) > 1e-9) {
-        const Q = D.applyToPoint(pivotFor(o, Object.assign({}, p, { refMode: 0 })));
+        const Q = mApply(D, pivotFor(o, Object.assign({}, p, { refMode: 0 })));
         let det = 1;
-        if (o.F) { const d = o.F.data; det = (d[0] * d[4] - d[1] * d[3]); }
+        if (o.F) det = (o.F[0] * o.F[4] - o.F[1] * o.F[3]);
         det *= sx * sy;
         const sgn = det < 0 ? 1 : -1;
-        D = Transform.createTranslate(Q.x, Q.y).multiply(Transform.createRotate(sgn * lrot * Math.PI / 180))
-              .multiply(Transform.createTranslate(-Q.x, -Q.y)).multiply(D);
+        D = mMul(mMul(mMul(mTr(Q.x, Q.y), mRot(sgn * lrot * Math.PI / 180)), mTr(-Q.x, -Q.y)), D);
       }
-      bld.addCommand(DocumentCommand.createTransform(sel, D)); count++;
+      bld.addCommand(DocumentCommand.createTransform(sel, mToTransform(D))); count++;
     }
 
     if (p.stroke > 0 && !noScale) {
@@ -865,12 +914,21 @@ function buildCommand(p) {
   bld.addCommand(restoreSelCmd());
   return bld.createCommand();
 }
+//@@CORE_END
 
 // ---------------------------------------------------------------- Preview
-let previewMode = 0, fallbackPos = null;
+// v10: normal case = native preview (executeCommand(cmd, true), discarded with clearPreviews,
+// does not touch the history). Fallback if the native preview rejects the command: real
+// execution as ONE compound and discarding with exactly ONE undo - independent of
+// doc.history.position, which stops counting with a full history.
+let previewMode = 0;
+function undoIfAdvanced(pos0) {
+  // only after an error: if a history entry was created nonetheless, undo it immediately
+  try { if (doc.history.position > pos0) doc.history.undo(); } catch (e) {}
+}
 function clearPreview() {
   if (previewMode === 1) { try { doc.clearPreviews(); } catch (e) {} }
-  else if (previewMode === 2) { try { while (doc.history.position > fallbackPos) doc.history.undo(); } catch (e) {} }
+  else if (previewMode === 2) { try { doc.history.undo(); } catch (e) {} }
   previewMode = 0;
 }
 function showPreview(p) {
@@ -879,8 +937,10 @@ function showPreview(p) {
   if (!cmd) { restoreSelection(); return; }
   try { doc.executeCommand(cmd, true); previewMode = 1; }
   catch (e) {
-    try { fallbackPos = doc.history.position; doc.executeCommand(buildCommand(p)); previewMode = 2; }
-    catch (e2) { console.log('Preview error: ' + e2); previewMode = 0; }
+    try { doc.clearPreviews(); } catch (e1) {}
+    const pos0 = doc.history.position;
+    try { doc.executeCommand(buildCommand(p)); previewMode = 2; }
+    catch (e2) { undoIfAdvanced(pos0); console.log('Preview error: ' + e2); previewMode = 0; }
   }
 }
 
@@ -1143,7 +1203,7 @@ bPSave.setOnClickHandler(() => {
     let base = nameIn.trim().replace(/[\\/:*?"<>|]/g, '_');
     if (base.toUpperCase().startsWith(PRESET_PREFIX)) base = base.substring(PRESET_PREFIX.length);
     const path = dir + '/' + PRESET_PREFIX + base + '.json';
-    const data = readParams(); data.script = TXT.title; data.version = 9;
+    const data = readParams(); data.script = TXT.title; data.version = 10;
     writeText(path, JSON.stringify(data, null, 2));
     app.alert(TXT.pSaved + path, TXT.title);
   } catch (e) { app.alert(TXT.pErrS + e.message, TXT.title); }
@@ -1180,10 +1240,11 @@ const ok = result && result.value === DialogResult.Ok.value;
 const finalParams = readParams();
 clearPreview();
 if (ok) {
+  const pos0 = doc.history.position;
   try {
     refreshStructure(finalParams);
     const cmd = buildCommand(finalParams);
     if (cmd) doc.executeCommand(cmd);
-  } catch (e) { app.alert(TXT.errApply + e.message, TXT.title); }
+  } catch (e) { undoIfAdvanced(pos0); app.alert(TXT.errApply + e.message, TXT.title); }
 }
 restoreSelection();

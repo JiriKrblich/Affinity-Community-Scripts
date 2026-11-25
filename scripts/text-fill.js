@@ -1,6 +1,6 @@
 'use strict';
 // ============================================================
-// Text Fill v7
+// Text Fill v9
 // Fills a closed shape (also several shapes — each one SEPARATELY
 // and independently, each clipped into its own shape —, also with
 // holes) with the selected text objects (artistic text and/or
@@ -13,16 +13,26 @@
 //
 // v6: winding-independent hole detection (buildShapePolygons), each
 //     fill group clipped into its own target shape.
+// v7: BUGFIX stale preview (OK refills when settings changed).
+// v8: performance and robustness (placement computed in JS, bundled creation,
+//     templates per unique text, rollback on errors, seed for size/angle).
 //
-// v7: BUGFIX stale preview: OK used to keep the last preview even
-//     when settings were changed afterwards. OK now refills if the
-//     settings changed since the preview; with unchanged settings
-//     the shown preview is kept (important for seed 0 = time).
+// v9: New option "Stroke width" (group "Size & repetition") for the text stroke:
+//   • Scale stroke – visible stroke width grows/shrinks with the text size
+//   • Keep constant – visible stroke width stays as on the text source
+//   • Use object setting (default, as before) – the stroke option "Scale with object" decides
+//   Verified live: the text stroke lives in the GlyphAtts; FormatText with
+//   createGlyphLineStyleDescriptor sets the VISIBLE width (with "Scale with object" it is
+//   divided internally by the object scale). Starting point is the source's visible width;
+//   factor = size factor of the copy (variance/min/max height). It is only set when the
+//   result differs from the automatic behaviour. Note: the stroke style of the first
+//   character then applies to the whole text.
 // ============================================================
 const { Document }                   = require('/document');
 const { Dialog, DialogResult }       = require('/dialog');
 const { DocumentCommand,
         AddChildNodesCommandBuilder,
+        CompoundCommandBuilder,
         NodeMoveType, NodeChildType } = require('/commands');
 const { Selection }                  = require('/selections');
 const { ContainerNodeDefinition,
@@ -45,8 +55,8 @@ if (!initSel || initSel.length < 2) { app.alert('Please select a closed shape AN
 function getBB(n) { try { return n.getSpreadBaseBox(false); } catch (e) { return null; } }
 function diag(bb) { return bb ? Math.sqrt(bb.width * bb.width + bb.height * bb.height) : 0; }
 function dist(ax, ay, bx, by) { const dx = ax - bx, dy = ay - by; return Math.sqrt(dx * dx + dy * dy); }
-function randBetween(a, b) { return a + Math.random() * (b - a); }
 function clamp(v, mn, mx) { return Math.max(mn, Math.min(mx, v)); }
+function toArr(x) { try { return x.toArray ? x.toArray() : Array.from(x); } catch (e) { return []; } }
 
 function makePRNG(seed) {
     let s = seed >>> 0;
@@ -67,10 +77,37 @@ function composedSpreadTF(node) {
     };
 }
 
+// ── v9: text stroke width ─────────────────────────────────────
+// 0=Scale stroke, 1=Keep constant, 2=Use object setting (default, as before)
+const STROKE_DEF = 2;
+function lineScaleOfTF(xf) { try { const d = xf.data; return Math.sqrt(Math.abs(d[0] * d[4] - d[1] * d[3])); } catch (e) { return 1; } }
+// Returns the StoryDelta for the copy, or null when the automatic behaviour already fits.
+// FormatText sets the VISIBLE width; the source's visible width = weight × object scale
+// (only with "Scale with object"), otherwise = weight.
+function strokeDelta(srcNode, k, mode) {
+    if (mode !== 0 && mode !== 1) return null;
+    if (!(k > 0)) return null;
+    let lsd = null; try { lsd = srcNode.story.getGlyphAtts(0).lineStyleDescriptor; } catch (e) { return null; }
+    if (!lsd) return null;
+    let w0 = 0; try { w0 = lsd.lineStyle.weight; } catch (e) { }
+    if (!(w0 > 0)) return null;
+    let isS = false; try { isS = !!lsd.isScale; } catch (e) { }
+    const sOrig = isS ? lineScaleOfTF(composedSpreadTF(srcNode).asTransform()) : 1;
+    const e0 = w0 * sOrig;
+    const target = (mode === 0) ? e0 * k : e0;
+    const auto = isS ? e0 * k : w0;
+    if (Math.abs(target - auto) < 1e-4 * Math.max(1, auto)) return null;
+    return StoryDelta.createGlyphLineStyleDescriptor(lsd.cloneScaled(target / w0));
+}
+
 function findSpread(node) {
     let cur = node;
     while (cur && cur.constructor && cur.constructor.name !== 'SpreadNode') cur = cur.parent;
     return cur;
+}
+function isAliveNode(n) {
+    try { let p = n ? n.parent : null; for (let i = 0; p && i < 64; i++) { if (p.constructor && p.constructor.name === 'SpreadNode') return true; p = p.parent; } } catch (e) { }
+    return false;
 }
 
 function deleteGroupFully(grp) {
@@ -100,11 +137,6 @@ function angleSetForDivider(div) {
         case 6: return [90, 60, 30, 0, -30, -60, -90];
         default: return null;
     }
-}
-function pickAngleDeg(prng, div) {
-    const set = angleSetForDivider(div);
-    if (!set) return randBetween(-90, 90);
-    return set[Math.floor(prng() * set.length) % set.length];
 }
 
 function rectCorners(cx, cy, w, h, angRad) {
@@ -189,6 +221,8 @@ function buildPool(extractionMode, keepSentencePeriod) {
     }
     return pool;
 }
+// v8: unique key per source + text (for templates)
+function itemKey(item) { return textSourceNodes.indexOf(item.src) + '\u0001' + (item.text == null ? '' : item.text); }
 
 // ── Colour: read/write (text colour lives in the story's GlyphAtts) ─
 function toColour(colOrHandle) {
@@ -203,6 +237,14 @@ function getGlyphFD(srcNode, usePen) {
         const atts = srcNode.story.getGlyphAtts(0);
         return usePen ? atts.penFill : atts.brushFill;
     } catch (e) { return null; }
+}
+// v8: read fill/stroke of each source only once
+const srcFDCache = [];
+function srcFDs(src) {
+    for (const c of srcFDCache) if (c.src.isSameNode(src)) return c;
+    const c = { src, brush: getGlyphFD(src, false), pen: getGlyphFD(src, true) };
+    srcFDCache.push(c);
+    return c;
 }
 function shiftColour(colOrHandle, hOff, sOff, lOff, aOff) {
     const h = colourHSLA(colOrHandle);
@@ -230,11 +272,6 @@ function shiftFD(fd, hOff, sOff, lOff, aOff) {
         return FillDescriptor.create(newGF, fd.isScaleWithObject, fd.transform, fd.blendMode, fd.isAnchoredToSpread);
     }
     return null;
-}
-function setGlyphFD(node, fd, usePen) {
-    const delta = usePen ? StoryDelta.createPenFill(fd) : StoryDelta.createBrushFill(fd);
-    doc.executeCommand(DocumentCommand.createSetSelection(node.selfSelection));
-    doc.formatText(delta, doc.selection, false);
 }
 function getBaseHSL() {
     try {
@@ -364,43 +401,79 @@ function collectSpiralPoints(cx, cy, maxR, stepPx, edgeBias) {
     return pts;
 }
 
-// ── Place one item ───────────────────────────────────────────
-function placeItem(item, params, prng, targetPolys, targetBB, contourSamples, placedRects, fillGroup) {
-    let dup;
-    if (item.text == null) {
-        const dupCmd = DocumentCommand.createTransform(Selection.create(doc, [item.src]), null, { duplicateNodes: true });
-        doc.executeCommand(dupCmd);
-        dup = dupCmd.newNodes[0];
-        if (!dup) return false;
-    } else {
-        // Word/sentence extracted from frame text: fresh ArtTextNode with the style at position 0.
-        try {
-            const spread = findSpread(item.src);
+// ── v8: templates ────────────────────────────────────────────
+// Artistic text = the source itself. Words/sentences extracted from frame text are created ONCE
+// per unique text (ONE command per spread) - exactly as v7 created each single object (same
+// position, same style), hence with the same box - and removed again at the end.
+function prepareTemplates(pool, created) {
+    const tpl = new Map();
+    const pending = [];
+    for (const item of pool) {
+        const key = itemKey(item);
+        if (tpl.has(key)) continue;
+        if (item.text == null) { tpl.set(key, { node: item.src, bb: getBB(item.src) }); continue; }
+        tpl.set(key, null);
+        pending.push(item);
+    }
+    const bySpread = [];
+    for (const item of pending) {
+        let spread = null; try { spread = findSpread(item.src); } catch (e) { }
+        let g = bySpread.find(x => x.spread && spread && x.spread.isSameNode(spread));
+        if (!g) { g = { spread, items: [] }; bySpread.push(g); }
+        g.items.push(item);
+    }
+    for (const g of bySpread) {
+        const b = AddChildNodesCommandBuilder.create();
+        const tags = [];
+        g.items.forEach((item, i) => {
             const atts = item.src.story.getGlyphAtts(0);
             const sb = StoryBuilder.create().setToArtisticTextDefaultStyle(96, 1);
             sb.setGlyphAtts(atts);
             sb.addText(item.text);
             const srcBB = getBB(item.src);
             const def = ArtTextNodeDefinition.createFromStoryBuilder({ x: srcBB ? srcBB.x : 0, y: srcBB ? srcBB.y : 0 }, sb);
-            const b = AddChildNodesCommandBuilder.create();
+            const tag = '__tf8_' + i;
+            try { def.userDescription = tag; } catch (e) { }
+            tags.push(tag);
             b.addNode(def);
-            b.setInsertionTarget(spread);
-            const cmd = b.createCommand(false, NodeChildType.Main);
-            doc.executeCommand(cmd);
-            dup = cmd.newNodes[0];
-            if (!dup) return false;
-        } catch (e) { return false; }
+        });
+        if (g.spread) b.setInsertionTarget(g.spread);
+        const cmd = b.createCommand(false, NodeChildType.Main);
+        doc.executeCommand(cmd);
+        const nn = toArr(cmd.newNodes);
+        for (const n of nn) created.push(n);
+        // match via the temporary name (the order of newNodes is not guaranteed)
+        g.items.forEach((item, i) => {
+            const n = nn.find(x => { try { return x.userDescription === tags[i]; } catch (e) { return false; } });
+            tpl.set(itemKey(item), n ? { node: n, bb: getBB(n), temp: true } : null);
+        });
     }
+    return tpl;
+}
+function removeTemplates(tplMap) {
+    if (!tplMap) return;
+    const nodes = [];
+    for (const t of tplMap.values()) if (t && t.temp && isAliveNode(t.node)) nodes.push(t.node);
+    if (nodes.length) { try { doc.executeCommand(DocumentCommand.createDeleteSelection(Selection.create(doc, nodes))); } catch (e) { for (const n of nodes) { try { n.delete(); } catch (e2) { } } } }
+}
 
-    // getSpreadBaseBox() is the correct way for text (polyCurve box is too small).
-    let localBB = getBB(dup);
-    if (!localBB || localBB.width < 0.01 || localBB.height < 0.01) { try { dup.delete(); } catch (e) { } return false; }
-
-    let sizeScale = clamp(1 + randBetween(-params.sizeVariance, params.sizeVariance) / 100, 0.05, 20);
+// ── v8: place one item in JS only ────────────────────────────
+// Same search and random sequence as v7; size variance and random angle now from the seed.
+// Returns null when no place is found.
+function planItem(t, params, prng, targetPolys, targetBB, contourSamples, placedRects) {
+    const localBB = t && t.bb;
+    if (!localBB || localBB.width < 0.01 || localBB.height < 0.01) return null;
+    const rnd = (a, b) => a + prng() * (b - a);
+    let sizeScale = 1;
+    if (params.sizeVariance > 0) sizeScale = clamp(1 + rnd(-params.sizeVariance, params.sizeVariance) / 100, 0.05, 20);
     if (params.minSizePx > 0) sizeScale = Math.max(sizeScale, params.minSizePx / localBB.height);
     if (params.maxSizePx > 0) sizeScale = Math.min(sizeScale, params.maxSizePx / localBB.height);
     const useContourAngle = params.angleDivider === 7 && contourSamples && contourSamples.length > 0;
-    const fixedAngleDeg = useContourAngle ? null : pickAngleDeg(prng, params.angleDivider);
+    let fixedAngleDeg = null;
+    if (!useContourAngle) {
+        const set = angleSetForDivider(params.angleDivider);
+        fixedAngleDeg = set ? set[Math.floor(prng() * set.length) % set.length] : rnd(-90, 90);
+    }
     const fixedAngleRad = fixedAngleDeg != null ? fixedAngleDeg * Math.PI / 180 : null;
     const rectW = localBB.width * sizeScale, rectH = localBB.height * sizeScale;
     const pad = Math.max(0, params.padding || 0);
@@ -424,97 +497,122 @@ function placeItem(item, params, prng, targetPolys, targetBB, contourSamples, pl
         foundAngleRad = angleRad;
         break;
     }
-    if (!found) { try { dup.delete(); } catch (e) { } return false; }
+    if (!found) return null;
 
     const localCx = localBB.x + localBB.width / 2, localCy = localBB.y + localBB.height / 2;
     const placeTF = Transform.createTranslate(found.pt.x, found.pt.y)
         .multiply(Transform.createRotate(foundAngleRad))
         .multiply(Transform.createScale(sizeScale, sizeScale))
         .multiply(Transform.createTranslate(-localCx, -localCy));
-    try {
-        const sel = Selection.createEmpty(doc);
-        sel.addNode(dup);
-        doc.applyTransform(placeTF, sel);
-    } catch (e) {
-        try { doc.executeCommand(DocumentCommand.createTransform(Selection.create(doc, [dup]), placeTF)); } catch (e2) { }
-    }
-
-    // Colour jitter (HSL + opacity) — additive, one shared offset for fill and stroke.
-    try {
-        const hOff = quantizedRandom(prng, params.hMin, params.hMax, params.hSteps);
-        const sOff = quantizedRandom(prng, params.sMin, params.sMax, params.sSteps);
-        const lOff = quantizedRandom(prng, params.lMin, params.lMax, params.lSteps);
-        const aOff = quantizedRandom(prng, params.aMin, params.aMax, params.aSteps);
-
-        const fdBrush = getGlyphFD(item.src, false);
-        if (fdBrush && fdBrush.fill && fdBrush.fill.constructor.name !== 'NoFill') {
-            const shifted = shiftFD(fdBrush, hOff, sOff, lOff, aOff);
-            if (shifted) setGlyphFD(dup, shifted, false);
-        }
-        const fdPen = getGlyphFD(item.src, true);
-        if (fdPen && fdPen.fill && fdPen.fill.constructor.name !== 'NoFill') {
-            const shiftedPen = shiftFD(fdPen, hOff, sOff, lOff, aOff);
-            if (shiftedPen) setGlyphFD(dup, shiftedPen, true);
-        }
-    } catch (e) { }
-
-    try { doc.executeCommand(DocumentCommand.createMoveNodes(Selection.create(doc, [dup]), fillGroup, NodeMoveType.Inside, NodeChildType.Main)); } catch (e) { }
+    // Colour jitter (one shared offset for fill and stroke) - drawn after success, as in v7
+    const hOff = quantizedRandom(prng, params.hMin, params.hMax, params.hSteps);
+    const sOff = quantizedRandom(prng, params.sMin, params.sMax, params.sSteps);
+    const lOff = quantizedRandom(prng, params.lMin, params.lMax, params.lSteps);
+    const aOff = quantizedRandom(prng, params.aMin, params.aMax, params.aSteps);
     placedRects.push(found.corners);
-    return rectW * rectH;
+    return { placeTF, hOff, sOff, lOff, aOff, area: rectW * rectH, k: sizeScale };
 }
 
-// ── Main pass ────────────────────────────────────────────────
+// ── Main pass (v8) ───────────────────────────────────────────
+// Per shape: create the group (1 command), all copies directly at their place (1 compound),
+// colour + stroke + moving into the group + group into the shape (1 compound). Templates: 1 command in,
+// 1 out. If anything fails, all objects created so far are removed.
 function performFill(params) {
     const baseName = 'TextFill_' + nextGroupIndex();
-    let totalPlaced = 0, totalSkipped = 0, totalFilledArea = 0, totalTargetArea = 0;
+    const created = [];
     const subGroups = [];
-    let shapeIdx = 0;
-    for (const shapeNode of targetNodes) {
-        shapeIdx++;
-        const targetBB = getBB(shapeNode); if (!targetBB) continue;
-        const pool = buildPool(params.extractionMode, params.keepSentencePeriod);
-        if (pool.length === 0) continue;
+    let tplMap = null;
+    try {
+        let totalPlaced = 0, totalSkipped = 0, totalFilledArea = 0, totalTargetArea = 0;
+        tplMap = prepareTemplates(buildPool(params.extractionMode, params.keepSentencePeriod), created);
+        let shapeIdx = 0;
+        for (const shapeNode of targetNodes) {
+            shapeIdx++;
+            const targetBB = getBB(shapeNode); if (!targetBB) continue;
+            const pool = buildPool(params.extractionMode, params.keepSentencePeriod);
+            if (pool.length === 0) continue;
 
-        let work = [];
-        for (const item of pool) {
-            const n = Math.max(1, Math.round(params.repeat * getWeight(item.src)));
-            for (let r = 0; r < n; r++) work.push(item);
-        }
-        const prng = makePRNG((params.seed === 0 ? (Date.now() >>> 0) : params.seed) + shapeIdx * 104729);
-        for (let i = work.length - 1; i > 0; i--) { const j = Math.floor(prng() * (i + 1)); [work[i], work[j]] = [work[j], work[i]]; }
-
-        const shapePolys = buildShapePolygons(shapeNode);
-        const contourSamples = params.angleDivider === 7 ? buildContourSamples(shapeNode, 6) : null;
-
-        const subGrpDef = ContainerNodeDefinition.create(shapeNode.userDescription || ('Shape' + shapeIdx));
-        const subGrpB = AddChildNodesCommandBuilder.create();
-        subGrpB.addContainerNode(subGrpDef);
-        const subGrpCmd = subGrpB.createCommand(false);
-        doc.executeCommand(subGrpCmd);
-        const subGroup = subGrpCmd.newNodes[0];
-        if (!subGroup) continue;
-
-        const placedRects = [];
-        let placed = 0, skipped = 0, filledArea = 0;
-        for (const item of work) {
-            try {
-                const area = placeItem(item, params, prng, shapePolys, targetBB, contourSamples, placedRects, subGroup);
-                if (area) { placed++; filledArea += area; } else skipped++;
+            let work = [];
+            for (const item of pool) {
+                const n = Math.max(1, Math.round(params.repeat * getWeight(item.src)));
+                for (let r = 0; r < n; r++) work.push(item);
             }
-            catch (e) { console.log('Text Fill error: ' + e); skipped++; }
+            const prng = makePRNG((params.seed === 0 ? (Date.now() >>> 0) : params.seed) + shapeIdx * 104729);
+            for (let i = work.length - 1; i > 0; i--) { const j = Math.floor(prng() * (i + 1)); [work[i], work[j]] = [work[j], work[i]]; }
+
+            const shapePolys = buildShapePolygons(shapeNode);
+            const contourSamples = params.angleDivider === 7 ? buildContourSamples(shapeNode, 6) : null;
+
+            // Phase A: compute everything
+            const placedRects = [], plan = [];
+            let skipped = 0, filledArea = 0;
+            for (const item of work) {
+                const t = tplMap.get(itemKey(item));
+                let r = null;
+                try { r = planItem(t, params, prng, shapePolys, targetBB, contourSamples, placedRects); } catch (e) { r = null; }
+                if (r) { plan.push({ item, t, r }); filledArea += r.area; } else skipped++;
+            }
+
+            // Phase B: group + copies + colour/stroke/moving
+            const subGrpB = AddChildNodesCommandBuilder.create();
+            subGrpB.addContainerNode(ContainerNodeDefinition.create(shapeNode.userDescription || ('Shape' + shapeIdx)));
+            const subGrpCmd = subGrpB.createCommand(false);
+            doc.executeCommand(subGrpCmd);
+            const subGroup = subGrpCmd.newNodes[0];
+            if (!subGroup) continue;
+            created.push(subGroup); subGroups.push(subGroup);
+
+            if (plan.length) {
+                const cbDup = CompoundCommandBuilder.create();
+                for (const p of plan) cbDup.addCommand(DocumentCommand.createTransform(Selection.create(doc, [p.t.node]), p.r.placeTF, { duplicateNodes: true }));
+                const dupCmd = cbDup.createCommand(false);
+                doc.executeCommand(dupCmd);
+                const dups = toArr(dupCmd.newNodes);
+                for (const d of dups) created.push(d);
+                if (dups.length !== plan.length) throw new Error('Copies: ' + dups.length + ' instead of ' + plan.length);
+
+                const cbFin = CompoundCommandBuilder.create();
+                plan.forEach((p, k) => {
+                    const dup = dups[k], fds = srcFDs(p.item.src), r = p.r;
+                    const hasPen = !!(fds.pen && fds.pen.fill && fds.pen.fill.constructor.name !== 'NoFill');
+                    try {
+                        if (fds.brush && fds.brush.fill && fds.brush.fill.constructor.name !== 'NoFill') {
+                            const s = shiftFD(fds.brush, r.hOff, r.sOff, r.lOff, r.aOff);
+                            if (s) cbFin.addCommand(DocumentCommand.createFormatText(dup.selfSelection, StoryDelta.createBrushFill(s)));
+                        }
+                        if (hasPen) {
+                            const s = shiftFD(fds.pen, r.hOff, r.sOff, r.lOff, r.aOff);
+                            if (s) cbFin.addCommand(DocumentCommand.createFormatText(dup.selfSelection, StoryDelta.createPenFill(s)));
+                        }
+                    } catch (e) { }
+                    // v9: text stroke width
+                    if (hasPen && (params.strokeScale === 0 || params.strokeScale === 1)) {
+                        try { const sd = strokeDelta(p.t.node, r.k, params.strokeScale); if (sd) cbFin.addCommand(DocumentCommand.createFormatText(dup.selfSelection, sd)); } catch (e) { }
+                    }
+                    cbFin.addCommand(DocumentCommand.createMoveNodes(Selection.create(doc, [dup]), subGroup, NodeMoveType.Inside, NodeChildType.Main));
+                });
+                cbFin.addCommand(DocumentCommand.createMoveNodes(subGroup.selfSelection, shapeNode, NodeMoveType.Inside, NodeChildType.Main));
+                doc.executeCommand(cbFin.createCommand(false));
+            } else {
+                try { doc.executeCommand(DocumentCommand.createMoveNodes(subGroup.selfSelection, shapeNode, NodeMoveType.Inside, NodeChildType.Main)); } catch (e) { }
+            }
+
+            totalPlaced += plan.length; totalSkipped += skipped; totalFilledArea += filledArea;
+            totalTargetArea += targetArea([shapeNode]);
         }
-        try { doc.executeCommand(DocumentCommand.createMoveNodes(subGroup.selfSelection, shapeNode, NodeMoveType.Inside, NodeChildType.Main)); } catch (e) { }
-        subGroups.push(subGroup);
+        removeTemplates(tplMap);
 
-        totalPlaced += placed; totalSkipped += skipped; totalFilledArea += filledArea;
-        totalTargetArea += targetArea([shapeNode]);
+        const pct = totalTargetArea > 0 ? Math.round(totalFilledArea / totalTargetArea * 100) : 0;
+        const summary = 'Placed: ' + totalPlaced + '\nSkipped: ' + totalSkipped + '\nCovered area: ~' + pct + '%' +
+            (targetNodes.length > 1 ? '\n(' + targetNodes.length + ' shapes filled/clipped separately)' : '');
+        console.log('Text Fill v9: ' + summary.replace(/\n/g, ' | ') + ' → "' + baseName + '"');
+        return { groups: subGroups, summary };
+    } catch (e) {
+        // rollback: only objects created by this run (groups, copies, templates) - never the user's
+        for (const n of created) { try { if (isAliveNode(n)) n.delete(); } catch (e2) { } }
+        console.log('Text Fill error (rolled back): ' + e.message);
+        return null;
     }
-
-    const pct = totalTargetArea > 0 ? Math.round(totalFilledArea / totalTargetArea * 100) : 0;
-    const summary = 'Placed: ' + totalPlaced + '\nSkipped: ' + totalSkipped + '\nCovered area: ~' + pct + '%' +
-        (targetNodes.length > 1 ? '\n(' + targetNodes.length + ' shapes filled/clipped separately)' : '');
-    console.log('Text Fill v7: ' + summary.replace(/\n/g, ' | ') + ' → "' + baseName + '"');
-    return { groups: subGroups, summary };
 }
 
 // ── Dialog ───────────────────────────────────────────────────
@@ -537,6 +635,10 @@ function buildDialog() {
     const edMaxPx = gSize.addUnitValueEditor('Max. text height (px, 0=off)', 'none', 'none', null, 0, 10000); edMaxPx.value = 0;
     const edRep = gSize.addUnitValueEditor('Repetitions per text object', 'none', 'none', null, 1, 50); edRep.value = 3;
     const edPad = gSize.addUnitValueEditor('Minimum spacing (px)', 'none', 'none', null, 0, 500); edPad.value = 0;
+    // v9: text stroke width
+    const cbStroke = gSize.addComboBox('Stroke width', ['Scale stroke', 'Keep constant', 'Use object setting']);
+    try { cbStroke.selectedIndex = STROKE_DEF; } catch (e) { }
+    function readStroke() { let i = STROKE_DEF; try { i = cbStroke.selectedIndex; } catch (e) { } return (i === 0 || i === 1 || i === 2) ? i : STROKE_DEF; }
 
     const gDir = c1.addGroup('Direction');
     const cbDir = gDir.addComboBox('Divider (180°)', [
@@ -596,6 +698,7 @@ function buildDialog() {
             maxSizePx: Math.max(0, edMaxPx.value || 0),
             padding: Math.max(0, edPad.value || 0),
             repeat: Math.max(1, Math.round(edRep.value || 1)),
+            strokeScale: readStroke(),
             angleDivider: cbDir.selectedIndex,
             edgeBias: cbEdgeBias.selectedIndex === 1,
             keepSentencePeriod: cbKeepPeriod.value,
@@ -614,6 +717,7 @@ function buildDialog() {
         if (p.maxSizePx != null) edMaxPx.value = p.maxSizePx;
         if (p.padding != null) edPad.value = p.padding;
         if (p.repeat != null) edRep.value = p.repeat;
+        try { cbStroke.selectedIndex = p.strokeScale != null ? p.strokeScale : STROKE_DEF; } catch (e) { }
         if (p.angleDivider != null) cbDir.selectedIndex = p.angleDivider;
         if (p.edgeBias != null) cbEdgeBias.selectedIndex = p.edgeBias ? 1 : 0;
         if (p.keepSentencePeriod != null) cbKeepPeriod.value = p.keepSentencePeriod;
@@ -663,6 +767,7 @@ function buildDialog() {
 
     let previewResult = null;
     let previewKey = null;   // v7: settings of the last shown preview
+    // the preview is discarded by deleting its groups - independent of the history
     function cleanupPreview() {
         if (previewResult) { for (const g of previewResult.groups) deleteGroupFully(g); }
         previewResult = null;
@@ -693,7 +798,8 @@ if (result && result.value === DialogResult.Ok.value) {
     // v7: keep the preview only if the settings have not changed since
     if (!isPreviewCurrent(p)) {
         cleanupPreview();
-        performFill(p);
+        const r = performFill(p);
+        if (!r) app.alert('Text fill could not be created (everything rolled back).', TITLE);
     }
 } else {
     cleanupPreview();

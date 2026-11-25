@@ -1,9 +1,15 @@
-// Randomize Anchor Points v11 (EN)
-// v11: BUGFIX stale preview - "Apply" always kept an existing preview, even when
-//      values were changed afterwards (the Apply branch only calculated without a
-//      preview). The preview now remembers its settings incl. the seed used; if
-//      anything differs on Apply, the preview is undone and recalculated with the
-//      current values (and the displayed seed). Unchanged -> the preview stays.
+// Randomize Anchor Points v12 (EN)
+// v12: Native preview instead of history entries.
+//      - "Preview" no longer creates a history entry (doc.executeCommand(cmd,true));
+//        previously one entry per preview plus an undo on the next roll.
+//      - After the first preview, every value change in the dialog is shown live
+//        immediately (with the displayed seed). "Preview" rolls a new seed as before
+//        if the seed is unchanged.
+//      - "Apply" calculates with the displayed values and the displayed seed
+//        (deterministic, therefore identical to the preview) - ONE history entry.
+//      - No history position any more: Cancel discards the preview and only undoes
+//        the script's own conversion to curves (counted, with a sentinel object).
+// v11: preview remembered its settings incl. seed (replaced by the native preview in v12).
 // v10: composedSpreadTF() instead of bestTransform() (transformed groups).
 
 (function () {
@@ -151,6 +157,11 @@
         }
         return list;
     }
+    function nodeInDoc(n) {
+        if (!n) return false;
+        try { for (const l of doc.layers.all) if (l.isSameNode(n)) return true; } catch (e) { }
+        return false;
+    }
 
     if (doc.selection.length === 0) {
         app.alert('Please select at least one object first.', 'Randomize Anchor Points');
@@ -177,10 +188,17 @@
         return;
     }
 
+    // v12: conversion counted + sentinel object (instead of history position)
+    const CONV = { steps: 0, sentinel: null };
+    function undoConversion() {
+        if (CONV.steps > 0 && nodeInDoc(CONV.sentinel)) {
+            for (let i = 0; i < CONV.steps; i++) { try { doc.history.undo(); } catch (e) { break; } }
+        }
+        CONV.steps = 0; CONV.sentinel = null;
+    }
+
     const needConversion = targetInfos.filter(t => !(t.node.curvesInterface && t.node.curvesInterface.isMutable));
-    let conversionSteps = 0;
     if (needConversion.length > 0) {
-        const posBefore0 = doc.history.position;
         const curveListBefore = buildCurveList();
         const infos = needConversion.map(t => {
             let seqIdx = -1;
@@ -191,23 +209,24 @@
         });
         for (const info of infos) {
             if (info.seqIdx < 0) continue;
-            doc.executeCommand(DocumentCommand.createConvertToCurves(info.target.node.selfSelection));
+            try {
+                doc.executeCommand(DocumentCommand.createConvertToCurves(info.target.node.selfSelection));
+                CONV.steps++;
+            } catch (e) { continue; }
             const curveListAfter = buildCurveList();
             const fresh = curveListAfter[info.seqIdx];
-            if (fresh) info.target.node = fresh;
+            if (fresh) {
+                info.target.node = fresh;
+                if (!CONV.sentinel) CONV.sentinel = fresh;
+            }
         }
-        conversionSteps = doc.history.position - posBefore0;
     }
 
     targetInfos = targetInfos.filter(t => t.node.curvesInterface && t.node.curvesInterface.isMutable);
 
     if (targetInfos.length === 0) {
         app.alert('The objects could not be converted into editable curves.', 'Randomize Anchor Points');
-        if (conversionSteps > 0) {
-            for (let i = 0; i < conversionSteps; i++) {
-                if (doc.canUndo) doc.executeCommand(DocumentCommand.createUndo());
-            }
-        }
+        undoConversion();
         return;
     }
 
@@ -304,7 +323,9 @@
         return newPC;
     }
 
-    function applyJitter(centerModeIdx, params, relative, keepHandles, seed, percent) {
+    // v12: returns ONE compound command (preview or apply), executes nothing.
+    // Call doc.clearPreviews() first so it works from the original.
+    function makeJitterCommand(centerModeIdx, params, relative, keepHandles, seed, percent) {
         const rng = mulberry32(seed);
         const builder = CompoundCommandBuilder.create();
         for (let i = 0; i < targetInfos.length; i++) {
@@ -329,7 +350,31 @@
             const newPC = buildJitteredCurve(t.node, scaledParams, center, t.anchors, rng, keepHandles, percent);
             builder.addCommand(DocumentCommand.createSetCurves(t.node.curvesInterface, newPC));
         }
-        doc.executeCommand(builder.createCommand());
+        return builder.createCommand();
+    }
+
+    function buildParams(jx, jy, r, d, angle) {
+        return {
+            jitterXMin: Math.min(jx[0], jx[1]),
+            jitterXMax: Math.max(jx[0], jx[1]),
+            jitterYMin: Math.min(jy[0], jy[1]),
+            jitterYMax: Math.max(jy[0], jy[1]),
+            radialMin: Math.min(r[0], r[1]),
+            radialMax: Math.max(r[0], r[1]),
+            directionMin: Math.min(d[0], d[1]),
+            directionMax: Math.max(d[0], d[1]),
+            angleDeg: angle
+        };
+    }
+
+    // v12: native preview (no history entry; replaces the previous preview)
+    function showPreview(centerModeIdx, params, relative, keepHandles, seed, percent) {
+        doc.clearPreviews();
+        try {
+            doc.executeCommand(makeJitterCommand(centerModeIdx, params, relative, keepHandles, seed, percent), true);
+        } catch (e) {
+            doc.clearPreviews();
+        }
     }
 
     function readRadioIndex(rg) {
@@ -391,9 +436,7 @@
         return txt;
     }
 
-    const posBeforePreview = doc.history.position;
     let hasPreview = false;
-    let previewSig = null;   // v11: settings + seed of the current preview
 
     let lastCenterMode = 0;
     let lastJX = [0, 0], lastJY = [0, 0], lastR = [0, 0], lastD = [0, 0], lastAngle = 0;
@@ -403,33 +446,31 @@
     let lastUsedSeed = null;
     let applyResult = false;
 
-    function makeSig(params, seed) {
-        return JSON.stringify([lastCenterMode, params, lastRelative, lastKeepHandles, lastPercent, seed]);
-    }
-
     while (true) {
         const dlg = Dialog.create('Randomize Anchor Points');
         dlg.initialWidth = 760;
         dlg.setIsResizable(true);
 
         const col1 = dlg.addColumn();
-        const unitT = lastRelative ? UnitType.Percentage : UnitType.Pixel;
-        const suf = lastRelative ? ' (%)' : '';
 
-        const gJXMin = col1.addGroup('Jitter X min' + suf);
-        const edJXMin = gJXMin.addUnitValueEditor('Jitter X min' + suf, unitT, unitT, null, -100000, 100000);
+        const jxLabel = 'Jitter X min' + (lastRelative ? ' (%)' : '');
+        const gJXMin = col1.addGroup(jxLabel);
+        const edJXMin = gJXMin.addUnitValueEditor(jxLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
         edJXMin.value = lastJX[0];
 
-        const gJXMax = col1.addGroup('Jitter X max' + suf);
-        const edJXMax = gJXMax.addUnitValueEditor('Jitter X max' + suf, unitT, unitT, null, -100000, 100000);
+        const jxMaxLabel = 'Jitter X max' + (lastRelative ? ' (%)' : '');
+        const gJXMax = col1.addGroup(jxMaxLabel);
+        const edJXMax = gJXMax.addUnitValueEditor(jxMaxLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
         edJXMax.value = lastJX[1];
 
-        const gJYMin = col1.addGroup('Jitter Y min' + suf);
-        const edJYMin = gJYMin.addUnitValueEditor('Jitter Y min' + suf, unitT, unitT, null, -100000, 100000);
+        const jyLabel = 'Jitter Y min' + (lastRelative ? ' (%)' : '');
+        const gJYMin = col1.addGroup(jyLabel);
+        const edJYMin = gJYMin.addUnitValueEditor(jyLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
         edJYMin.value = lastJY[0];
 
-        const gJYMax = col1.addGroup('Jitter Y max' + suf);
-        const edJYMax = gJYMax.addUnitValueEditor('Jitter Y max' + suf, unitT, unitT, null, -100000, 100000);
+        const jyMaxLabel = 'Jitter Y max' + (lastRelative ? ' (%)' : '');
+        const gJYMax = col1.addGroup(jyMaxLabel);
+        const edJYMax = gJYMax.addUnitValueEditor(jyMaxLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
         edJYMax.value = lastJY[1];
 
         const col2 = dlg.addColumn();
@@ -438,20 +479,24 @@
         const edAngle = gAngle.addUnitValueEditor('Angle (direction)', UnitType.Degree, UnitType.Degree, null, -100000, 100000);
         edAngle.value = lastAngle;
 
-        const gDMin = col2.addGroup('Distance min (direction)' + suf);
-        const edDMin = gDMin.addUnitValueEditor('Distance min (direction)' + suf, unitT, unitT, null, -100000, 100000);
+        const dLabel = 'Distance min (direction)' + (lastRelative ? ' (%)' : '');
+        const gDMin = col2.addGroup(dLabel);
+        const edDMin = gDMin.addUnitValueEditor(dLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
         edDMin.value = lastD[0];
 
-        const gDMax = col2.addGroup('Distance max (direction)' + suf);
-        const edDMax = gDMax.addUnitValueEditor('Distance max (direction)' + suf, unitT, unitT, null, -100000, 100000);
+        const dMaxLabel = 'Distance max (direction)' + (lastRelative ? ' (%)' : '');
+        const gDMax = col2.addGroup(dMaxLabel);
+        const edDMax = gDMax.addUnitValueEditor(dMaxLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
         edDMax.value = lastD[1];
 
-        const gRMin = col2.addGroup('Radial min' + suf);
-        const edRMin = gRMin.addUnitValueEditor('Radial min' + suf, unitT, unitT, null, -100000, 100000);
+        const rLabel = 'Radial min' + (lastRelative ? ' (%)' : '');
+        const gRMin = col2.addGroup(rLabel);
+        const edRMin = gRMin.addUnitValueEditor(rLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
         edRMin.value = lastR[0];
 
-        const gRMax = col2.addGroup('Radial max' + suf);
-        const edRMax = gRMax.addUnitValueEditor('Radial max' + suf, unitT, unitT, null, -100000, 100000);
+        const rMaxLabel = 'Radial max' + (lastRelative ? ' (%)' : '');
+        const gRMax = col2.addGroup(rMaxLabel);
+        const edRMax = gRMax.addUnitValueEditor(rMaxLabel, lastRelative ? UnitType.Percentage : UnitType.Pixel, lastRelative ? UnitType.Percentage : UnitType.Pixel, null, -100000, 100000);
         edRMax.value = lastR[1];
 
         const col3 = dlg.addColumn();
@@ -488,6 +533,14 @@
         const presetSaveBtn = gPreset.addButton('Save preset...');
         const presetLoadBtn = gPreset.addButton('Load preset...');
         const presetDeleteBtn = gPreset.addButton('Delete preset...');
+
+        // v12: live preview with the current dialog values (only after the first preview)
+        function livePreview() {
+            if (!hasPreview) return;
+            const p = buildParams([edJXMin.value, edJXMax.value], [edJYMin.value, edJYMax.value],
+                                  [edRMin.value, edRMax.value], [edDMin.value, edDMax.value], edAngle.value);
+            showPreview(readRadioIndex(rgCenter), p, !!cbRelative.value, !!cbKeepHandles.value, edSeed.value, edPercent.value);
+        }
 
         presetSaveBtn.setOnClickHandler(() => {
             const name = app.prompt('Enter preset name:', 'Randomize Anchor Points - Save preset', '');
@@ -526,6 +579,7 @@
             if (typeof data.relative === 'boolean') cbRelative.value = data.relative;
             if (typeof data.keepHandles === 'boolean') cbKeepHandles.value = data.keepHandles;
             stLiveCount.setText(formatLiveCountText(edPercent.value));
+            livePreview();
         });
 
         presetDeleteBtn.setOnClickHandler(() => {
@@ -538,6 +592,8 @@
 
         const gAction = col4.addGroup('Action (confirm with OK)');
         const actionBtns = gAction.addButtonSet('', ['Preview', 'Apply'], 0);
+
+        dlg.setOnControlValueChangedHandler(() => { livePreview(); });
 
         const result = dlg.runModal();
 
@@ -557,26 +613,13 @@
         }
 
         const action = actionBtns.selectedIndex;
-
-        const params = {
-            jitterXMin: Math.min(lastJX[0], lastJX[1]),
-            jitterXMax: Math.max(lastJX[0], lastJX[1]),
-            jitterYMin: Math.min(lastJY[0], lastJY[1]),
-            jitterYMax: Math.max(lastJY[0], lastJY[1]),
-            radialMin: Math.min(lastR[0], lastR[1]),
-            radialMax: Math.max(lastR[0], lastR[1]),
-            directionMin: Math.min(lastD[0], lastD[1]),
-            directionMax: Math.max(lastD[0], lastD[1]),
-            angleDeg: lastAngle
-        };
+        const params = buildParams(lastJX, lastJY, lastR, lastD, lastAngle);
 
         if (action === 1) {
-            // v11: keep the preview only if settings and displayed seed are unchanged
-            const sigNow = makeSig(params, lastSeed);
-            if (!hasPreview || sigNow !== previewSig) {
-                if (hasPreview) doc.executeCommand(DocumentCommand.createUndo());
-                applyJitter(lastCenterMode, params, lastRelative, lastKeepHandles, lastSeed, lastPercent);
-            }
+            // v12: always calculate with the displayed values and displayed seed
+            // (deterministic -> identical to the preview); ONE history entry
+            doc.clearPreviews();
+            doc.executeCommand(makeJitterCommand(lastCenterMode, params, lastRelative, lastKeepHandles, lastSeed, lastPercent));
             applyResult = true;
             break;
         }
@@ -589,19 +632,14 @@
         lastUsedSeed = seedToUse;
         lastSeed = seedToUse;
 
-        if (hasPreview) {
-            doc.executeCommand(DocumentCommand.createUndo());
-        }
-        applyJitter(lastCenterMode, params, lastRelative, lastKeepHandles, seedToUse, lastPercent);
+        showPreview(lastCenterMode, params, lastRelative, lastKeepHandles, seedToUse, lastPercent);
         hasPreview = true;
-        previewSig = makeSig(params, seedToUse);
     }
 
     if (!applyResult) {
-        const stepsToUndo = (doc.history.position - posBeforePreview) + conversionSteps;
-        for (let i = 0; i < stepsToUndo; i++) {
-            if (doc.canUndo) doc.executeCommand(DocumentCommand.createUndo());
-        }
+        // v12: discard the preview, only undo the script's own conversion
+        doc.clearPreviews();
+        undoConversion();
     }
 
     try {

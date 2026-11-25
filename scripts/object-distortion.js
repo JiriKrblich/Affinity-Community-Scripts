@@ -1,21 +1,22 @@
-// Object Distortion v49-PRO (EN)
-// v49 – three fixes:
-//  1) BUGFIX "Apply" without a preview did nothing: the Apply branch never called
-//     doApplyAll() - without a preview the document stayed unchanged; after a preview
-//     with values changed afterwards, the old values applied. Apply now recalculates
-//     if there is no preview or the settings changed since the preview (same seed
-//     other than 0 -> identical result; with seed 0 an unchanged preview stays as shown).
-//  2) BUGFIX position 0: "doc.history.position = posBeforeAll" threw COMMAND_FAILED
-//     when nothing had to be converted (freshly opened document) - preview and Cancel
-//     aborted. Now rollbackTo() with an undo-loop fallback.
-//  3) Presets saved with File.create() instead of the deprecated new File().
+// Object Distortion v50-PRO (EN)
+// v50 – preview and history:
+//  1) Native preview: the preview runs via doc.executeCommand(cmd,true) - it no longer
+//     creates history entries and replaces the previous preview each time.
+//  2) Apply = ONE compound command for all objects (previously one entry per object, pass
+//     and 2nd method, plus selection change and transform for pixel layers).
+//     Multiple passes and the 2nd method are chained in memory (same result).
+//  3) No history position any more: Cancel discards the preview and only undoes the
+//     script's own conversion to curves (if needed, checked with a sentinel object) -
+//     exact even with a full history. An unchanged preview is applied exactly (also seed 0).
+//  4) Pixel layers without selection change (commands directly on the object).
+// v49: Apply without preview calculates; File.create() for presets.
 //     Prefix "OVZ_" is identical to the German version (presets exchangeable).
 // v48: getTF(node) accumulates the full parent chain (transformed groups).
 'use strict';
 const { Document }                = require('/document');
 const { Dialog, DialogResult }    = require('/dialog');
 const { PolyCurve, CurveBuilder } = require('/geometry');
-const { DocumentCommand }         = require('/commands');
+const { DocumentCommand, CompoundCommandBuilder } = require('/commands');
 const { Selection }               = require('/selections.js');
 const { app }                     = require('/application');
 const { File, FileSystemApi }     = require('/fs');
@@ -24,12 +25,11 @@ const doc = Document.current;
 const PRESETS_DIR   = app.userDesktopPath + '/AffinityScriptPresets';
 const PRESET_PREFIX = 'OVZ_';
 
-// v49: safe rollback - "doc.history.position = 0" throws COMMAND_FAILED.
-function rollbackTo(pos){
-    if(doc.history.position===pos)return;
-    try{doc.history.position=pos;}catch(e){/* position 0: undo loop below */}
-    let guard=0;
-    while(doc.history.position>pos&&guard++<100000)doc.history.undo();
+// v50: node still in the document? (sentinel for undoing the conversion)
+function nodeInDoc(n){
+    if(!n)return false;
+    try{for(const l of doc.layers.all)if(l.isSameNode(n))return true;}catch(e){}
+    return false;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -61,10 +61,11 @@ function applyMi(Mi,x,y){return{x:Mi[0]*x+Mi[1]*y+Mi[2],y:Mi[3]*x+Mi[4]*y+Mi[5]}
 function mulM(A,B){return[A[0]*B[0]+A[1]*B[3],A[0]*B[1]+A[1]*B[4],A[0]*B[2]+A[1]*B[5]+A[2],A[3]*B[0]+A[4]*B[3],A[3]*B[1]+A[4]*B[4],A[3]*B[2]+A[4]*B[5]+A[5]];}
 function clamp(v,lo,hi){return v<lo?lo:v>hi?hi:v;}
 
-function setAbsoluteTransform(node,N){
+// v50: returns only the transform (the command is part of the compound)
+function absoluteTF(node,N){
     const M=getTF(node),Mi=invertM(M),xf=mulM(N,Mi);
     const tf=node.transform.clone();tf.setIdentity();tf.scale(xf[0],xf[4]);tf.translate(xf[2]/xf[0],xf[5]/xf[4]);
-    doc.executeCommand(DocumentCommand.createTransform(doc.selection,tf));
+    return tf;
 }
 
 function collectNodes(sel){
@@ -114,7 +115,6 @@ function getFocalPoint(node){
         return{x:M[0]*fp.point.x+M[1]*fp.point.y+M[2],y:M[3]*fp.point.x+M[4]*fp.point.y+M[5]};
     }catch(e){return null;}
 }
-function restoreSelection(origNodes){try{if(origNodes.length>0){const s=Selection.create(doc,origNodes);doc.executeCommand(DocumentCommand.createSetSelection(s));}}catch(e){}}
 
 // ── PRNG & jitter ─────────────────────────────────────────────────────────────
 function mulberry32(seed){let s=seed>>>0;return function(){s+=0x6D2B79F5;let t=Math.imul(s^s>>>15,1|s);t^=t+Math.imul(t^t>>>7,61|t);return((t^t>>>14)>>>0)/4294967296;};}
@@ -199,14 +199,13 @@ function doShear(pts,bb,strX,strY,angleDeg){const rad=angleDeg*Math.PI/180,cosA=
 // ── Bitmap distortion ─────────────────────────────────────────────────────────
 function bitmapInverseSpread(m,osx,osy,scx,scy,maxRS,strS,freq,tw,tr){const dx=osx-scx,dy=osy-scy,r=Math.sqrt(dx*dx+dy*dy);if(r<0.001)return{ssx:osx,ssy:osy};const ndx=dx/r,ndy=dy/r;switch(m){case 0:{const R=(tr/100)*maxRS;if(r>=R)return{ssx:osx,ssy:osy};const a=-(tw*Math.PI/180)*(1-r/R),c=Math.cos(a),s=Math.sin(a);return{ssx:scx+dx*c-dy*s,ssy:scy+dx*s+dy*c};}case 1:{const nr=Math.max(0.01,r-Math.sin(Math.atan2(dy,dx)*freq)*strS);return{ssx:scx+ndx*nr,ssy:scy+ndy*nr};}case 2:{const nr=Math.max(0.01,r-Math.cos(Math.atan2(dy,dx)*freq)*strS);return{ssx:scx+ndx*nr,ssy:scy+ndy*nr};}case 3:{const phase=Math.atan2(dy,dx)*freq,w=Math.sin(phase)*strS;return{ssx:osx+(-ndy)*w,ssy:osy+ndx*w};}case 5:{const bump=Math.sin((r/maxRS)*Math.PI)*strS;return{ssx:scx+ndx*Math.max(0.01,r-bump),ssy:scy+ndy*Math.max(0.01,r-bump)};}case 6:{const t=r/maxRS,fwd=Math.max(0.01,1-(strS/maxRS)*t*t);return{ssx:scx+ndx*(r/fwd),ssy:scy+ndy*(r/fwd)};}case 7:{const arcLen=Math.atan2(dy,dx)*maxRS,tLen=2*Math.PI*maxRS,t2=((arcLen%(tLen/freq))/(tLen/freq)),saw=2*Math.abs(t2*2-1)-1;return{ssx:osx+(-ndy)*saw*strS,ssy:osy+ndx*saw*strS};}default:return{ssx:osx,ssy:osy};}}
 function bilinear(arr,W,H,sxf,syf){const x0=Math.max(0,Math.min(W-2,Math.floor(sxf))),y0=Math.max(0,Math.min(H-2,Math.floor(syf)));const fx=sxf-x0,fy=syf-y0;const i00=(y0*W+x0)*4,i10=(y0*W+x0+1)*4,i01=((y0+1)*W+x0)*4,i11=((y0+1)*W+x0+1)*4;const out=[];for(let ch=0;ch<4;ch++)out.push(Math.round(arr[i00+ch]*(1-fx)*(1-fy)+arr[i10+ch]*fx*(1-fy)+arr[i01+ch]*(1-fx)*fy+arr[i11+ch]*fx*fy));return out;}
-function applyBitmapDistortion(node,m,p){
-    if(!node||!node.rasterInterface||!node.rasterWidth||!node.getSpreadBaseBox(false))return 0;
-    let steps=0;doc.executeCommand(DocumentCommand.createSetSelection(Selection.create(doc,[node])));steps++;
-    const fresh=doc.selection.at(0)?.node;if(!fresh||!fresh.rasterInterface)return steps;
-    const ri=fresh.rasterInterface,W=fresh.rasterWidth,H=fresh.rasterHeight,bb=fresh.getSpreadBaseBox(false);if(!bb)return steps;
-    const M=getTF(fresh),Mi=invertM(M);
+// v50: calculates only (new bitmap + optional transform); makeCommand() builds the commands
+function computeBitmap(node,m,p){
+    if(!node||!node.rasterInterface||!node.rasterWidth||!node.getSpreadBaseBox(false))return null;
+    const ri=node.rasterInterface,W=node.rasterWidth,H=node.rasterHeight,bb=node.getSpreadBaseBox(false);if(!bb)return null;
+    const M=getTF(node),Mi=invertM(M);
     let scx=bb.x+bb.width/2,scy=bb.y+bb.height/2;
-    if(p.useFocal){const fp=getFocalPoint(fresh);if(fp){scx=fp.x;scy=fp.y;}}
+    if(p.useFocal){const fp=getFocalPoint(node);if(fp){scx=fp.x;scy=fp.y;}}
     const maxRS=Math.max(Math.sqrt((bb.x-scx)**2+(bb.y-scy)**2),Math.sqrt((bb.x+bb.width-scx)**2+(bb.y-scy)**2),Math.sqrt((bb.x-scx)**2+(bb.y+bb.height-scy)**2),Math.sqrt((bb.x+bb.width-scx)**2+(bb.y+bb.height-scy)**2))||1;
     const halfDiag=Math.sqrt(bb.width**2+bb.height**2)/2||1;
     const[fac,aN]=MCFG[m]||[1,false],bmpStr=p.linkBitmapStr?p.str:p.bmpStr,strS=toAbs(bmpStr,halfDiag,fac,aN),freq=Math.round(p.freq);
@@ -226,12 +225,12 @@ function applyBitmapDistortion(node,m,p){
         else{const rgba=bilinear(srcArr,W,H,spx,spy);dstArr[di]=rgba[0];dstArr[di+1]=rgba[1];dstArr[di+2]=rgba[2];dstArr[di+3]=rgba[3];}
     }
     const bm=ri.createCompatibleBitmap(false);dstBuf.copyTo(bm,{x:0,y:0,width:W,height:H},0,0);
-    doc.executeCommand(DocumentCommand.createReplaceBitmap(doc.selection,bm));steps++;
+    let tf=null;
     if(padPx>0&&padSpread>0){
         const bbCx=bb.x+bb.width/2,bbCy=bb.y+bb.height/2,pxCxN=(pxMin+pxMax)/2,pyCxN=(pyMin+pyMax)/2,nScale=(bb.width+2*padSpread)/(pxMax-pxMin);
-        setAbsoluteTransform(fresh,[nScale,0,bbCx-nScale*pxCxN,0,nScale,bbCy-nScale*pyCxN]);steps++;
+        tf=absoluteTF(node,[nScale,0,bbCx-nScale*pxCxN,0,nScale,bbCy-nScale*pyCxN]);
     }
-    return steps;
+    return{node,bm,tf};
 }
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -258,11 +257,13 @@ const MINFO=[
     ['Persp./shear group: X + Y + °','no jitter'],
 ];
 
-// ── applyOneCurve ─────────────────────────────────────────────────────────────
-function applyOneCurve(node,p,passes){
+// ── computeCurve ──────────────────────────────────────────────────────────────
+// v50: calculates all passes in memory and returns the final PolyCurve (no command).
+// startPC = result of a previous step (2nd method), otherwise the current curve.
+function computeCurve(node,p,passes,startPC){
     passes=passes||1;
-    const ci=node.curvesInterface;if(!ci||!ci.isMutable)return 0;
-    let currentPC=ci.polyCurve;if(!currentPC||currentPC.curveCount===0)return 0;
+    const ci=node.curvesInterface;if(!ci||!ci.isMutable)return null;
+    let currentPC=startPC||ci.polyCurve;if(!currentPC||currentPC.curveCount===0)return null;
     for(let pass=0;pass<passes;pass++){
         const pc=currentPC;
         const M=getTF(node);
@@ -277,9 +278,9 @@ function applyOneCurve(node,p,passes){
         const rng=makePRNG(p.seed===0?0:p.seed+pass*999983);
         const jPct=p.jitter;
         const npc=PolyCurve.create();
-        if(p.m===9){const str=Math.max(-1,Math.min(1,p.str/100));doc.executeCommand(DocumentCommand.createSetCurves(ci,doPuckerBloat(pc,M,Mi,cx,cy,str,jPct,rng)));currentPC=ci.polyCurve;continue;}
-        if(p.m===8){const abs={str:toAbs(p.str,hd,MCFG[8][0],MCFG[8][1]),freq:Math.round(p.freq)};doc.executeCommand(DocumentCommand.createSetCurves(ci,doRays(pc,M,Mi,cx,cy,abs,jPct,rng)));currentPC=ci.polyCurve;continue;}
-        if(p.m===2){const abs={str:toAbs(p.str,hd,MCFG[2][0],false),freq:Math.round(p.freq)};doc.executeCommand(DocumentCommand.createSetCurves(ci,doStar(pc.at(0).beziers.toArray(),M,Mi,cx,cy,abs,pc.at(0).isClosed,jPct,rng)));currentPC=ci.polyCurve;continue;}
+        if(p.m===9){const str=Math.max(-1,Math.min(1,p.str/100));currentPC=doPuckerBloat(pc,M,Mi,cx,cy,str,jPct,rng);continue;}
+        if(p.m===8){const abs={str:toAbs(p.str,hd,MCFG[8][0],MCFG[8][1]),freq:Math.round(p.freq)};currentPC=doRays(pc,M,Mi,cx,cy,abs,jPct,rng);continue;}
+        if(p.m===2){const abs={str:toAbs(p.str,hd,MCFG[2][0],false),freq:Math.round(p.freq)};currentPC=doStar(pc.at(0).beziers.toArray(),M,Mi,cx,cy,abs,pc.at(0).isClosed,jPct,rng);continue;}
         const[fac,aN]=MCFG[p.m],abs={str:toAbs(p.str,hd,fac,aN),freq:Math.round(p.freq)};
         for(let ci2=0;ci2<pc.curveCount;ci2++){
             const curve=pc.at(ci2),bzs=curve.beziers.toArray();if(!bzs.length)continue;
@@ -301,9 +302,21 @@ function applyOneCurve(node,p,passes){
             if(useHQ){const c2=buildBezierFromPts(d,closed,Mi);if(c2)npc.addCurve(c2);}
             else{const cb=CurveBuilder.create(),fp2=applyMi(Mi,d[0].wx,d[0].wy);cb.begin(fp2);for(let i=1;i<d.length;i++)cb.lineTo(applyMi(Mi,d[i].wx,d[i].wy));if(closed){cb.lineTo(fp2);cb.close();}npc.addCurve(cb.createCurve());}
         }
-        doc.executeCommand(DocumentCommand.createSetCurves(ci,npc));currentPC=ci.polyCurve;
+        currentPC=npc;
     }
-    return 1;
+    return currentPC;
+}
+
+// v50: plan (all results) -> ONE compound command
+function makeCommand(plan){
+    const cb=CompoundCommandBuilder.create();let n=0;
+    for(const c of plan.curves){cb.addCommand(DocumentCommand.createSetCurves(c.node.curvesInterface,c.pc));n++;}
+    for(const b of plan.bitmaps){
+        const s=Selection.create(doc,[b.node]);
+        cb.addCommand(DocumentCommand.createReplaceBitmap(s,b.bm));n++;
+        if(b.tf){cb.addCommand(DocumentCommand.createTransform(s,b.tf));n++;}
+    }
+    return n?cb.createCommand():null;
 }
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
@@ -317,27 +330,23 @@ function main(){
         app.alert('No vector objects or pixel layers.','Object Distortion');return;
     }
 
-    const origNodes=[];
-    for(let i=0;i<sel.length;i++){const n=sel.at(i)?.node;if(n)origNodes.push(n);}
     let anyFocal=false;
     for(const n of [...rawCurves,...rawBitmaps])if(getFocalPoint(n)){anyFocal=true;break;}
 
-    const posBeforeConvert=doc.history.position;
     const mutableNodes=rawCurves.filter(n=>n.curvesInterface.isMutable);
     const needsConvert=rawCurves.some(n=>!n.curvesInterface.isMutable);
-    let converted=false;
+    let converted=false,convSentinel=null;
 
     if(needsConvert){
         doc.executeCommand(DocumentCommand.createConvertToCurves(doc.selection));
         converted=true;
         const freshCurves=collectMutableFromSelection();
-        for(const n of freshCurves)if(!mutableNodes.some(m=>m.isSameNode(n)))mutableNodes.push(n);
+        for(const n of freshCurves)if(!mutableNodes.some(m=>m.isSameNode(n))){mutableNodes.push(n);if(!convSentinel)convSentinel=n;}
     }
 
     const bitmapNodes=[...rawBitmaps];
-    const posBeforeAll=doc.history.position;
 
-    const dlg=Dialog.create('Object Distortion v49-PRO');
+    const dlg=Dialog.create('Object Distortion v50-PRO');
     dlg.initialWidth=920;dlg.setIsResizable(true);
 
     const c1=dlg.addColumn();
@@ -368,8 +377,8 @@ function main(){
     const eShY=gPS.addUnitValueEditor('Strength Y %','none','none',null,-100,100);eShY.value=0;
     const eShA=gPS.addUnitValueEditor('Angle °','none','none',null,-180,180);eShA.value=0;
     const gSF=c2.addGroup('Parameters');
-    const eStr=gSF.addUnitValueEditor('Strength %','none','none',null,-100,100);eStr.value=30;
-    const eFreq=gSF.addUnitValueEditor('Frequency','none','none',null,1,60);eFreq.value=6;
+    const eStr=gSF.addUnitValueEditor('Strength %','none','none',null,-100,100);eStr.value=20;
+    const eFreq=gSF.addUnitValueEditor('Frequency','none','none',null,1,180);eFreq.value=6;
     const gJit=c2.addGroup('Jitter (% of strength)');
     const tJitInfo=gJit.addStaticText('','Method-specific random variation');
     const eJitter=gJit.addUnitValueEditor('Jitter %','none','none',null,0,100);eJitter.value=0;
@@ -377,7 +386,7 @@ function main(){
     const c3=dlg.addColumn();c3.widthProportion=1.4;
     const gBMP=c3.addGroup('Bitmap strength');
     const cbLinkStr=gBMP.addCheckBox('Same strength',true);cbLinkStr.value=true;
-    const eBmpStr=gBMP.addUnitValueEditor('Bitmap %','none','none',null,-100,100);eBmpStr.value=30;
+    const eBmpStr=gBMP.addUnitValueEditor('Bitmap %','none','none',null,-100,100);eBmpStr.value=20;
     const gStack=c3.addGroup('Multiple passes & stacking');
     const ePasses=gStack.addUnitValueEditor('Passes (1–5)','none','none',null,1,5);ePasses.value=1;
     const cbStack=gStack.addCheckBox('2nd method',false);cbStack.value=false;
@@ -415,10 +424,17 @@ function main(){
             jitter:Math.max(0,Math.min(100,eJitter.value)),
         };
     }
-    function doApplyAll(p){
-        for(const node of mutableNodes)applyOneCurve(node,p,p.passes);
-        if(p.useStack){const p2={...p,m:p.m2,str:p.str2,passes:1};for(const node of mutableNodes)applyOneCurve(node,p2,1);}
-        if(p.doBitmap&&bitmapNodes.length>0)for(const node of bitmapNodes)if(BITMAP_OK[p.m])applyBitmapDistortion(node,p.m,p);
+    // v50: calculates everything in memory (call doc.clearPreviews() first so it works from the original)
+    function buildPlan(p){
+        const plan={curves:[],bitmaps:[]};
+        for(const node of mutableNodes){
+            let pc=computeCurve(node,p,p.passes,null);
+            if(p.useStack){const p2={...p,m:p.m2,str:p.str2,passes:1};const pc2=computeCurve(node,p2,1,pc);if(pc2)pc=pc2;}
+            if(pc)plan.curves.push({node,pc});
+        }
+        if(p.doBitmap&&bitmapNodes.length>0&&BITMAP_OK[p.m])
+            for(const node of bitmapNodes){const r=computeBitmap(node,p.m,p);if(r)plan.bitmaps.push(r);}
+        return plan;
     }
     function applyPresetData(data){
         if(!data)return;
@@ -470,30 +486,36 @@ function main(){
         if(deletePreset(path))tI0.setText('Preset deleted');
     });
 
-    // v49: settings of the last shown preview
-    let previewKey=null;
+    // v50: plan and settings of the last shown preview
+    let previewKey=null,previewPlan=null;
 
     while(true){
         const result=dlg.runModal();
         if(!result||result.value===DialogResult.Cancel.value){
-            rollbackTo(posBeforeConvert);   // v49: undo preview + conversion in one go
-            restoreSelection(origNodes);
+            doc.clearPreviews();
+            // v50: only undo the script's own conversion (1 entry, sentinel still present)
+            if(converted&&nodeInDoc(convSentinel))doc.history.undo();
             return;
         }
         const p=readP();
         const key=JSON.stringify(p);
         if(actionBtns.selectedIndex===0){
-            rollbackTo(posBeforeAll);
-            doApplyAll(p);
-            previewKey=key;
+            doc.clearPreviews();
+            try{
+                previewPlan=buildPlan(p);
+                const cmd=makeCommand(previewPlan);
+                if(cmd)doc.executeCommand(cmd,true);
+                previewKey=key;
+            }catch(e){doc.clearPreviews();previewPlan=null;previewKey=null;tI0.setText('Error: '+e.message);}
             continue;
         }
-        // v49: Apply - recalculate if there is no preview or the values changed
-        if(previewKey!==key){
-            rollbackTo(posBeforeAll);
-            doApplyAll(p);
-        }
-        restoreSelection(origNodes);
+        // v50: Apply - take an unchanged preview exactly, otherwise recalculate; ONE entry
+        doc.clearPreviews();
+        try{
+            const plan=(previewKey===key&&previewPlan)?previewPlan:buildPlan(p);
+            const cmd=makeCommand(plan);
+            if(cmd)doc.executeCommand(cmd);
+        }catch(e){app.alert('Error: '+e.message,'Object Distortion');}
         return;
     }
 }

@@ -1,4 +1,4 @@
-// Replace Objects v12
+// Replace Objects v14
 // Replaces the objects of the "target" group (more objects) with duplicates of the objects of
 // the "base" group (fewer objects). Each target object is replaced at its position/size by a
 // duplicate of the assigned base object (the original stays in the base group).
@@ -10,11 +10,20 @@
 // v9:  safe rollback at history position 0, OK recalculates when settings changed.
 // v10: few history steps (duplicating in rounds, one CompoundCommand).
 // v11: GUI split into tabs (pages), as in "Transform Objects" v8.
+// v12: Affinity 3.3.3 - toColour() for gradient stops.
+// v13: performance and robust undo (exactly 2 history steps, undo of its own commands,
+//      placement in spread coordinates, degenerate base objects skipped).
 //
-// v12: Affinity 3.3.3 - gradient.getStop(i).colour now already returns a Colour object;
-//      new Colour(st.colour) produced an invalid colour ("expected ColourHandle"), so objects
-//      with a gradient fill/stroke were silently skipped. New helper toColour() only wraps
-//      when needed (works with older and newer Affinity versions).
+// v14: Matching as in "Transfer Fills and Strokes" (new tab 4 "Match"):
+//   • Match colours: the duplicate's hue is rotated to the hue of the replaced target object
+//     (first colour or first gradient stop, shortest way round the colour wheel).
+//   • Match lightness / saturation: the average of the duplicate's colours is shifted to the
+//     target object's average (gradients: all stops together, spacing is kept).
+//   • Apply to: fill, stroke, or fill and stroke (base channel -> target channel each).
+//   • Matched values replace the colour jitter of that channel; optionally "Also apply colour
+//     jitter". Opacity jitter always applies.
+//   • If the target has no colour in that channel (no fill / bitmap), the jitter stays in effect.
+//   • Target colours are read before deletion; random sequence unchanged compared to v13.
 (function () {
     const { Document } = require('/document');
     const { Selection } = require('/selections');
@@ -30,14 +39,7 @@
     const TITLE = 'Replace Objects';
     const doc = Document.current;
     if (!doc) { app.alert('No document open.', TITLE); return; }
-
-    // Safe rollback - "doc.history.position = 0" throws COMMAND_FAILED.
-    function rollbackTo(pos) {
-        if (doc.history.position === pos) return;
-        try { doc.history.position = pos; } catch (e) { /* position 0: undo loop below */ }
-        let guard = 0;
-        while (doc.history.position > pos && guard++ < 100000) doc.history.undo();
-    }
+    //@@CORE_START
 
     // Collects commands for ONE CompoundCommand (an empty compound throws INVALID_OP)
     function makeBatch() {
@@ -45,7 +47,7 @@
         let count = 0;
         return {
             add(cmd) { builder.addCommand(cmd); count++; },
-            run() { if (count > 0) doc.executeCommand(builder.createCommand()); return count; }
+            build() { return count > 0 ? builder.createCommand() : null; }
         };
     }
 
@@ -54,52 +56,21 @@
     // v12: version-safe wrapping (3.3.3+: already a Colour)
     function toColour(c) { return (c instanceof Colour) ? c : new Colour(c); }
 
-    // Comparison signature for matching duplicate <-> base object
-    function nodeSig(n) {
-        let s = (n[Symbol.toStringTag] || '') + '|';
-        try { const b = n.getSpreadBaseBox(false); s += [b.x, b.y, b.width, b.height].map(v => v.toFixed(2)).join(','); } catch (e) { s += '?'; }
-        try {
-            const fd = n.brushFillDescriptor;
-            if (fd && fd.fill) {
-                s += '|' + fd.fill.fillType.value;
-                if (fd.fill.colour) { const c = fd.fill.colour.rgba8; s += ':' + c.r + ',' + c.g + ',' + c.b + ',' + c.alpha; }
-            }
-        } catch (e) { /* no fill */ }
-        return s;
+    // ---------- v13: matrices / spread coordinates ----------
+    function mMul(A, B) { return [A[0]*B[0]+A[1]*B[3], A[0]*B[1]+A[1]*B[4], A[0]*B[2]+A[1]*B[5]+A[2], A[3]*B[0]+A[4]*B[3], A[3]*B[1]+A[4]*B[4], A[3]*B[2]+A[4]*B[5]+A[5]]; }
+    function spreadMat(node) {
+        const d = node.transform.data; let m = [d[0], d[1], d[2], d[3], d[4], d[5]];
+        let p = node.parent;
+        while (p) { const q = p.transform.data; m = mMul([q[0], q[1], q[2], q[3], q[4], q[5]], m); p = p.parent; }
+        return m;
     }
-
-    // v10: duplicates srcArr[map[t]] for every target t in as few commands as possible.
-    function duplicateRounds(srcArr, map) {
-        const docIdx = srcArr.map(() => -1);
-        let i = 0;
-        for (const l of doc.layers.all) {
-            for (let s = 0; s < srcArr.length; s++) if (docIdx[s] < 0 && l.isSameNode(srcArr[s])) docIdx[s] = i;
-            i++;
-        }
-        const perSrc = srcArr.map(() => []);
-        map.forEach((s, t) => perSrc[s].push(t));
-        let rounds = 0;
-        for (const a of perSrc) rounds = Math.max(rounds, a.length);
-        const dups = new Array(map.length).fill(null);
-        for (let r = 0; r < rounds; r++) {
-            const needed = [];
-            for (let s = 0; s < srcArr.length; s++) if (perSrc[s].length > r) needed.push(s);
-            needed.sort((a, b) => docIdx[a] - docIdx[b]);
-            const cmd = DocumentCommand.createTransform(Selection.create(doc, needed.map(s => srcArr[s])), null, { duplicateNodes: true });
-            doc.executeCommand(cmd);
-            const nn = toArr(cmd.newNodes);
-            let ok = nn.length === needed.length;
-            for (let k = 0; ok && k < nn.length; k++) if (nodeSig(nn[k]) !== nodeSig(srcArr[needed[k]])) ok = false;
-            if (ok) { needed.forEach((s, k) => { dups[perSrc[s][r]] = nn[k]; }); continue; }
-            // Matching not unique -> discard this round and duplicate one by one
-            if (nn.length) doc.executeCommand(DocumentCommand.createDeleteSelection(Selection.create(doc, nn)));
-            for (const s of needed) {
-                const c1 = DocumentCommand.createTransform(Selection.create(doc, [srcArr[s]]), null, { duplicateNodes: true });
-                doc.executeCommand(c1);
-                dups[perSrc[s][r]] = toArr(c1.newNodes)[0] || null;
-            }
-        }
-        return dups;
+    function isAlive(n) {
+        try { let p = n ? n.parent : null; for (let i = 0; p && i < 64; i++) { if ((p[Symbol.toStringTag] || '') === 'SpreadNode') return true; p = p.parent; } } catch (e) { /* dead */ }
+        return false;
+    }
+    function isInside(n, anc) {
+        try { let p = n ? n.parent : null; for (let i = 0; p && i < 64; i++) { if (p.isSameNode(anc)) return true; p = p.parent; } } catch (e) { /* no */ }
+        return false;
     }
 
     // ---------- Helpers ----------
@@ -174,14 +145,51 @@
         return rand(rotMin, rotMax);
     }
 
-    // v10: returns the placement transform (added to the compound)
-    function placeAndJitterTF(node, targetBB, p) {
-        const m = node.transform.data;
+    // ---------- v14: match to the target object (as in "Transfer Fills and Strokes") ----------
+    // Colours of a fill: solid, all gradient stops, hatch line colour; bitmap: none
+    function fillColours(fill) {
+        if (!fill) return [];
+        const ft = fill.fillType.value;
+        if (ft === FillType.Solid.value) return [toColour(fill.colour)];
+        if (ft === FillType.Gradient.value) {
+            const out = [], g = fill.gradient;
+            for (let i = 0; i < g.stopCount; i++) out.push(toColour(g.getStop(i).colour));
+            return out;
+        }
+        if (ft === FillType.Hatch.value) return fill.penColour ? [toColour(fill.penColour)] : [];
+        return [];
+    }
+    function circularHueDeltaDeg(fromH, toH) { let d = toH - fromH; d -= Math.round(d); return d * 360; }
+    function avgSL(a) { let s = 0, l = 0; for (const c of a) { const h = c.hslaf; s += h.s; l += h.l; } return { s: s / a.length, l: l / a.length }; }
+    // Deltas for one channel: matched values replace the jitter (optionally + jitter)
+    function alignedDeltas(srcFD, dstFD, p, pl) {
+        let dh = pl.dh, ds = pl.ds, dl = pl.dl;
+        const sc = fillColours(srcFD && srcFD.fill), tc = fillColours(dstFD && dstFD.fill);
+        if (!sc.length || !tc.length) return { dh, ds, dl };
+        const add = p.alignAddJitter;
+        if (p.alignHue) dh = circularHueDeltaDeg(sc[0].hslaf.h, tc[0].hslaf.h) + (add ? pl.dh : 0);
+        if (p.alignSat || p.alignLum) {
+            const sa = avgSL(sc), ta = avgSL(tc);
+            if (p.alignSat) ds = (ta.s - sa.s) * 100 + (add ? pl.ds : 0);
+            if (p.alignLum) dl = (ta.l - sa.l) * 100 + (add ? pl.dl : 0);
+        }
+        return { dh, ds, dl };
+    }
+    // alignTarget: 0 = fill, 1 = stroke, 2 = fill and stroke
+    function alignChannel(p, usePen) {
+        if (!(p.alignHue || p.alignSat || p.alignLum)) return false;
+        return usePen ? p.alignTarget !== 0 : p.alignTarget !== 1;
+    }
+
+    // v13: placement transform from source data read in advance (spread matrix m, spread
+    // bbox bb) - same random sequence as v12; null for a degenerate matrix.
+    function placeAndJitterTF(si, targetBB, p) {
+        const m = si.m;
         const sx = Math.sqrt(m[0] * m[0] + m[3] * m[3]);
         const sy = Math.sqrt(m[1] * m[1] + m[4] * m[4]);
         const theta = Math.atan2(m[3], m[0]);
 
-        const srcBB = node.getSpreadBaseBox(false);
+        const srcBB = si.bb;
         let fitScaleX = targetBB.width / (srcBB.width || 1);
         let fitScaleY = targetBB.height / (srcBB.height || 1);
         if (p.preserveAspect) {
@@ -271,6 +279,7 @@
         if (usePen) return node.hasPenFill ? node.penFillDescriptor : null;
         return node.hasBrushFill ? node.brushFillDescriptor : null;
     }
+    function safeFD(node, usePen) { try { return getFDFromNode(node, usePen); } catch (e) { return null; } }
     function addFDCommand(batch, node, fd, usePen) {
         if (isTextNode(node)) {
             const delta = usePen ? StoryDelta.createPenFill(fd) : StoryDelta.createBrushFill(fd);
@@ -281,6 +290,156 @@
             batch.add(DocumentCommand.createSetBrushFill(node.selfSelection, fd));
         }
     }
+
+    function jitterOwnFillDescriptor(fd, dh, ds, dl, da) {
+        const fill = fd.fill;
+        const ft = fill.fillType.value;
+        const { GradientFill, BitmapFill } = require('/fills');
+        const { Gradient } = require('/colours');
+        if (ft === FillType.Solid.value) {
+            return FillDescriptor.createSolid(jitterHSL(fill.colour, dh, ds, dl, da), fd.blendMode);
+        }
+        if (ft === FillType.Gradient.value) {
+            const g = fill.gradient;
+            const stops = [];
+            for (let i = 0; i < g.stopCount; i++) {
+                const st = g.getStop(i);
+                const col = toColour(st.colour);
+                stops.push({ colour: jitterHSL(col, dh, ds, dl, da), position: st.position, midpoint: st.midpoint });
+            }
+            const nf = GradientFill.create(Gradient.create(stops), fill.gradientFillType);
+            return FillDescriptor.create(nf, fd.isScaleWithObject, fd.transform, fd.blendMode, fd.isAnchoredToSpread);
+        }
+        if (ft === FillType.Hatch.value) {
+            const nh = fill.clone();
+            if (fill.penColour) nh.penColour = jitterHSL(fill.penColour, dh, ds, dl, da);
+            if (fill.brushColour) nh.brushColour = jitterHSL(fill.brushColour, dh, ds, dl, da);
+            return FillDescriptor.create(nh, fd.isScaleWithObject, fd.transform, fd.blendMode, fd.isAnchoredToSpread);
+        }
+        if (ft === FillType.Bitmap.value) {
+            const needsJitter = !(dh === 0 && ds === 0 && dl === 0 && da === 0);
+            if (!needsJitter) return fd;
+            const { RasterFormat } = require('/rasterobject');
+            const src = fill.bitmap;
+            const w = src.width, h = src.height;
+            const fmt = src.format;
+            const buf = src.createCompatibleBuffer(true);
+            let arr, maxVal;
+            if (fmt === RasterFormat.RGBA8.value) { arr = new Uint8Array(buf.buffer); maxVal = 255; }
+            else if (fmt === RasterFormat.RGBA16.value) { arr = new Uint16Array(buf.buffer); maxVal = 65535; }
+            else if (fmt === RasterFormat.RGBAUF.value) { arr = new Float32Array(buf.buffer); maxVal = 1; }
+            else return fd;
+            const dhFrac = dh / 360, dsFrac = ds / 100, dlFrac = dl / 100, daFrac = da / 100;
+            for (let p = 0; p < w * h; p++) {
+                const o = p * 4;
+                if (arr[o + 3] === 0 && daFrac <= 0) continue;
+                const hsl = rgbToHslJS(arr[o], arr[o + 1], arr[o + 2]);
+                let nhh = hsl.h + dhFrac; nhh -= Math.floor(nhh);
+                const nss = clamp01(hsl.s + dsFrac);
+                const nll = clamp01(hsl.l + dlFrac);
+                const rgb = hslToRgbJS(nhh, nss, nll, maxVal);
+                arr[o] = rgb.r; arr[o + 1] = rgb.g; arr[o + 2] = rgb.b;
+                if (daFrac !== 0) arr[o + 3] = Math.round(clamp01(arr[o + 3] / maxVal + daFrac) * maxVal);
+            }
+            const newBm = src.createCompatibleBitmap(false);
+            buf.copyTo(newBm, { x: 0, y: 0, width: w, height: h }, 0, 0);
+            const newFill = BitmapFill.create(newBm, fill.extendType, fill.upsamplerType, fill.isIgnoreAlpha);
+            return FillDescriptor.create(newFill, fd.isScaleWithObject, fd.transform, fd.blendMode, fd.isAnchoredToSpread);
+        }
+        return fd;
+    }
+
+    // ---------- Apply (v13): 2 history steps ----------
+    // run = { steps: number of executed commands (= history entries), created: created duplicates }
+    function exec(run, cmd) {
+        const pos0 = doc.history.position;
+        try { doc.executeCommand(cmd); run.steps++; }
+        catch (e) { if (doc.history.position > pos0) run.steps++; throw e; }
+    }
+    function doApply(p, run) {
+        setSeed(p.seed);
+        const srcArr = collectChildren(groups.src);
+        const dstArr = collectChildren(groups.dst);
+        const map = buildMapping(srcArr.length, dstArr.length, p.mapMode);
+        const targetBoxes = dstArr.map(d => d.getSpreadBaseBox(false));
+        const srcInfo = srcArr.map(n => {
+            try { return { m: spreadMat(n), bb: n.getSpreadBaseBox(false), brush: getFDFromNode(n, false), pen: getFDFromNode(n, true) }; }
+            catch (e) { return null; }
+        });
+        const alignBrush = alignChannel(p, false), alignPen = alignChannel(p, true);   // v14
+
+        // Phase A: everything computed in JS (same random sequence as v12)
+        const jitterCache = {};
+        const plan = [];
+        let skipped = 0;
+        for (let i = 0; i < dstArr.length; i++) {
+            let dh, ds, dl, da;
+            if (p.sameJitterPerSource) {
+                const key = map[i];
+                if (!(key in jitterCache)) {
+                    jitterCache[key] = {
+                        dh: rand(p.hueMin, p.hueMax), ds: rand(p.satMin, p.satMax),
+                        dl: rand(p.lumMin, p.lumMax), da: rand(p.opacityMin, p.opacityMax)
+                    };
+                }
+                ({ dh, ds, dl, da } = jitterCache[key]);
+            } else {
+                dh = rand(p.hueMin, p.hueMax); ds = rand(p.satMin, p.satMax);
+                dl = rand(p.lumMin, p.lumMax); da = rand(p.opacityMin, p.opacityMax);
+            }
+            const si = srcInfo[map[i]];
+            if (!si) { skipped++; continue; }
+            let tf = null;
+            try { tf = placeAndJitterTF(si, targetBoxes[i], p); } catch (e) { tf = null; }
+            if (!tf) { skipped++; continue; }
+            // v14: read target colours before deletion
+            const dBrush = alignBrush ? safeFD(dstArr[i], false) : null;
+            const dPen = alignPen ? safeFD(dstArr[i], true) : null;
+            plan.push({ i, s: map[i], tf, dh, ds, dl, da, dBrush, dPen });
+        }
+        if (!plan.length) return skipped;
+
+        // Step 1: all duplicates directly in place, in ONE compound
+        const b1 = makeBatch();
+        for (const pl of plan) b1.add(DocumentCommand.createTransform(Selection.create(doc, [srcArr[pl.s]]), pl.tf, { duplicateNodes: true }));
+        const c1 = b1.build();
+        exec(run, c1);
+        const dups = toArr(c1.newNodes);
+        for (const d of dups) run.created.push(d);
+        if (dups.length !== plan.length) throw new Error('Duplicates: ' + dups.length + ' instead of ' + plan.length);
+
+        // Step 2: colour, place before the target, delete the target - ONE compound (order as v12)
+        const b2 = makeBatch();
+        for (let k = 0; k < plan.length; k++) {
+            const pl = plan[k], dup = dups[k], si = srcInfo[pl.s], dst = dstArr[pl.i];
+            try {
+                if (si.brush) {
+                    const d = alignBrush ? alignedDeltas(si.brush, pl.dBrush, p, pl) : pl;   // v14
+                    addFDCommand(b2, dup, jitterOwnFillDescriptor(si.brush, d.dh, d.ds, d.dl, pl.da), false);
+                }
+            } catch (e) { /* fill not changeable: duplicate keeps its original colour */ }
+            try {
+                if (si.pen) {
+                    const d = alignPen ? alignedDeltas(si.pen, pl.dPen, p, pl) : pl;          // v14
+                    addFDCommand(b2, dup, jitterOwnFillDescriptor(si.pen, d.dh, d.ds, d.dl, pl.da), true);
+                }
+            } catch (e) { /* stroke not changeable: duplicate keeps its original colour */ }
+            b2.add(DocumentCommand.createMoveNodes(dup.selfSelection, dst, NodeMoveType.Before, NodeChildType.Main));
+            b2.add(DocumentCommand.createDeleteSelection(dst.selfSelection));
+        }
+        exec(run, b2.build());
+        return skipped;
+    }
+
+    // Undo of a run: exactly the commands executed by the run itself (one history entry each) -
+    // independent of doc.history.position, which stops counting with a full history.
+    // Afterwards only created duplicates that remained in the base group are removed.
+    function rollback(run) {
+        for (let i = 0; i < run.steps; i++) { try { doc.history.undo(); } catch (e) { break; } }
+        for (const n of run.created) { try { if (isAlive(n) && isInside(n, groups.src)) n.delete(); } catch (e) { /* ignore */ } }
+        run.steps = 0; run.created = [];
+    }
+    //@@CORE_END
 
     // ---------- Determine groups ----------
     function findGroups() {
@@ -302,14 +461,18 @@
     const srcCount = collectChildren(groups.src).length;
     const dstCount = collectChildren(groups.dst).length;
 
-    const originalSrcChildren = collectChildren(groups.src);
-
+    // v13: reset only if the selection changed
     function resetToGroupSelection() {
+        try {
+            const cur = doc.selection.nodes.toArray();
+            if (cur.length === 2 && ((cur[0].isSameNode(groups.src) && cur[1].isSameNode(groups.dst)) ||
+                                     (cur[0].isSameNode(groups.dst) && cur[1].isSameNode(groups.src)))) return;
+        } catch (e) { /* if in doubt, reset */ }
         doc.executeCommand(DocumentCommand.createSetSelection(Selection.create(doc, [groups.src, groups.dst])));
     }
 
-    // ---------- Dialog (v11: tabbed GUI) ----------
-    const PAGE_TITLES = ['1  Assignment', '2  Colour jitter', '3  Geometry jitter'];
+    // ---------- Dialog (v11: tabbed GUI, v14: 4 tabs) ----------
+    const PAGE_TITLES = ['1  Assignment', '2  Colour jitter', '3  Geometry jitter', '4  Match'];
     const dlg = Dialog.create(TITLE);
     dlg.initialWidth = 1000;
     dlg.setIsResizable(true);
@@ -381,7 +544,18 @@
     const edSizePctMin = gSizePct.addUnitValueEditor('Min', UnitType.Percentage, UnitType.Percentage, null, -100, 500); edSizePctMin.value = 0;
     const edSizePctMax = gSizePct.addUnitValueEditor('Max', UnitType.Percentage, UnitType.Percentage, null, -100, 500); edSizePctMax.value = 0;
 
+    // Page 4: Match (v14)
+    const gAlign = pageGroup(3, cA, 'Match to target object');
+    const cbAlignHue = gAlign.addCheckBox('Match colours (hue to target)', false);
+    const cbAlignLum = gAlign.addCheckBox('Match lightness (avg. to target)', false);
+    const cbAlignSat = gAlign.addCheckBox('Match saturation (avg. to target)', false);
+    const cbAlignAdd = gAlign.addCheckBox('Also apply colour jitter', false);
+    const gAlignTo = pageGroup(3, cB, 'Apply matching to');
+    const rgAlignTarget = gAlignTo.addRadioGroup('', ['Fill', 'Stroke', 'Fill and stroke'], 2);
+    gAlignTo.addStaticText('', 'Reference is the colour of the replaced target object\n(fill -> fill, stroke -> stroke).\nWithout a target colour the colour jitter stays in effect.');
+
     rNav.selectedIndex = 0;
+    rgAlignTarget.selectedIndex = 2;
     showPage(0);
     try { rNav.setOnValueChangedHandler(() => { showPage(rNav.selectedIndex); }); } catch (e) { /* ignore */ }
 
@@ -401,7 +575,12 @@
             rotMin: edRotMin.value, rotMax: edRotMax.value,
             rotIncrement: edRotInc.value,
             sizePxMin: edSizePxMin.value, sizePxMax: edSizePxMax.value,
-            sizePctMin: edSizePctMin.value, sizePctMax: edSizePctMax.value
+            sizePctMin: edSizePctMin.value, sizePctMax: edSizePctMax.value,
+            alignHue: cbAlignHue.value,
+            alignLum: cbAlignLum.value,
+            alignSat: cbAlignSat.value,
+            alignAddJitter: cbAlignAdd.value,
+            alignTarget: rgAlignTarget.selectedIndex
         };
     }
 
@@ -444,6 +623,11 @@
         if (p.sizePxMax != null) edSizePxMax.value = p.sizePxMax;
         if (p.sizePctMin != null) edSizePctMin.value = p.sizePctMin;
         if (p.sizePctMax != null) edSizePctMax.value = p.sizePctMax;
+        if (p.alignHue != null) cbAlignHue.value = p.alignHue;
+        if (p.alignLum != null) cbAlignLum.value = p.alignLum;
+        if (p.alignSat != null) cbAlignSat.value = p.alignSat;
+        if (p.alignAddJitter != null) cbAlignAdd.value = p.alignAddJitter;
+        if (p.alignTarget != null) rgAlignTarget.selectedIndex = p.alignTarget;
     }
 
     function getPresetDir() {
@@ -480,152 +664,36 @@
         }
     }
 
-    // ---------- Apply ----------
-    function jitterOwnFillDescriptor(fd, dh, ds, dl, da) {
-        const fill = fd.fill;
-        const ft = fill.fillType.value;
-        const { GradientFill, BitmapFill } = require('/fills');
-        const { Gradient } = require('/colours');
-        if (ft === FillType.Solid.value) {
-            return FillDescriptor.createSolid(jitterHSL(fill.colour, dh, ds, dl, da), fd.blendMode);
-        }
-        if (ft === FillType.Gradient.value) {
-            const g = fill.gradient;
-            const stops = [];
-            for (let i = 0; i < g.stopCount; i++) {
-                const st = g.getStop(i);
-                const col = toColour(st.colour);
-                stops.push({ colour: jitterHSL(col, dh, ds, dl, da), position: st.position, midpoint: st.midpoint });
-            }
-            const nf = GradientFill.create(Gradient.create(stops), fill.gradientFillType);
-            return FillDescriptor.create(nf, fd.isScaleWithObject, fd.transform, fd.blendMode, fd.isAnchoredToSpread);
-        }
-        if (ft === FillType.Hatch.value) {
-            const nh = fill.clone();
-            if (fill.penColour) nh.penColour = jitterHSL(fill.penColour, dh, ds, dl, da);
-            if (fill.brushColour) nh.brushColour = jitterHSL(fill.brushColour, dh, ds, dl, da);
-            return FillDescriptor.create(nh, fd.isScaleWithObject, fd.transform, fd.blendMode, fd.isAnchoredToSpread);
-        }
-        if (ft === FillType.Bitmap.value) {
-            const needsJitter = !(dh === 0 && ds === 0 && dl === 0 && da === 0);
-            if (!needsJitter) return fd;
-            const { RasterFormat } = require('/rasterobject');
-            const src = fill.bitmap;
-            const w = src.width, h = src.height;
-            const fmt = src.format;
-            const buf = src.createCompatibleBuffer(true);
-            let arr, maxVal;
-            if (fmt === RasterFormat.RGBA8.value) { arr = new Uint8Array(buf.buffer); maxVal = 255; }
-            else if (fmt === RasterFormat.RGBA16.value) { arr = new Uint16Array(buf.buffer); maxVal = 65535; }
-            else if (fmt === RasterFormat.RGBAUF.value) { arr = new Float32Array(buf.buffer); maxVal = 1; }
-            else return fd;
-            const dhFrac = dh / 360, dsFrac = ds / 100, dlFrac = dl / 100, daFrac = da / 100;
-            for (let p = 0; p < w * h; p++) {
-                const o = p * 4;
-                if (arr[o + 3] === 0 && daFrac <= 0) continue;
-                const hsl = rgbToHslJS(arr[o], arr[o + 1], arr[o + 2]);
-                let nhh = hsl.h + dhFrac; nhh -= Math.floor(nhh);
-                const nss = clamp01(hsl.s + dsFrac);
-                const nll = clamp01(hsl.l + dlFrac);
-                const rgb = hslToRgbJS(nhh, nss, nll, maxVal);
-                arr[o] = rgb.r; arr[o + 1] = rgb.g; arr[o + 2] = rgb.b;
-                if (daFrac !== 0) arr[o + 3] = Math.round(clamp01(arr[o + 3] / maxVal + daFrac) * maxVal);
-            }
-            const newBm = src.createCompatibleBitmap(false);
-            buf.copyTo(newBm, { x: 0, y: 0, width: w, height: h }, 0, 0);
-            const newFill = BitmapFill.create(newBm, fill.extendType, fill.upsamplerType, fill.isIgnoreAlpha);
-            return FillDescriptor.create(newFill, fd.isScaleWithObject, fd.transform, fd.blendMode, fd.isAnchoredToSpread);
-        }
-        return fd;
-    }
-
-    function doApply(p) {
-        setSeed(p.seed);
-        const srcArr = collectChildren(groups.src);
-        const dstArr = collectChildren(groups.dst);
-        const map = buildMapping(srcArr.length, dstArr.length, p.mapMode);
-        const targetBoxes = dstArr.map(d => d.getSpreadBaseBox(false));
-
-        // Step 1: create all duplicates in few commands
-        const dups = duplicateRounds(srcArr, map);
-
-        // Step 2: place, colour, reorder and delete in ONE CompoundCommand
-        const batch = makeBatch();
-        const jitterCache = {};
-        let skipped = 0;
-        for (let i = 0; i < dstArr.length; i++) {
-            try {
-                const dst = dstArr[i];
-                const dup = dups[i];
-                let dh, ds, dl, da;
-                if (p.sameJitterPerSource) {
-                    const key = map[i];
-                    if (!(key in jitterCache)) {
-                        jitterCache[key] = {
-                            dh: rand(p.hueMin, p.hueMax), ds: rand(p.satMin, p.satMax),
-                            dl: rand(p.lumMin, p.lumMax), da: rand(p.opacityMin, p.opacityMax)
-                        };
-                    }
-                    ({ dh, ds, dl, da } = jitterCache[key]);
-                } else {
-                    dh = rand(p.hueMin, p.hueMax); ds = rand(p.satMin, p.satMax);
-                    dl = rand(p.lumMin, p.lumMax); da = rand(p.opacityMin, p.opacityMax);
-                }
-                if (!dup) throw new Error('no duplicate');
-
-                const tf = placeAndJitterTF(dup, targetBoxes[i], p);
-                if (tf) batch.add(DocumentCommand.createTransform(dup.selfSelection, tf));
-
-                const fd = getFDFromNode(dup, false);
-                if (fd) addFDCommand(batch, dup, jitterOwnFillDescriptor(fd, dh, ds, dl, da), false);
-                const pfd = getFDFromNode(dup, true);
-                if (pfd) addFDCommand(batch, dup, jitterOwnFillDescriptor(pfd, dh, ds, dl, da), true);
-
-                batch.add(DocumentCommand.createMoveNodes(dup.selfSelection, dst, NodeMoveType.Before, NodeChildType.Main));
-                batch.add(DocumentCommand.createDeleteSelection(dst.selfSelection));
-            } catch (e) {
-                skipped++;
-            }
-        }
-        batch.run();
-        return skipped;
-    }
-
     // ---------- Dialog (ONE runModal() call) ----------
-    const basePos = doc.history.position;
-
-    function cleanupBasisLeaks() {
-        const current = collectChildren(groups.src);
-        for (const ch of current) {
-            let isOriginal = false;
-            for (const orig of originalSrcChildren) {
-                if (ch.isSameNode(orig)) { isOriginal = true; break; }
-            }
-            if (!isOriginal) {
-                try { doc.executeCommand(DocumentCommand.createDeleteSelection(ch.selfSelection)); } catch (e) { /* ignore */ }
-            }
-        }
-    }
-
-    function undoToBase() {
-        rollbackTo(basePos);
-        cleanupBasisLeaks();
-    }
-
-    let hasPreviewed = false;
+    let preview = null;          // run of the currently visible preview
     let previewKey = null;
+    let previewSeed = 0;         // v13: seed drawn for seed 0
+
+    function discardPreview() {
+        if (preview) rollback(preview);
+        preview = null; previewKey = null;
+    }
+    function effective(p) {
+        const q = Object.assign({}, p);
+        if (!q.seed) q.seed = 1 + Math.floor(Math.random() * 999999);
+        return q;
+    }
+    // One run; completely undone on error
+    function runOnce(q) {
+        const run = { steps: 0, created: [] };
+        try { run.skipped = doApply(q, run); return run; }
+        catch (e) { rollback(run); throw e; }
+    }
 
     function updatePreview() {
-        undoToBase();
-        hasPreviewed = false;
-        previewKey = null;
+        discardPreview();
         try {
             const p = fixMinMax(readParams());
-            doApply(p);
-            hasPreviewed = true;
-            previewKey = JSON.stringify(p);
+            const q = effective(p);
+            preview = runOnce(q);
+            previewKey = JSON.stringify(p); previewSeed = q.seed;
         } catch (e) {
-            undoToBase();
+            preview = null;
             app.alert('Error: ' + e.message, TITLE);
         }
     }
@@ -637,20 +705,20 @@
     const result = dlg.runModal();
 
     if (!result || result.value === DialogResult.Cancel.value) {
-        undoToBase();
+        discardPreview();
     } else {
         const p = fixMinMax(readParams());
-        if (!(hasPreviewed && previewKey === JSON.stringify(p))) {
-            if (hasPreviewed) undoToBase();
+        if (preview && previewKey === JSON.stringify(p)) {
+            if (preview.skipped > 0) app.alert(preview.skipped + ' object(s) could not be replaced and were skipped.', TITLE);
+        } else {
+            discardPreview();
             try {
-                const skipped = doApply(p);
-                if (skipped > 0) app.alert(skipped + ' object(s) could not be replaced and were skipped.', TITLE);
+                const run = runOnce(effective(p));
+                if (run.skipped > 0) app.alert(run.skipped + ' object(s) could not be replaced and were skipped.', TITLE);
             } catch (e) {
-                undoToBase();
                 app.alert('Error: ' + e.message, TITLE);
             }
         }
-        cleanupBasisLeaks();
         try { resetToGroupSelection(); } catch (e) { /* selection optional */ }
     }
 })();

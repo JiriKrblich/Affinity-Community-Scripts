@@ -1,4 +1,4 @@
-// Randomize Objects v12 (EN)
+// Randomize Objects v13 (EN)
 // Applies random jitter directly to the currently selected objects (a group of objects OR
 // single objects, also mixed). There is NO transfer between two groups - each object keeps
 // its own shape/fill/stroke, only the values are varied randomly:
@@ -11,11 +11,19 @@
 // v9:  safe rollback at history position 0, OK recalculates when settings changed.
 // v10: a pass is ONE history step (CompoundCommand).
 // v11: GUI split into tabs (pages), as in "Transform Objects" v8.
+// v12: Affinity 3.3.3 - toColour() for gradient stops.
 //
-// v12: Affinity 3.3.3 - gradient.getStop(i).colour now already returns a Colour object;
-//      new Colour(st.colour) produced an invalid colour ("expected ColourHandle"), so objects
-//      with a gradient fill/stroke were silently skipped. New helper toColour() only wraps
-//      when needed (works with older and newer Affinity versions).
+// v13: robust preview and performance (result unchanged, compared live against v12):
+//   • Native preview (executeCommand(cmd, true)) instead of real execution and rewinding - the
+//     history stays untouched. v12 rewound to the start position; with a full history the
+//     preview stayed, the next one was applied to the already changed objects and Cancel undid
+//     nothing. Fallback with exactly one undo.
+//   • Seed 0: the seed drawn for the preview is reused on OK - the result is exactly the
+//     preview shown.
+//   • Fills, matrices and boxes per object are read only once instead of on every preview.
+//   • Geometry in spread coordinates (previously parent-local: in rotated groups with unequal
+//     X/Y size, rotation/size were distorted).
+//   • The selection is only reset if it actually changed (no superfluous history entry).
 (function () {
     const { Document } = require('/document');
     const { Selection } = require('/selections');
@@ -31,22 +39,15 @@
     const TITLE = 'Randomize Objects';
     const doc = Document.current;
     if (!doc) { app.alert('No document open.', TITLE); return; }
+    //@@CORE_START
 
-    // Safe rollback - "doc.history.position = 0" throws COMMAND_FAILED.
-    function rollbackTo(pos) {
-        if (doc.history.position === pos) return;
-        try { doc.history.position = pos; } catch (e) { /* position 0: undo loop below */ }
-        let guard = 0;
-        while (doc.history.position > pos && guard++ < 100000) doc.history.undo();
-    }
-
-    // v10: collects commands for ONE CompoundCommand (an empty compound throws INVALID_OP)
+    // collects commands for ONE CompoundCommand (an empty compound throws INVALID_OP)
     function makeBatch() {
         const builder = CompoundCommandBuilder.create();
         let count = 0;
         return {
             add(cmd) { builder.addCommand(cmd); count++; },
-            run() { if (count > 0) doc.executeCommand(builder.createCommand()); return count; }
+            build() { return count > 0 ? builder.createCommand() : null; }
         };
     }
 
@@ -206,10 +207,21 @@
         return rand(rotMin, rotMax);
     }
 
-    function addGeoJitter(batch, node, dxPx, dyPx, dRotDeg, scaleFactorX, scaleFactorY) {
+    // ---------- v13: geometry in spread coordinates ----------
+    function mMul(A, B) { return [A[0]*B[0]+A[1]*B[3], A[0]*B[1]+A[1]*B[4], A[0]*B[2]+A[1]*B[5]+A[2], A[3]*B[0]+A[4]*B[3], A[3]*B[1]+A[4]*B[4], A[3]*B[2]+A[4]*B[5]+A[5]]; }
+    function spreadMat(node) {
+        const d = node.transform.data; let m = [d[0], d[1], d[2], d[3], d[4], d[5]];
+        let p = node.parent;
+        while (p) { const q = p.transform.data; m = mMul([q[0], q[1], q[2], q[3], q[4], q[5]], m); p = p.parent; }
+        return m;
+    }
+    // v13: as v12, but with the spread matrix (createTransform works in spread coordinates).
+    // v12 used the parent-local matrix - with a rotated parent group of unequal X/Y size,
+    // rotation/size were distorted. Identical for unrotated/uniformly scaled groups.
+    function addGeoJitter(batch, base, dxPx, dyPx, dRotDeg, scaleFactorX, scaleFactorY) {
         if (dxPx === 0 && dyPx === 0 && dRotDeg === 0 &&
             Math.abs(scaleFactorX - 1) < 1e-9 && Math.abs(scaleFactorY - 1) < 1e-9) return 0;
-        const m = node.transform.data;
+        const m = base.m;
         const sx = Math.sqrt(m[0] * m[0] + m[3] * m[3]);
         const sy = Math.sqrt(m[1] * m[1] + m[4] * m[4]);
         const theta = Math.atan2(m[3], m[0]);
@@ -222,7 +234,7 @@
         const inv11 = m[4] / det, inv12 = -m[1] / det, inv21 = -m[3] / det, inv22 = m[0] / det;
         const d11 = m11z * inv11 + m12z * inv21, d12 = m11z * inv12 + m12z * inv22;
         const d21 = m21z * inv11 + m22z * inv21, d22 = m21z * inv12 + m22z * inv22;
-        const bb = node.getSpreadBaseBox(false);
+        const bb = base.bb;
         const rcx = bb.x + bb.width / 2, rcy = bb.y + bb.height / 2;
         let tx = rcx - (d11 * rcx + d12 * rcy);
         let ty = rcy - (d21 * rcx + d22 * rcy);
@@ -230,7 +242,7 @@
         const tf = Transform.createIdentity();
         const d = tf.data;
         d[0] = d11; d[1] = d12; d[2] = tx; d[3] = d21; d[4] = d22; d[5] = ty;
-        batch.add(DocumentCommand.createTransform(node.selfSelection, tf));
+        batch.add(DocumentCommand.createTransform(base.node.selfSelection, tf));
         return 1;
     }
 
@@ -251,9 +263,91 @@
 
     const originalSelectionNodes = [];
     for (let i = 0; i < doc.selection.length; i++) originalSelectionNodes.push(doc.selection.at(i).node);
+    // v13: reset the selection only if it actually changed
     function resetToOriginalSelection() {
+        try {
+            const cur = doc.selection.nodes.toArray();
+            let same = cur.length === originalSelectionNodes.length;
+            for (let i = 0; same && i < cur.length; i++) if (!cur[i].isSameNode(originalSelectionNodes[i])) same = false;
+            if (same) return;
+        } catch (e) { /* if in doubt, reset */ }
         doc.executeCommand(DocumentCommand.createSetSelection(Selection.create(doc, originalSelectionNodes)));
     }
+
+    // v13: read the source data per target only once (fills, spread matrix, bbox). Valid because
+    // every preview is computed from the unchanged state.
+    const baseCache = new Map();
+    function baseData(group) {
+        let list = baseCache.get(group);
+        if (list) return list;
+        list = collectTargets(group === 'geoGroup').map(node => {
+            const b = { node, brush: null, pen: null, m: null, bb: null, err: false };
+            if (group === 'colour') {
+                try { b.brush = getFDFromNode(node, false); b.pen = getFDFromNode(node, true); } catch (e) { b.err = true; }
+            } else {
+                try { b.m = spreadMat(node); b.bb = node.getSpreadBaseBox(false); } catch (e) { b.err = true; }
+            }
+            return b;
+        });
+        baseCache.set(group, list);
+        return list;
+    }
+
+    // ---------- Build command (v13: ONE CompoundCommand, not executed here) ----------
+    function buildCommand(p) {
+        setSeed(p.seed);
+        let skipped = 0;
+        const batch = makeBatch();
+
+        for (const b of baseData('colour')) {
+            const dh = rand(p.hueMin, p.hueMax);
+            const ds = rand(p.satMin, p.satMax);
+            const dl = rand(p.lumMin, p.lumMax);
+            const da = rand(p.opacityMin, p.opacityMax);
+            if (b.err) { skipped++; continue; }
+            try {
+                if ((p.colorMode === 0 || p.colorMode === 2) && b.brush) addFDCommand(batch, b.node, jitterOwnFillDescriptor(b.brush, dh, ds, dl, da), false);
+                if ((p.colorMode === 1 || p.colorMode === 2) && b.pen) addFDCommand(batch, b.node, jitterOwnFillDescriptor(b.pen, dh, ds, dl, da), true);
+            } catch (e) {
+                skipped++;
+            }
+        }
+
+        if (p.geoJitter) {
+            for (const b of baseData(p.treatGroupAsObject ? 'geoGroup' : 'geo')) {
+                if (b.err) { skipped++; continue; }
+                try {
+                    const bb = b.bb;
+                    const refDim = (bb.width + bb.height) / 2;
+                    const dxPx = rand(p.posXMin, p.posXMax);
+                    const dyPx = rand(p.posYMin, p.posYMax);
+                    const dRot = jitterRotation(p.rotMin, p.rotMax, p.rotIncrement);
+
+                    let scaleFactorX, scaleFactorY;
+                    if (p.preserveAspect) {
+                        const dSizePx = rand(p.sizePxXMin, p.sizePxXMax);
+                        const dSizePct = rand(p.sizePctXMin, p.sizePctXMax);
+                        const sf = (1 + dSizePct / 100) * (1 + (refDim > 0 ? dSizePx / refDim : 0));
+                        scaleFactorX = sf; scaleFactorY = sf;
+                    } else {
+                        const dSizePxX = rand(p.sizePxXMin, p.sizePxXMax);
+                        const dSizePctX = rand(p.sizePctXMin, p.sizePctXMax);
+                        scaleFactorX = (1 + dSizePctX / 100) * (1 + (refDim > 0 ? dSizePxX / refDim : 0));
+                        const dSizePxY = rand(p.sizePxYMin, p.sizePxYMax);
+                        const dSizePctY = rand(p.sizePctYMin, p.sizePctYMax);
+                        scaleFactorY = (1 + dSizePctY / 100) * (1 + (refDim > 0 ? dSizePxY / refDim : 0));
+                    }
+
+                    addGeoJitter(batch, b, dxPx, dyPx, dRot, scaleFactorX, scaleFactorY);
+                } catch (e) {
+                    skipped++;
+                }
+            }
+        }
+
+        return { cmd: batch.build(), skipped };
+    }
+    //@@CORE_END
 
     const initialTargets = collectTargets(false);
     if (initialTargets.length === 0) {
@@ -449,90 +543,45 @@
         }
     }
 
-    // ---------- Apply (v10: everything in ONE CompoundCommand) ----------
-    function doApply(p) {
-        setSeed(p.seed);
-        let skipped = 0;
-        const batch = makeBatch();
 
-        const colorTargets = collectTargets(false);
-        const geoTargets = p.geoJitter ? collectTargets(p.treatGroupAsObject) : [];
-
-        for (const node of colorTargets) {
-            try {
-                const dh = rand(p.hueMin, p.hueMax);
-                const ds = rand(p.satMin, p.satMax);
-                const dl = rand(p.lumMin, p.lumMax);
-                const da = rand(p.opacityMin, p.opacityMax);
-
-                if (p.colorMode === 0 || p.colorMode === 2) {
-                    const fd = getFDFromNode(node, false);
-                    if (fd) addFDCommand(batch, node, jitterOwnFillDescriptor(fd, dh, ds, dl, da), false);
-                }
-                if (p.colorMode === 1 || p.colorMode === 2) {
-                    const pfd = getFDFromNode(node, true);
-                    if (pfd) addFDCommand(batch, node, jitterOwnFillDescriptor(pfd, dh, ds, dl, da), true);
-                }
-            } catch (e) {
-                skipped++;
-            }
-        }
-
-        if (p.geoJitter) {
-            for (const node of geoTargets) {
-                try {
-                    const bb = node.getSpreadBaseBox(false);
-                    const refDim = (bb.width + bb.height) / 2;
-                    const dxPx = rand(p.posXMin, p.posXMax);
-                    const dyPx = rand(p.posYMin, p.posYMax);
-                    const dRot = jitterRotation(p.rotMin, p.rotMax, p.rotIncrement);
-
-                    let scaleFactorX, scaleFactorY;
-                    if (p.preserveAspect) {
-                        const dSizePx = rand(p.sizePxXMin, p.sizePxXMax);
-                        const dSizePct = rand(p.sizePctXMin, p.sizePctXMax);
-                        const sf = (1 + dSizePct / 100) * (1 + (refDim > 0 ? dSizePx / refDim : 0));
-                        scaleFactorX = sf; scaleFactorY = sf;
-                    } else {
-                        const dSizePxX = rand(p.sizePxXMin, p.sizePxXMax);
-                        const dSizePctX = rand(p.sizePctXMin, p.sizePctXMax);
-                        scaleFactorX = (1 + dSizePctX / 100) * (1 + (refDim > 0 ? dSizePxX / refDim : 0));
-                        const dSizePxY = rand(p.sizePxYMin, p.sizePxYMax);
-                        const dSizePctY = rand(p.sizePctYMin, p.sizePctYMax);
-                        scaleFactorY = (1 + dSizePctY / 100) * (1 + (refDim > 0 ? dSizePxY / refDim : 0));
-                    }
-
-                    addGeoJitter(batch, node, dxPx, dyPx, dRot, scaleFactorX, scaleFactorY);
-                } catch (e) {
-                    skipped++;
-                }
-            }
-        }
-
-        batch.run();
-        return skipped;
-    }
-
-    // ---------- Dialog (ONE runModal() call) ----------
-    const basePos = doc.history.position;
-    function undoToBase() {
-        rollbackTo(basePos);
-    }
-
-    let hasPreviewed = false;
+    // ---------- Preview (v13) ----------
+    // Normal case: native preview (executeCommand(cmd, true) / clearPreviews) - does not touch the
+    // history. v12 executed the preview for real and rewound to the start position: with a full
+    // history the position stops counting, the preview then stayed, the next one was applied to
+    // the already changed objects, and Cancel undid nothing.
+    // Fallback (if the native preview rejects the command): real execution as ONE compound,
+    // discarded with exactly ONE undo.
+    let previewMode = 0;         // 0 = none, 1 = native, 2 = executed for real
     let previewKey = null;
+    let previewSeed = 0;         // v13: seed drawn for seed 0 - OK reproduces the preview exactly
+    function undoIfAdvanced(pos0) { try { if (doc.history.position > pos0) doc.history.undo(); } catch (e) {} }
+    function clearPreview() {
+        if (previewMode === 1) { try { doc.clearPreviews(); } catch (e) {} }
+        else if (previewMode === 2) { try { doc.history.undo(); } catch (e) {} }
+        previewMode = 0; previewKey = null;
+    }
+    function effective(p) {
+        const q = Object.assign({}, p);
+        if (!q.seed) q.seed = 1 + Math.floor(Math.random() * 999999);
+        return q;
+    }
 
     function updatePreview() {
-        undoToBase();
-        hasPreviewed = false;
-        previewKey = null;
+        clearPreview();
         try {
             const p = fixMinMax(readParams());
-            doApply(p);
-            hasPreviewed = true;
-            previewKey = JSON.stringify(p);
+            const q = effective(p);
+            const r = buildCommand(q);
+            if (!r.cmd) return;
+            try { doc.executeCommand(r.cmd, true); previewMode = 1; }
+            catch (e) {
+                try { doc.clearPreviews(); } catch (e1) {}
+                const pos0 = doc.history.position;
+                try { doc.executeCommand(buildCommand(q).cmd); previewMode = 2; }
+                catch (e2) { undoIfAdvanced(pos0); throw e2; }
+            }
+            previewKey = JSON.stringify(p); previewSeed = q.seed;
         } catch (e) {
-            undoToBase();
             app.alert('Error: ' + e.message, TITLE);
         }
     }
@@ -544,17 +593,21 @@
     const result = dlg.runModal();
 
     if (!result || result.value === DialogResult.Cancel.value) {
-        undoToBase();
+        clearPreview();
         try { resetToOriginalSelection(); } catch (e) { /* selection optional */ }
     } else {
         const p = fixMinMax(readParams());
-        if (!(hasPreviewed && previewKey === JSON.stringify(p))) {
-            if (hasPreviewed) undoToBase();
+        const same = previewMode > 0 && previewKey === JSON.stringify(p);
+        if (!(same && previewMode === 2)) {        // a matching preview executed for real stays as it is
+            const q = same ? Object.assign({}, p, { seed: previewSeed }) : effective(p);
+            clearPreview();
+            const pos0 = doc.history.position;
             try {
-                const skipped = doApply(p);
-                if (skipped > 0) app.alert(skipped + ' object(s) could not be processed and were skipped.', TITLE);
+                const r = buildCommand(q);
+                if (r.cmd) doc.executeCommand(r.cmd);
+                if (r.skipped > 0) app.alert(r.skipped + ' object(s) could not be processed and were skipped.', TITLE);
             } catch (e) {
-                undoToBase();
+                undoIfAdvanced(pos0);
                 app.alert('Error: ' + e.message, TITLE);
             }
         }

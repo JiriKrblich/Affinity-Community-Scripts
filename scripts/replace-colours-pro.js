@@ -1,18 +1,24 @@
 
 'use strict';
 // ═══════════════════════════════════════════════════════════════════════════════
-// Replace Colours PRO (v24) — English version of "Farben ersetzen PRO v24"
+// Replace Colours PRO (v25) — English version of "Farben ersetzen PRO v25"
 //
-// Changes vs. v23 (Affinity 3.3.3):
-//  - Gradient stops already return a Colour object in 3.3.3; new Colour(s.colour) threw
-//    "expected ColourHandle". Consequences: "Replace gradient fills" silently did nothing,
-//    and the gradient snapshot/self-heal after rollback was ineffective.
-//    New: toColour() in snapshotFills(), verifyFills() and addGradientCommand().
-//  - File.create() instead of new File() for preset save and mapping export.
-//  Otherwise unchanged vs. v23.
-// v23: robust rollback (falls back to step-wise history.undo() at position 0).
-// v22: all fill/stroke/text changes in ONE CompoundCommand; hatches and gradients are
-//      verified/healed after every rollback against a snapshot.
+// Changes vs. v24 (result unchanged, compared live against v24):
+//  - ALL changes (bitmaps AND fill/stroke/gradient/hatch/text) in ONE compound command
+//    = one history entry (v24: an extra entry per bitmap).
+//  - Native preview (preview command + clearPreviews): the history is left untouched.
+//    Fallback if the native preview is not possible: real execution, discarded with exactly
+//    ONE undo. v24 reset the history position - with a full history (2048 entries) the
+//    preview stayed and the next one was applied on top of already replaced colours, also on
+//    cancel. The gradient/hatch self-heal stays as a safety net (live: clearPreviews restores
+//    gradients exactly as well).
+//  - Colour lookup: cache with a numeric key instead of a string per pixel, Lab of the source
+//    colour computed once instead of per target colour. Live 1366x2048 bitmap + 126 objects:
+//    4.4 s -> 2.6 s (best match) and 2.9 s -> 1.2 s (tolerance 40 + lightness variants),
+//    pixel-identical.
+// v24: toColour() for gradient stops (3.3.3); File.create() for preset and mapping export.
+// v23: robust rollback. v22: fill/stroke/text changes in one CompoundCommand; hatches and
+//      gradients are verified/healed after every rollback.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const { Document }                            = require('/document');
@@ -61,8 +67,8 @@ function rgbToLab(r,g,b){
     const fx=f(X),fy=f(Y),fz=f(Z);
     return{L:116*fy-16,a:500*(fx-fy),b:200*(fy-fz)};
 }
-function deltaELab(r1,g1,b1,lab2,hueWeight){
-    const l1=rgbToLab(r1,g1,b1);
+// v25: Lab of the source colour is passed in (computed once per colour instead of per target)
+function deltaELabFrom(l1,lab2,hueWeight){
     const dL=l1.L-lab2.L,da=l1.a-lab2.a,db=l1.b-lab2.b;
     if(!hueWeight||hueWeight<=1) return Math.sqrt(dL*dL+da*da+db*db);
     return Math.sqrt(dL*dL + hueWeight*(da*da+db*db));
@@ -169,22 +175,28 @@ function expandPalette(palette,useLV,lStep,useSV,sStep){
 }
 
 // ─── Colour matching with cache ───────────────────────────────────────────────
+// v25: one cache per tolerance with a numeric key (r<<16|g<<8|b) instead of a string key per
+// call; Lab of the source colour once per colour. Result identical to v24.
 function makeMatcher(targets, hueWeight){
-    const cache=new Map();
+    const caches=new Map();
     function raw(r,g,b,tol){
         if(tol===-1){for(const t of targets) if(t.r===r&&t.g===g&&t.b===b) return t;return null;}
         const bestMatch=tol>=255;let bestDist=Infinity,best=null;
+        const l1=rgbToLab(r,g,b);
         for(const t of targets){
             if(!bestMatch&&(Math.abs(t.r-r)>tol||Math.abs(t.g-g)>tol||Math.abs(t.b-b)>tol))continue;
-            const dist=deltaELab(r,g,b,t.lab,hueWeight);
+            const dist=deltaELabFrom(l1,t.lab,hueWeight);
             if(dist<bestDist){bestDist=dist;best=t;}
         }
         return best?{...best,_dist:bestDist}:null;
     }
     return function findTarget(r,g,b,tol){
-        const key=r+','+g+','+b+'|'+tol;
-        if(cache.has(key))return cache.get(key);
-        const res=raw(r,g,b,tol);cache.set(key,res);return res;
+        let c=caches.get(tol);
+        if(!c){c=new Map();caches.set(tol,c);}
+        const key=(r<<16)|(g<<8)|b;
+        let res=c.get(key);
+        if(res===undefined){res=raw(r,g,b,tol);c.set(key,res);}
+        return res;
     };
 }
 
@@ -251,24 +263,7 @@ function leafCountOf(nodes){
     const out=[];for(const n of nodes)collectLeafNodes(n,out);return out.length;
 }
 
-// ─── Robust history rollback (v23) ────────────────────────────────────────────
-function rollbackToPosition(doc,pos){
-    try{
-        if(doc.history.position!==pos)doc.history.position=pos;
-    }catch(e){
-        console.log('History jump failed ('+e.message+') – falling back to step-wise undo.');
-    }
-    let guard=0;
-    while(doc.history.position>pos&&doc.history.canUndo&&guard<10000){
-        try{doc.history.undo();}catch(e){console.log('Undo error: '+e.message);break;}
-        guard++;
-    }
-    if(doc.history.position!==pos){
-        console.log('Warning: history rollback incomplete (position '+doc.history.position+' instead of '+pos+'; history depth exceeded?).');
-    }
-}
-
-// ─── Hatch and gradient snapshot and self-healing ─────────────────────────────
+// ─── Hatch and gradient snapshot and self-healing (safety net) ────────────────
 function rgbaObj(c){return c?{r:c.r,g:c.g,b:c.b,alpha:c.alpha}:null;}
 function sameRgba(a,b){
     if(!a&&!b)return true;
@@ -333,12 +328,12 @@ function verifyFills(doc,snap){
             fixedG++;
         }catch(e){console.log('Gradient check: '+e);}
     }
-    if(fixedH+fixedG>0)console.log('Self-heal: '+fixedH+' hatch fill(s) and '+fixedG+' gradient(s) restored manually to the original colours (the history rollback had not captured them).');
+    if(fixedH+fixedG>0)console.log('Self-heal: '+fixedH+' hatch fill(s) and '+fixedG+' gradient(s) restored manually to the original colours.');
     return fixedH+fixedG;
 }
 
-// ─── Replace bitmap (own history steps; few, large objects) ───────────────────
-function replaceRaster(doc,node,findTarget,tol,mappingLog){
+// ─── Replace bitmap (v25: command goes into the shared compound) ──────────────
+function addRasterCommand(builder,doc,node,findTarget,tol,mappingLog){
     try{
         const ri=node.rasterInterface;if(!ri)return 0;
         const w=ri.width,h=ri.height;if(w<=0||h<=0)return 0;
@@ -347,7 +342,7 @@ function replaceRaster(doc,node,findTarget,tol,mappingLog){
         else if(fmt===1){const a=new Uint16Array(buf.buffer);for(let i=0;i<a.length;i+=4){if(a[i+3]===0)continue;const t=findTarget(Math.round(a[i]/257),Math.round(a[i+1]/257),Math.round(a[i+2]/257),tol);if(t){a[i]=t.r*257;a[i+1]=t.g*257;a[i+2]=t.b*257;cnt++;}}}
         else if(fmt===9){const a=new Float32Array(buf.buffer);for(let i=0;i<a.length;i+=4){if(a[i+3]===0)continue;const t=findTarget(Math.round(Math.min(1,Math.max(0,a[i]))*255),Math.round(Math.min(1,Math.max(0,a[i+1]))*255),Math.round(Math.min(1,Math.max(0,a[i+2]))*255),tol);if(t){a[i]=t.r/255;a[i+1]=t.g/255;a[i+2]=t.b/255;cnt++;}}}
         if(cnt>0){const bm=ri.createCompatibleBitmap(false);buf.copyTo(bm,{x:0,y:0,width:w,height:h},0,0);
-            doc.executeCommand(DocumentCommand.createReplaceBitmap(Selection.create(doc,[node]),bm),false);
+            builder.addCommand(DocumentCommand.createReplaceBitmap(Selection.create(doc,[node]),bm));
             if(mappingLog)mappingLog.push({type:'bitmap',node:node.defaultDescription,pixelsChanged:cnt});}
         return cnt>0?1:0;
     }catch(e){console.log('raster:'+e);return 0;}
@@ -463,35 +458,30 @@ function addTextCommands(builder,node,findTarget,tol,mappingLog){
     return n;
 }
 
-// ─── Replace everything ───────────────────────────────────────────────────────
-function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWeight,
+// ─── Replace everything: returns ONE command (v25), does not execute it ───────
+function buildReplaceCommand(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWeight,
                     includeStroke,includeGradient,includeHatch,includeText,mappingLog){
-    if(!palette||!palette.length)return{count:0};
+    if(!palette||!palette.length)return{count:0,cmd:null};
     const targets=expandPalette(palette,useLV,lStep,useSV,sStep);
     const findTarget=makeMatcher(targets,hueWeight);
 
     const nodes=collectTargetNodes(doc,scope,selNodes);
+    const builder=CompoundCommandBuilder.create();
     let count=0;
 
-    for(const n of nodes){if(n.rasterInterface){count+=replaceRaster(doc,n,findTarget,tol,mappingLog);}}
+    for(const n of nodes){if(n.rasterInterface){count+=addRasterCommand(builder,doc,n,findTarget,tol,mappingLog);}}
 
-    const builder=CompoundCommandBuilder.create();
-    let batched=0;
     for(const n of nodes){
         if(isTextNode(n)){
-            if(includeText)batched+=addTextCommands(builder,n,findTarget,tol,mappingLog);
+            if(includeText)count+=addTextCommands(builder,n,findTarget,tol,mappingLog);
             continue;
         }
-        if(includeGradient)batched+=addGradientCommand(builder,doc,n,findTarget,tol,mappingLog);
-        if(includeHatch)batched+=addHatchCommand(builder,doc,n,findTarget,tol,mappingLog);
-        batched+=addSolidFillCommand(builder,doc,n,findTarget,tol,mappingLog);
-        if(includeStroke)batched+=addStrokeCommand(builder,doc,n,findTarget,tol,mappingLog);
+        if(includeGradient)count+=addGradientCommand(builder,doc,n,findTarget,tol,mappingLog);
+        if(includeHatch)count+=addHatchCommand(builder,doc,n,findTarget,tol,mappingLog);
+        count+=addSolidFillCommand(builder,doc,n,findTarget,tol,mappingLog);
+        if(includeStroke)count+=addStrokeCommand(builder,doc,n,findTarget,tol,mappingLog);
     }
-    if(batched>0){
-        doc.executeCommand(builder.createCommand());
-        count+=batched;
-    }
-    return{count};
+    return{count,cmd:count>0?builder.createCommand(false):null};
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -511,7 +501,6 @@ function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWei
     const preset=loadPreset();
 
     const selNodes=snapshotSelectionNodes(doc);
-    const posBeforePreview=doc.history.position;
     const fillSnap=snapshotFills(doc);
 
     const builtinNames=Object.keys(BUILTIN);
@@ -596,10 +585,22 @@ function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWei
         return idx===1?'selection':idx===2?'activeLayer':'all';
     }
 
-    function rollbackPreview(){
-        rollbackToPosition(doc,posBeforePreview);
-        verifyFills(doc,fillSnap);
+    // ─── Preview (v25) ────────────────────────────────────────────────────────
+    // Native preview, discarded via clearPreviews (history untouched). Fallback: real execution
+    // as ONE entry, discarded with exactly one undo. Then the safety net for gradients/hatches
+    // and the selection.
+    let pvMode=0;   // 0 = none, 1 = native, 2 = really executed
+    function discardPreview(){
+        const had=pvMode!==0;
+        if(pvMode===1){try{doc.clearPreviews();}catch(e){}}
+        else if(pvMode===2){try{doc.history.undo();}catch(e){}}
+        pvMode=0;
+        if(had)verifyFills(doc,fillSnap);
         restoreSelectionIfChanged(doc,selNodes);
+    }
+    function build(mappingLog){
+        return buildReplaceCommand(doc,getCurrentPalette(),cbL.value,edL.value,cbS.value,edS.value,currentTol(),currentScope(),selNodes,
+                                   currentHueWeight(),cbStroke.value,cbGradient.value,cbHatch.value,cbText.value,mappingLog);
     }
 
     function formatMappingSummary(log){
@@ -620,7 +621,7 @@ function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWei
     function updatePreview(){
         if(updateGuard)return;updateGuard=true;
         try{
-            rollbackPreview();
+            discardPreview();
 
             if(!swPrev.value){txStat.text='Preview off.';txMap.text='';return;}
             const pal=getCurrentPalette();
@@ -630,8 +631,11 @@ function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWei
 
             const tol=currentTol();
             const mappingLog=[];
-            const res=doReplace(doc,pal,cbL.value,edL.value,cbS.value,edS.value,tol,scope,selNodes,
-                                 currentHueWeight(),cbStroke.value,cbGradient.value,cbHatch.value,cbText.value,mappingLog);
+            const res=build(mappingLog);
+            if(res.cmd){
+                try{doc.executeCommand(res.cmd,true);pvMode=1;}
+                catch(e){const real=build(null).cmd;if(real){doc.executeCommand(real);pvMode=2;}}
+            }
             restoreSelectionIfChanged(doc,selNodes);
             lastMappingLog=mappingLog;
             const expanded=expandPalette(pal,cbL.value,edL.value,cbS.value,edS.value);
@@ -641,7 +645,7 @@ function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWei
                 :'Preview: no matches. '+expanded.length+' target colours.';
             txMap.text=formatMappingSummary(mappingLog);
         }catch(e){
-            rollbackPreview();
+            discardPreview();
             txStat.text='Error: '+e.message;txMap.text='';
         }
         finally{updateGuard=false;}
@@ -692,28 +696,26 @@ function doReplace(doc,palette,useLV,lStep,useSV,sStep,tol,scope,selNodes,hueWei
         }
     }
 
+    // v25: any preview is always discarded first; OK then applies afresh to the original colours.
+    discardPreview();
+
     if(result&&result.value===DialogResult.Ok.value){
-        rollbackPreview();
         const pal=getCurrentPalette();
         const scope=currentScope();
         if(!pal.length){app.alert('No palette selected.','Replace Colours');return;}
         if(scope==='selection'&&leafCountOf(selNodes)===0){
             app.alert('No objects selected.','Replace Colours');return;
         }
-        const tol=currentTol();
         const mappingLog=[];
         try{
-            const res=doReplace(doc,pal,cbL.value,edL.value,cbS.value,edS.value,tol,scope,selNodes,
-                                 currentHueWeight(),cbStroke.value,cbGradient.value,cbHatch.value,cbText.value,mappingLog);
+            const res=build(mappingLog);
+            if(res.cmd)doc.executeCommand(res.cmd);
             restoreSelectionIfChanged(doc,selNodes);
             lastMappingLog=mappingLog;
             applySettingsSideEffects();
             if(res.count===0)app.alert('No colours replaced.\nTip: check the tolerance mode or the palette.','Replace Colours');
         }catch(e){
-            rollbackPreview();
-            app.alert('Error while applying – document was restored.\n'+e.message,'Replace Colours');
+            app.alert('Error while applying – document unchanged.\n'+e.message,'Replace Colours');
         }
-    }else{
-        rollbackPreview();
     }
 })();

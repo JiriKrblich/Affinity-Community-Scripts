@@ -1,21 +1,26 @@
 // =====================================================================
-// Farbuebertragung / Colour Transfer  — v12
+// Farbuebertragung / Colour Transfer  — v13
 // Transfers colour (HSL) and alpha from a source onto the selected vector/text objects
 // (also inside groups) as a solid fill and/or stroke.
+// v13: performance and undo (result unchanged, compared live against v12):
+//      - All colour changes (fill, stroke, text) as ONE compound command = 1 history entry.
+//        v12 wrote every object separately (127 objects: 127–254 entries, 0.7–1.4 s; now 1 entry,
+//        ~40 ms).
+//      - Native preview (preview command + clearPreviews): the history is left untouched.
+//        Fallback if the native preview is not possible: real execution, discarded with exactly
+//        ONE undo. v12 reset the history position - with a full history (2048 entries) the
+//        preview then stayed and the next one was applied to already changed objects.
+//      - OK applies a real execution created with the same settings (same seed).
+// v12: tabs 2 and 3 merged: 3 tabs (Source & sampling / Channels, target & adjustments / Jitter).
+// v11: tabbed GUI; native OK = apply, Cancel/X/ESC = discard. Reproducible jitter via seed.
 // v10: correct transform composition (own + parent chain), source is rendered
 //      (object boundaries, gradients), source mode "Direct layer" / "Visible area".
-// v12: tabs 2 and 3 merged: 3 tabs (Source & sampling / Channels, target & adjustments / Jitter).
-// v11: GUI split into tabs (pages) like "Transform Objects v8": permanent left column with
-//      tab selection, preview and presets; two columns per page on the right.
-//      Preview/cancel via undo-history position (instead of writing the fills back manually),
-//      so text, strokes and gradients are restored exactly on cancel.
-//      Native OK = apply, Cancel/X/ESC = discard. Reproducible jitter via seed.
 // =====================================================================
 'use strict';
 const LANG = 'en';   // 'de' | 'en'
 
 const { Document } = require('/document');
-const { DocumentCommand } = require('/commands');
+const { DocumentCommand, CompoundCommandBuilder } = require('/commands');
 const { Selection } = require('/selections');
 const { Dialog, DialogResult } = require('/dialog');
 const { UnitType } = require('/units');
@@ -312,8 +317,8 @@ function readExistingHSLA(node) {
   try { return fdToHSLA(node.brushFillDescriptor) || { h: 0, s: 0, l: 0, a: 1 }; } catch (e) { return { h: 0, s: 0, l: 0, a: 1 }; }
 }
 
-// ---------------------------------------------------------------- Apply
-function applyOne(node, hsla, existing, p, u) {
+// ---------------------------------------------------------------- Compute colour (unchanged from v12)
+function computeFD(hsla, existing, p, u) {
   let { h, s, l, a } = hsla;
   if (p.hueJitter > 0) h += (u[0] * 2 - 1) * (p.hueJitter / 360);
   if (p.satJitter > 0) s += (u[1] * 2 - 1) * (p.satJitter / 100);
@@ -326,41 +331,55 @@ function applyOne(node, hsla, existing, p, u) {
   if (!p.chS) s = existing.s;
   if (!p.chL) l = existing.l;
   if (!p.chA) a = existing.a;
-  const fd = FillDescriptor.createSolid(Colour.createHSLAf({ h, s, l, alpha: a }));
-  if (isTextNode(node)) {
-    // Text: StoryDelta + formatText (applies uniformly to the whole text)
-    try {
-      if (p.applyFill)   doc.formatText(StoryDelta.createBrushFill(fd), node.selfSelection, false);
-      if (p.applyStroke) doc.formatText(StoryDelta.createPenFill(fd),   node.selfSelection, false);
-    } catch (e) {}
-  } else {
-    if (p.applyFill)   { try { node.brushFillDescriptor = fd; } catch (e) {} }
-    if (p.applyStroke) { try { node.penFillDescriptor   = fd; } catch (e) {} }
-  }
+  return FillDescriptor.createSolid(Colour.createHSLAf({ h, s, l, alpha: a }));
 }
-function transferColors(vectorNodes, sourceInfo, p) {
+// v13: all changes as ONE compound command (1 history entry). Text: StoryDelta via
+// createFormatText (applies uniformly to the whole text), otherwise SetBrushFill/SetPenFill.
+function buildTransferCommand(vectorNodes, sourceInfo, p) {
   prepareSource(p.sourceMode, vectorNodes, sourceInfo);
   const rng = mulberry32(p.seed | 0);
+  const cb = CompoundCommandBuilder.create();
+  let n = 0;
   for (const vn of vectorNodes) {
     const u = [rng(), rng(), rng()];                       // fixed number of random values per object
-    applyOne(vn, sampleHSLA(vn, p.samplePct), readExistingHSLA(vn), p, u);
+    const fd = computeFD(sampleHSLA(vn, p.samplePct), readExistingHSLA(vn), p, u);
+    try {
+      if (isTextNode(vn)) {
+        if (p.applyFill)   { cb.addCommand(DocumentCommand.createFormatText(vn.selfSelection, StoryDelta.createBrushFill(fd))); n++; }
+        if (p.applyStroke) { cb.addCommand(DocumentCommand.createFormatText(vn.selfSelection, StoryDelta.createPenFill(fd))); n++; }
+      } else {
+        const sel = Selection.create(doc, [vn]);
+        if (p.applyFill)   { cb.addCommand(DocumentCommand.createSetBrushFill(sel, fd)); n++; }
+        if (p.applyStroke) { cb.addCommand(DocumentCommand.createSetPenFill(sel, fd)); n++; }
+      }
+    } catch (e) {}
   }
-  restoreSelection();
+  return n > 0 ? cb.createCommand(false) : null;
 }
 
-// ---------------------------------------------------------------- Preview via undo history
-// All writes land in the undo history; resetting = setting the history position back.
-// This restores fills, strokes, gradients and text (also multi-coloured) exactly.
-let startPos = 0, previewOn = false, lastPreviewKey = null;
-function rollback() {
-  try { if (doc.history.position > startPos) doc.history.position = startPos; } catch (e) {}
-  try { let g = 0; while (doc.history.position > startPos && g++ < 100000) doc.history.undo(); } catch (e) {}
+// ---------------------------------------------------------------- Preview (v13)
+// Native preview: execute the command as a preview, discard via clearPreviews - the history is
+// left untouched. Fallback: real execution as ONE entry, discarded with exactly one undo
+// (independent of the history position, also with a full history).
+let pvMode = 0;            // 0 = no preview, 1 = native, 2 = really executed
+let lastPreviewKey = null;
+function discardPreview() {
+  if (pvMode === 1) { try { doc.clearPreviews(); } catch (e) {} }
+  else if (pvMode === 2) { try { doc.history.undo(); } catch (e) {} }
+  pvMode = 0; lastPreviewKey = null;
 }
 function showPreview(vectorNodes, sourceInfo, p) {
-  if (previewOn) rollback();
-  previewOn = true;
-  try { transferColors(vectorNodes, sourceInfo, p); lastPreviewKey = JSON.stringify(p); }
-  catch (e) { lastPreviewKey = null; console.log('Preview error: ' + e); }
+  discardPreview();
+  try {
+    const cmd = buildTransferCommand(vectorNodes, sourceInfo, p);
+    if (!cmd) return;
+    try { doc.executeCommand(cmd, true); pvMode = 1; }
+    catch (e) {
+      const real = buildTransferCommand(vectorNodes, sourceInfo, p);
+      if (real) { doc.executeCommand(real); pvMode = 2; }
+    }
+    lastPreviewKey = JSON.stringify(p);
+  } catch (e) { lastPreviewKey = null; console.log('Preview error: ' + e); }
 }
 
 // ---------------------------------------------------------------- Start: objects & source
@@ -500,7 +519,7 @@ try { rNav.setOnValueChangedHandler(() => { if (!isUpdating) showPage(rNav.selec
 cLive.setOnValueChangedHandler(() => {
   if (isUpdating) return;
   if (cLive.value) { try { runPreview(); } catch (e) { console.log(e); } }
-  else if (previewOn) { rollback(); previewOn = false; lastPreviewKey = null; restoreSelection(); }
+  else if (pvMode) { discardPreview(); restoreSelection(); }
 });
 bPrev.setOnClickHandler(() => { try { runPreview(); } catch (e) { console.log(e); } });
 bSeed.setOnClickHandler(() => {
@@ -529,7 +548,7 @@ bPSave.setOnClickHandler(() => {
     let base = nameIn.trim().replace(/[\\/:*?"<>|]/g, '_');
     if (base.toUpperCase().startsWith(PRESET_PREFIX)) base = base.substring(PRESET_PREFIX.length);
     const path = dir + '/' + PRESET_PREFIX + base + '.json';
-    const data = readParams(); data.script = 'Farbuebertragung'; data.version = 12;
+    const data = readParams(); data.script = 'Farbuebertragung'; data.version = 13;
     writeText(path, JSON.stringify(data, null, 2));
     app.alert(TXT.pSaved + path, TXT.title);
   } catch (e) { app.alert(TXT.pErrS + e.message, TXT.title); }
@@ -554,20 +573,20 @@ bPDel.setOnClickHandler(() => {
 });
 
 // ---------------------------------------------------------------- Run
-startPos = doc.history.position;
 const result = dlg.runModal();
 const ok = result && result.value === DialogResult.Ok.value;
 const finalParams = readParams();
 if (ok) {
   try {
-    // A preview with unchanged settings is simply kept, otherwise transfer afresh
-    if (!(previewOn && JSON.stringify(finalParams) === lastPreviewKey)) {
-      if (previewOn) rollback();
-      previewOn = false;
-      transferColors(vectorNodes, sourceInfo, finalParams);
+    // A really executed preview with unchanged settings is kept; a native preview is replaced
+    // by the real execution (same seed = same result).
+    if (!(pvMode === 2 && JSON.stringify(finalParams) === lastPreviewKey)) {
+      discardPreview();
+      const cmd = buildTransferCommand(vectorNodes, sourceInfo, finalParams);
+      if (cmd) doc.executeCommand(cmd);
     }
   } catch (e) { app.alert(TXT.errApply + e.message, TXT.title); }
-} else if (previewOn) {
-  rollback();
+} else {
+  discardPreview();
 }
 restoreSelection();

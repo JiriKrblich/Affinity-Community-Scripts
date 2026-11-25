@@ -1,16 +1,22 @@
 
 'use strict';
-// Indexed Colours v17
-// v17 (Affinity 3.3.3):
-//  * gradient.getStop(i).colour already returns a Colour object in 3.3.3;
-//    new Colour(s.colour) threw "expected ColourHandle". Consequences: gradient
-//    colours were silently NOT counted for the palette, and gradients were NOT
-//    remapped (both errors were swallowed). New helper toColour() in
-//    recordGradient() and remapGradientFD().
-//  * ASE export: File.create() instead of new File().
-//  Otherwise unchanged vs v16.
-// v16: ALL vector changes batched into ONE CompoundCommand (= one history step);
-//      robust rollback (falls back to step-wise history.undo() at position 0).
+// Indexed Colours v18.1
+// v18.1: OK always discards the preview and applies afresh from the original colours (v18 kept a
+//        really executed preview and then recomputed the palette from the already reduced
+//        document - wrong ASE export and message). Otherwise identical to v18.
+// v18 (result unchanged, compared live against v17):
+//  * ALL changes (bitmaps AND vectors/text) in ONE compound command = one history entry
+//    (v17: one entry per bitmap plus one for the vectors).
+//  * Preview is native (preview command + clearPreviews): the history is left untouched.
+//    Fallback if the native preview is not possible: real execution, discarded with exactly
+//    ONE undo. v17 reset the history position - with a full history (2048 entries) the preview
+//    stayed and the next one was applied on top of already reduced colours, also on cancel.
+//  * k-means++ seed fixed per session: preview and OK now give the SAME palette. v17 drew a
+//    new seed (Date.now) on every run, so OK computed a different palette than the preview.
+//  * Bitmaps without dithering: nearest palette colour cached per source colour (8/16 bit) -
+//    identical pixels, about 3x faster (1366x2048: 1.4 s -> 0.5 s).
+// v17 (Affinity 3.3.3): toColour() for gradient stops; ASE export via File.create().
+// v16: all vector changes batched into one compound command.
 // All earlier features retained (selection incl. group children, scope computed once,
 // selection restore only via snapshot, bitmap replace via layer.selfSelection, text
 // fill/outline, gradients, dithering, ASE export via Buffer, k-means++, adaptive
@@ -186,23 +192,6 @@ function restoreSelection(doc, selNodes) {
             doc.selection = Selection.create(doc, selNodes);
         }
     } catch(e) {}
-}
-
-// ─── Robust history rollback (v16) ────────────────────────────────────────────
-function rollbackToPosition(doc, pos) {
-    try {
-        if (doc.history.position !== pos) doc.history.position = pos;
-    } catch(e) {
-        console.log('History jump failed (' + e.message + ') – falling back to step-wise undo.');
-    }
-    let guard = 0;
-    while (doc.history.position > pos && doc.history.canUndo && guard < 10000) {
-        try { doc.history.undo(); } catch(e) { console.log('Undo error: ' + e.message); break; }
-        guard++;
-    }
-    if (doc.history.position !== pos) {
-        console.log('Warning: history rollback incomplete (position ' + doc.history.position + ' instead of ' + pos + ').');
-    }
 }
 
 // ─── Collect colours ──────────────────────────────────────────────────────────
@@ -393,7 +382,7 @@ function buildFinalPalette(computed, fmt) {
     return result;
 }
 
-// ─── Batch helpers (v16): add commands to ONE compound ────────────────────────
+// ─── Vector commands (added to the shared compound) ───────────────────────────
 function remapGradientFD(fd, palette) {
     const g = fd.fill.gradient;
     const newStops = []; let anyChange = false;
@@ -490,19 +479,11 @@ function addVectorCommands(builder, doc, layer, palette, fmt) {
     return n;
 }
 
-function applyToVectors(doc, layers, palette, fmt, skipHidden, skipLocked) {
-    const builder = CompoundCommandBuilder.create();
+// ─── Bitmap commands (optional Floyd-Steinberg dithering) ─────────────────────
+// v18: adds one ReplaceBitmap per changed bitmap to the shared compound (no execution here).
+// Without dithering the nearest palette colour is cached per source colour (identical result).
+function addBitmapCommands(builder, doc, layers, palette, dither, skipHidden, skipLocked) {
     let n = 0;
-    for (const layer of layers) {
-        if (!layerPass(layer, skipHidden, skipLocked)) continue;
-        n += addVectorCommands(builder, doc, layer, palette, fmt);
-    }
-    if (n > 0) doc.executeCommand(builder.createCommand());
-    return n;
-}
-
-// ─── Apply to bitmaps (optional Floyd-Steinberg dithering) ────────────────────
-function applyToBitmaps(doc, layers, palette, dither, skipHidden, skipLocked) {
     for (const layer of layers) {
         if (!layerPass(layer, skipHidden, skipLocked)) continue;
         try {
@@ -514,9 +495,9 @@ function applyToBitmaps(doc, layers, palette, dither, skipHidden, skipLocked) {
             const buf  = ri.createCompatibleBuffer(true);
             let changed = false;
 
-            let getF, setF;
+            let getF, setF, arr8 = null, arr16 = null;
             if (rfmt === 1) {
-                const arr = new Uint16Array(buf.buffer);
+                const arr = arr16 = new Uint16Array(buf.buffer);
                 getF = (x,y) => { const i=(y*W+x)*4; if(arr[i+3]<6554)return null; return[arr[i]/65535,arr[i+1]/65535,arr[i+2]/65535]; };
                 setF = (x,y,r,g,b) => { const i=(y*W+x)*4; const nr=Math.round(r*65535),ng=Math.round(g*65535),nb=Math.round(b*65535); if(arr[i]!==nr||arr[i+1]!==ng||arr[i+2]!==nb){arr[i]=nr;arr[i+1]=ng;arr[i+2]=nb;changed=true;} };
             } else if (rfmt === 9) {
@@ -526,7 +507,7 @@ function applyToBitmaps(doc, layers, palette, dither, skipHidden, skipLocked) {
                 getF = (x,y) => { const i=(y*W+x)*4; if(arr[i+3]<0.1)return null; return[gam(arr[i]),gam(arr[i+1]),gam(arr[i+2])]; };
                 setF = (x,y,r,g,b) => { const i=(y*W+x)*4; const nr=lin(r),ng=lin(g),nb=lin(b); if(Math.abs(arr[i]-nr)>0.001||Math.abs(arr[i+1]-ng)>0.001||Math.abs(arr[i+2]-nb)>0.001){arr[i]=nr;arr[i+1]=ng;arr[i+2]=nb;changed=true;} };
             } else {
-                const arr = new Uint8Array(buf.buffer);
+                const arr = arr8 = new Uint8Array(buf.buffer);
                 getF = (x,y) => { const i=(y*W+x)*4; if(arr[i+3]<25)return null; return[arr[i]/255,arr[i+1]/255,arr[i+2]/255]; };
                 setF = (x,y,r,g,b) => { const i=(y*W+x)*4; const nr=Math.round(r*255),ng=Math.round(g*255),nb=Math.round(b*255); if(arr[i]!==nr||arr[i+1]!==ng||arr[i+2]!==nb){arr[i]=nr;arr[i+1]=ng;arr[i+2]=nb;changed=true;} };
             }
@@ -552,6 +533,22 @@ function applyToBitmaps(doc, layers, palette, dither, skipHidden, skipLocked) {
                         addErr(x,y+1,5/16); addErr(x+1,y+1,1/16);
                     }
                 }
+            } else if (arr8 || arr16) {
+                // v18: cache per source colour - identical to the per-pixel path, far fewer nearest() calls
+                const arr = arr8 || arr16, maxV = arr8 ? 255 : 65535, aMin = arr8 ? 25 : 6554;
+                const cache = new Map();
+                const N = W * H * 4;
+                for (let i = 0; i < N; i += 4) {
+                    if (arr[i+3] < aMin) continue;
+                    const key = arr8 ? ((arr[i]<<16)|(arr[i+1]<<8)|arr[i+2]) : (arr[i]*4294967296 + arr[i+1]*65536 + arr[i+2]);
+                    let q = cache.get(key);
+                    if (q === undefined) {
+                        const p = nearest(rgbToHsl(arr[i]/maxV, arr[i+1]/maxV, arr[i+2]/maxV), palette);
+                        q = [Math.round(p.native.r/255*maxV), Math.round(p.native.g/255*maxV), Math.round(p.native.b/255*maxV)];
+                        cache.set(key, q);
+                    }
+                    if (arr[i]!==q[0]||arr[i+1]!==q[1]||arr[i+2]!==q[2]) { arr[i]=q[0]; arr[i+1]=q[1]; arr[i+2]=q[2]; changed=true; }
+                }
             } else {
                 for (let y=0; y<H; y++) {
                     for (let x=0; x<W; x++) {
@@ -565,13 +562,12 @@ function applyToBitmaps(doc, layers, palette, dither, skipHidden, skipLocked) {
             if (changed) {
                 const bm = ri.createCompatibleBitmap(false);
                 buf.copyTo(bm, {x:0,y:0,width:W,height:H}, 0, 0);
-                doc.executeCommand(DocumentCommand.createReplaceBitmap(layer.selfSelection, bm));
-                console.log('Bitmap updated: '+(layer.userDescription||layer.defaultDescription||'?'));
-            } else {
-                console.log('Bitmap unchanged: '+(layer.userDescription||layer.defaultDescription||'?'));
+                builder.addCommand(DocumentCommand.createReplaceBitmap(layer.selfSelection, bm));
+                n++;
             }
         } catch(e) { console.log('Bitmap error: '+e.message); }
     }
+    return n;
 }
 
 // ─── ASE export (Affinity Buffer + explicit length) ───────────────────────────
@@ -620,7 +616,7 @@ function saveAse(palette, fmt) {
 }
 
 // ─── Core ─────────────────────────────────────────────────────────────────────
-function buildPalette(layers, fmt, userCount, useKMeans, weightMode, skipHidden, skipLocked) {
+function buildPalette(layers, fmt, userCount, useKMeans, weightMode, skipHidden, skipLocked, seed) {
     const vectorMap = collectVectorColours(layers, fmt, weightMode, skipHidden, skipLocked);
     const bitmapMap = collectBitmapColours(layers, weightMode, skipHidden, skipLocked);
     const merged    = mergeMaps(vectorMap, bitmapMap);
@@ -634,15 +630,21 @@ function buildPalette(layers, fmt, userCount, useKMeans, weightMode, skipHidden,
     let computed = [];
     if (userCount > 0 && entries.length > 0) {
         computed = useKMeans
-            ? kMeansPP(entries, userCount, 30, Date.now() & 0xFFFFFF)
+            ? kMeansPP(entries, userCount, 30, seed)    // v18: session seed (preview = OK)
             : weightTop(entries, userCount);
     }
     return { palette: buildFinalPalette(computed, fmt), totalUnique, totalTarget };
 }
 
-function applyAll(doc, layers, palette, fmt, dither, skipHidden, skipLocked) {
-    applyToBitmaps(doc, layers, palette, dither, skipHidden, skipLocked);
-    applyToVectors(doc, layers, palette, fmt, skipHidden, skipLocked);
+// v18: everything (bitmaps first, then vectors/text, as in v17) in ONE compound command
+function buildApplyCommand(doc, layers, palette, fmt, dither, skipHidden, skipLocked) {
+    const builder = CompoundCommandBuilder.create();
+    let n = addBitmapCommands(builder, doc, layers, palette, dither, skipHidden, skipLocked);
+    for (const layer of layers) {
+        if (!layerPass(layer, skipHidden, skipLocked)) continue;
+        n += addVectorCommands(builder, doc, layer, palette, fmt);
+    }
+    return n > 0 ? builder.createCommand(false) : null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -658,6 +660,7 @@ if (!doc) {
 
     const originalSelNodes = snapshotSelectionNodes(doc);
     const scopeNodes       = buildScopeNodes(doc, originalSelNodes);
+    const SESSION_SEED     = (Date.now() & 0xFFFFFF) || 1;   // v18: one seed per session
 
     function getTargetLayers(selectionOnly) {
         return selectionOnly ? scopeNodes : Array.from(doc.layers.all);
@@ -699,7 +702,6 @@ if (!doc) {
     const grpStatus = col2.addGroup('Preview');
     const txStatus  = grpStatus.addStaticText('', 'Ready');
 
-    const posBeforePreview = doc.history.position;
     let isRunning  = false;
 
     function getCurrentSettings() {
@@ -714,39 +716,54 @@ if (!doc) {
         };
     }
 
-    function rollbackPreview() {
-        rollbackToPosition(doc, posBeforePreview);
+    // ─── Preview (v18) ────────────────────────────────────────────────────────
+    // Native preview: command executed as a preview, discarded via clearPreviews - the history
+    // is left untouched. Fallback: real execution as ONE entry, discarded with exactly one undo.
+    let pvMode = 0;            // 0 = none, 1 = native, 2 = really executed
+    function discardPreview() {
+        if (pvMode === 1) { try { doc.clearPreviews(); } catch(e) {} }
+        else if (pvMode === 2) { try { doc.history.undo(); } catch(e) {} }
+        pvMode = 0;
         restoreSelection(doc, originalSelNodes);
+    }
+    // Always computed from the ORIGINAL colours (any preview is discarded before).
+    function computeCommand(s) {
+        const layers = getTargetLayers(s.selectionOnly);
+        const res = buildPalette(layers, docFmt, s.userCount, s.useKMeans, s.weightMode, s.skipHidden, s.skipLocked, SESSION_SEED);
+        res.layers = layers;
+        res.cmd = res.palette ? buildApplyCommand(doc, layers, res.palette, docFmt, s.dither, s.skipHidden, s.skipLocked) : null;
+        return res;
     }
 
     function runPreview() {
         if (isRunning) return;
         isRunning = true;
         try {
-            rollbackPreview();
+            discardPreview();
 
             const s = getCurrentSettings();
             if (s.selectionOnly && scopeNodes.length === 0) {
                 txStatus.setText('Nothing selected.');
                 return;
             }
-            const layers = getTargetLayers(s.selectionOnly);
-
-            const { palette, totalUnique, totalTarget } = buildPalette(
-                layers, docFmt, s.userCount, s.useKMeans, s.weightMode, s.skipHidden, s.skipLocked);
+            const { palette, totalUnique, totalTarget, cmd } = computeCommand(s);
 
             if (!palette) {
                 if (totalUnique === 0) txStatus.setText('No colours found.');
                 else txStatus.setText('Already ≤ '+totalTarget+' colours ('+totalUnique+').');
                 return;
             }
+            if (!cmd) { txStatus.setText('Palette: '+palette.length+' colours – nothing to change.'); return; }
 
-            txStatus.setText('Applying '+palette.length+' colours…');
-            applyAll(doc, layers, palette, docFmt, s.dither, s.skipHidden, s.skipLocked);
+            try { doc.executeCommand(cmd, true); pvMode = 1; }
+            catch(e) {
+                const real = computeCommand(s).cmd;
+                if (real) { doc.executeCommand(real); pvMode = 2; }
+            }
             restoreSelection(doc, originalSelNodes);
             txStatus.setText('Preview: '+palette.length+' colours ('+totalUnique+'→'+totalTarget+')');
         } catch(e) {
-            rollbackPreview();
+            discardPreview();
             txStatus.setText('Error: '+e.message);
             console.log('Preview error: '+e.message);
         } finally {
@@ -759,35 +776,33 @@ if (!doc) {
     const result = dlg.runModal();
     const ok = result && result.value === DialogResult.Ok.value;
 
+    // v18.1: any preview is discarded first; OK then applies afresh from the original colours -
+    // same session seed, so the palette matches the preview.
+    discardPreview();
+
     if (!ok) {
-        rollbackPreview();
         console.log('Cancelled – no changes made.');
     } else {
         const s = getCurrentSettings();
         const doAse = chkAse.value;
-        rollbackPreview();
 
         if (s.selectionOnly && scopeNodes.length === 0) {
             console.log('Nothing selected – no changes made.');
         } else {
             try {
-                const layers = getTargetLayers(s.selectionOnly);
-                const { palette, totalUnique, totalTarget } = buildPalette(
-                    layers, docFmt, s.userCount, s.useKMeans, s.weightMode, s.skipHidden, s.skipLocked);
-
+                const { palette, totalUnique, totalTarget, cmd, layers } = computeCommand(s);
                 if (!palette) {
                     if (totalUnique === 0) console.log('No colours found.');
                     else console.log('Already '+totalUnique+' colours ≤ target '+totalTarget+'. Nothing to do.');
                 } else {
-                    applyAll(doc, layers, palette, docFmt, s.dither, s.skipHidden, s.skipLocked);
+                    if (cmd) doc.executeCommand(cmd);
                     restoreSelection(doc, originalSelNodes);
                     if (doAse) saveAse(palette, docFmt);
                     console.log('Done. Palette: '+palette.length+' colours'+
                                 (s.selectionOnly ? ' ('+layers.length+' nodes in selection scope).' : '.'));
                 }
             } catch(e) {
-                rollbackPreview();
-                console.log('Apply failed – document restored. ' + e.message);
+                console.log('Apply failed – no changes made. ' + e.message);
             }
         }
     }
