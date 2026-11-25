@@ -65,12 +65,12 @@
     {
       "id": "generatecropmarks",
       "name": "Generate Crop Marks",
-      "description": "Generates crop/cut marks for selected objects and Data Merge Layout grids. For DML nodes always asks the user for rows/columns via dialog. Adds L-shaped corner marks and internal grid ticks to a locked Production Marks layer.",
+      "description": "Generates crop/cut marks for selected objects and Data Merge Layout grids, including selections inside a layout. Prompts for grid dimensions and adds corner marks and internal grid ticks to a locked Production Marks layer. Updated for Affinity 3.3.",
       "author": "sakura",
-      "contributors": "pgraficzny",
-      "version": "2.0",
+      "contributors": "prograficzny",
+      "version": "3.0",
       "category": "Print",
-      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/generatecropmarks.jpg",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/generatecropmarks.png",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/generatecropmarks.js"
     },
     {
