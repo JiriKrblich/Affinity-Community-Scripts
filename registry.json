@@ -2027,6 +2027,17 @@
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/contact-sheet.jpg",
       "url": "https://senyilabs.com",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/contact-sheet.js"
+    },
+    {
+      "id": "isbn-13-barcode-generator",
+      "name": "ISBN-13 Barcode Generator",
+      "description": "Creates a vector EAN-13 barcode with an ISBN heading, editable digits in Menlo, and a white background with 2 mm padding. Accepts 12 digits to calculate the check digit or validates 13 digits, preserving input separators in the heading. Includes module width, bar height, digit size, and position controls. Uses CMYK black and can create an A4 CMYK document when none is open. English dialog.",
+      "author": "Lucian Cmorej",
+      "email": "kontakt@abcstudio.sk",
+      "version": "1.0",
+      "category": "Print",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/isbn-13-barcode-generator.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/isbn-13-barcode-generator.js"
     }
   ]
 }
