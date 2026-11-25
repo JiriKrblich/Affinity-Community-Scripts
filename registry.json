@@ -67,7 +67,7 @@
       "name": "Generate Crop Marks",
       "description": "Generates crop/cut marks for selected objects and Data Merge Layout grids, including selections inside a layout. Prompts for grid dimensions and adds corner marks and internal grid ticks to a locked Production Marks layer. Updated for Affinity 3.3.",
       "author": "sakura",
-      "contributors": "prograficzny",
+      "contributors": "pgraficzny, prograficzny",
       "version": "3.0",
       "category": "Print",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/generatecropmarks.png",
