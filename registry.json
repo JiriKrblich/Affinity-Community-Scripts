@@ -1994,6 +1994,39 @@
       "category": "Effect",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/dive-objects.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/dive-objects.js"
+    },
+    {
+      "id": "senyilabs-photo-palette",
+      "name": "Photo Palette",
+      "description": "Extracts 2–12 main colours from a selected RGBA8 pixel layer and places swatches with optional hex codes along its bottom edge in a Palette group. Swatch widths can reflect each colour’s share of the photo.",
+      "version": "1.0.0",
+      "author": "Senyi Labs",
+      "category": "Color",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/photo-palette.jpg",
+      "url": "https://senyilabs.com",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/photo-palette.js"
+    },
+    {
+      "id": "senyilabs-watermark",
+      "name": "Watermark",
+      "description": "Adds a text watermark (corner, centre or repeated across the photo) to this document or every open one.",
+      "version": "1.0.0",
+      "author": "Senyi Labs",
+      "category": "Export",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/watermark.jpg",
+      "url": "https://senyilabs.com",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/watermark.js"
+    },
+    {
+      "id": "senyilabs-contact-sheet",
+      "name": "Contact Sheet",
+      "description": "Arranges up to 120 photos from a selected folder in a new document as a naturally sorted grid, with optional file-name captions. Includes adjustable columns and image downsampling for proof sheets and printing.",
+      "version": "1.0.0",
+      "author": "Senyi Labs",
+      "category": "Print",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/contact-sheet.jpg",
+      "url": "https://senyilabs.com",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/contact-sheet.js"
     }
   ]
 }
