@@ -1,6 +1,6 @@
 {
   "repository": "Affinity Community Scripts",
-  "last_updated": "2026-11-13",
+  "last_updated": "2026-11-25",
   "scripts": [
     {
       "id": "markdown_import_to_text_frame",
@@ -1961,6 +1961,17 @@
       "category": "Text",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/summary-of-stock-images.jpg",
       "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/summary-of-stock-images.js"
+    },
+    {
+      "id": "ean-13-generator",
+      "name": "EAN-13 Generator",
+      "description": "Generates an editable vector EAN-13 barcode in a CMYK/8 document. Accepts 12 digits and calculates the check digit, or validates a complete 13-digit code. Creates bars, outlined digits, and a quiet-zone indicator in 100% K, with optional white background and 1 mm margin. Includes live preview, adjustable X-dimension and bar width reduction (BWR). Dialog text is Polish. Check PDF separations and verify a printed proof before production.",
+      "author": "brandova.pl",
+      "email": "studio@brandova.pl",
+      "version": "1.0",
+      "category": "Print",
+      "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/ean-13-generator.png",
+      "download_url": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/scripts/ean-13-generator.js"
     }
   ]
 }
