@@ -20,7 +20,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 /**
  * name: Watermark
  * description: Adds a text watermark (corner, centre or repeated across the photo) to this document or every open one.
- * version: 1.0.0
+ * version: 1.2.1
  * author: Senyi Labs
  */
 'use strict';
@@ -48,15 +48,33 @@ function tiles(page, text, gap = 1.5) {
   return out;
 }
 
-// The Affinity side of Watermark. tools/build.mjs puts src/watermark.js in front of this file, so place() and tiles()
-// are in scope. Adds the text, in a group named Watermark at the top of the layers, to this document or to every open
-// one; the group can be moved, edited or deleted like any other.
+// Only the spots where a copy turned by `angle` (radians) fits completely on the page, so no copy is cut off at the
+// edges.
+function whole(spots, page, text, angle) {
+  const c = Math.abs(Math.cos(angle)), s = Math.abs(Math.sin(angle));
+  const ex = (text.width * c + text.height * s) / 2, ey = (text.width * s + text.height * c) / 2;
+  return spots.filter((p) => p.x - ex >= 0 && p.y - ey >= 0 && p.x + ex <= page.width && p.y + ey <= page.height);
+}
+
+// The watermark text for one photo: {file} becomes the photo's file name without its extension (the number the
+// camera gave it, e.g. DSC_1234), so each photo in a batch gets its own. (file) and [file] work too, since curly
+// brackets are easy to mistake for round ones in the dialog.
+function fillIn(text, title) {
+  const stem = String(title || '').split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
+  return String(text).replace(/[{([]file[})\]]/gi, stem);
+}
+
+// The Affinity side of Watermark. tools/build.mjs puts src/watermark.js in front of this file, so place(), tiles(),
+// whole() and fillIn() are in scope. Adds the text to this document or to every open one, inside an invisible
+// page-sized frame named Watermark at the top of the layers: the frame clips repeated copies at the edges of the
+// photo, and it can be moved, edited or deleted like any other layer.
 
 const { Document, SpatialAnchor } = require('/document.js');
 const { Dialog, DialogResult } = require('/dialog.js');
 const { AddChildNodesCommandBuilder, CompoundCommandBuilder, DocumentCommand } = require('/commands.js');
-const { Transform } = require('/geometry.js');
-const { ContainerNodeDefinition, ArtTextNodeDefinition } = require('/nodes.js');
+const { ShapeNodeDefinition, ArtTextNodeDefinition } = require('/nodes.js');
+const { ShapeRectangle } = require('/shapes.js');
+const { Rectangle, Transform } = require('/geometry.js');
 const { StoryBuilder } = require('/storybuilder.js');
 const { GlyphAtts } = require('/glyphatts.js');
 const { FillDescriptor, SolidFill } = require('/fills.js');
@@ -83,15 +101,20 @@ function watermark(doc, o) {
   const page = { width: doc.widthPixels, height: doc.heightPixels };
   const size = page.width * o.size;
 
+  // An unfilled rectangle the size of the page: whatever is inside it is clipped to it.
+  const frame = ShapeNodeDefinition.createDefault();
+  frame.shape = ShapeRectangle.create();
+  frame.setBoundingRectangle(new Rectangle(0, 0, page.width, page.height));
   const add = AddChildNodesCommandBuilder.create();
-  add.addNode(ContainerNodeDefinition.create(TITLE));
+  add.addNode(frame);
   const made = add.createCommand(false);
   doc.executeCommand(made);
   const group = made.newNodes[0];
+  group.userDescription = TITLE;
 
   const inner = AddChildNodesCommandBuilder.create();
   inner.setInsertionTarget(group);
-  inner.addNode(textDefinition(doc, o.text, size, o.colour, o.font));
+  inner.addNode(textDefinition(doc, fillIn(o.text, doc.title), size, o.colour, o.font));
   const typed = inner.createCommand(false);
   doc.executeCommand(typed);
   const node = typed.newNodes[0];
@@ -103,13 +126,15 @@ function watermark(doc, o) {
   } else {
     // Copies at an angle across the page; the first one is moved to the first spot instead of copied.
     const centre = Transform.createTranslate(-(box.x + box.width / 2), -(box.y + box.height / 2));
-    const spots = tiles(page, box);
-    const all = CompoundCommandBuilder.create();
+    const all = tiles(page, box);
+    const spots = o.wholeOnly ? whole(all, page, box, Math.PI / 6) : all;
+    if (!spots.length) spots.push({ x: page.width / 2, y: page.height / 2 });
+    const moves = CompoundCommandBuilder.create();
     spots.forEach((c, i) => {
       const xf = Transform.createTranslate(c.x, c.y).multiply(Transform.createRotate(-Math.PI / 6)).multiply(centre);
-      all.addCommand(DocumentCommand.createTransform(Selection.create(doc, node), xf, { duplicateNodes: i < spots.length - 1 }));
+      moves.addCommand(DocumentCommand.createTransform(Selection.create(doc, node), xf, { duplicateNodes: i < spots.length - 1 }));
     });
-    doc.executeCommand(all.createCommand());
+    doc.executeCommand(moves.createCommand());
   }
   doc.executeCommand(DocumentCommand.createSetOpacity(Selection.create(doc, group), o.opacity));
   return group;
@@ -124,6 +149,7 @@ function main() {
   const col = dlg.addColumn();
   const g = col.addGroup('Text');
   const text = g.addTextBox('Text', '© Your Name');
+  g.addStaticText('', 'Type {file} to add each photo\'s file name, e.g. the camera\'s photo number.');
   const font = g.addFontPicker('Font');
   const colour = g.addColourPicker('Colour', Colour.createRGBA8({ r: 255, g: 255, b: 255, alpha: 255 }));
   const size = g.addUnitValueEditor('Size (of the photo width)', UnitType.Percentage, UnitType.Percentage, 4, 1, 30).setPrecision(1);
@@ -131,6 +157,7 @@ function main() {
   const p = col.addGroup('Placement');
   const anchor = p.addSpatialAnchor('Position', SpatialAnchor.BottomRight);
   const repeat = p.addSwitch('Repeat across the whole photo', false);
+  const wholeOnly = p.addSwitch('When repeating, only whole copies (none cut off at the edges)', true);
   const scope = p.addComboBox('Add to', ['This document', `All open documents (${others + 1})`], 0);
   if (dlg.runModal() !== DialogResult.Ok) return;
 
@@ -138,7 +165,7 @@ function main() {
   if (!words) return alert('Type the watermark text.');
   const options = {
     text: words, font: font.font, colour: colour.value, size: pct(size.value), opacity: pct(opacity.value),
-    anchor: anchor.value?.value ?? anchor.value, repeat: repeat.value,
+    anchor: anchor.value?.value ?? anchor.value, repeat: repeat.value, wholeOnly: wholeOnly.value,
   };
   const docs = scope.selectedIndex === 1 ? [...Document.all] : [current];
   for (const doc of docs) watermark(doc, options);

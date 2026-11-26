@@ -2009,8 +2009,8 @@
     {
       "id": "senyilabs-watermark",
       "name": "Watermark",
-      "description": "Adds a text watermark (corner, centre or repeated across the photo) to this document or every open one.",
-      "version": "1.0.0",
+      "description": "Adds a text watermark to this document or all open documents, in a corner, the centre, or repeated across the photo. Supports font, colour, size and opacity controls, file-name placeholders ({file}, (file), [file]), clipping to the photo, and an option to place only whole repeated copies.",
+      "version": "1.2.1",
       "author": "Senyi Labs",
       "category": "Export",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/watermark.jpg",
@@ -2020,8 +2020,8 @@
     {
       "id": "senyilabs-contact-sheet",
       "name": "Contact Sheet",
-      "description": "Arranges up to 120 photos from a selected folder in a new document as a naturally sorted grid, with optional file-name captions. Includes adjustable columns and image downsampling for proof sheets and printing.",
-      "version": "1.0.0",
+      "description": "Arranges up to 400 photos, Affinity documents, and camera RAW files from a folder into a naturally sorted, multi-page contact sheet. Includes optional file-name captions, adjustable columns, image downsampling, RAW/JPEG pair deduplication, and folder-access error guidance.",
+      "version": "1.2.0",
       "author": "Senyi Labs",
       "category": "Print",
       "image": "https://raw.githubusercontent.com/JiriKrblich/Affinity-Community-Scripts/main/previews/contact-sheet.jpg",
